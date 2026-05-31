@@ -174,4 +174,10 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"[ventas_enriched] No se pudo registrar en motor_runs: {e}")
 
+    try:
+        from services.snapshot_refresh_service import handle_ingestion_event
+        handle_ingestion_event("ventas_enriched", dist_id)
+    except Exception as e_snap:
+        logger.warning(f"[ventas_enriched] snapshot invalidate omitido: {e_snap}")
+
     return {"ok": True, "rows": len(rows), "upserted": upserted, "actualizados": actualizados, "dist_id": dist_id}

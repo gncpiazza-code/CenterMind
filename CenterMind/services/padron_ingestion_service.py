@@ -384,6 +384,12 @@ class PadronIngestionService:
                 on_padron_run_finished(dist_id, run_id, estado, registros, error_msg)
             except Exception as e_ops:
                 logger.debug("[Padrón] notify ops omitido: %s", e_ops)
+        if estado == "ok" and dist_id is not None:
+            try:
+                from services.snapshot_refresh_service import handle_ingestion_event
+                handle_ingestion_event("padron", dist_id)
+            except Exception as e_snap:
+                logger.debug("[Padrón] snapshot invalidate omitido: %s", e_snap)
 
     def record_sin_cambios_run(self, dist_id: int, source: str = "rpa_hash_guard") -> int:
         """

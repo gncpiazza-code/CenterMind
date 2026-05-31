@@ -1,0 +1,264 @@
+# -*- coding: utf-8 -*-
+"""
+Snapshot service for dashboard bundle.
+
+Clave de optimización: KPIs + ranking comparten UN SOLO fetch de exhibiciones
+en lugar de dos como hace el router legacy.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone, timedelta
+from typing import Any
+
+from db import sb
+
+logger = logging.getLogger("snapshot_dashboard_service")
+
+DASHBOARD_MAX_STALE_SECONDS = 300  # 5 min
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def get_or_refresh_dashboard(
+    dist_id: int,
+    periodo: str,
+    sucursal_id: str | None,
+    hide_qa: bool = False,
+) -> dict:
+    snap = _read_dashboard_snapshot(dist_id, periodo, sucursal_id)
+    if snap is not None and _is_fresh(snap["generated_at"], DASHBOARD_MAX_STALE_SECONDS):
+        payload = snap["payload"]
+        payload.setdefault("meta", {})["cache_hit"] = True
+        return payload
+    payload = _compute_dashboard(dist_id, periodo, sucursal_id, hide_qa)
+    payload.setdefault("meta", {})["cache_hit"] = False
+    _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
+    return payload
+
+
+def mark_dashboard_stale(dist_id: int, periodo: str | None = None) -> None:
+    """Invalida snapshots del distribuidor (o todos los períodos si periodo es None)."""
+    try:
+        epoch = "1970-01-01T00:00:00+00:00"
+        q = (
+            sb.table("portal_snapshot_dashboard")
+            .update({"generated_at": epoch})
+            .eq("id_distribuidor", dist_id)
+        )
+        if periodo:
+            q = q.eq("periodo", periodo)
+        q.execute()
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] mark_stale dist={dist_id}: {e}")
+
+
+# ── Compute ───────────────────────────────────────────────────────────────────
+
+def _compute_dashboard(
+    dist_id: int,
+    periodo: str,
+    sucursal_id: str | None,
+    hide_qa: bool,
+) -> dict:
+    from routers.reportes import (
+        _resolve_period_bounds,
+        _fetch_exhibiciones_periodo,
+        _allowed_integrantes_for_sucursal,
+        _resolve_sucursal_pk,
+        _enrich_por_sucursal_rows,
+    )
+    from core.exhibicion_aggregate import (
+        aggregate_kpi_totals,
+        aggregate_ranking_by_vendor,
+        count_active_vendors,
+    )
+    from core.helpers import build_integrante_to_erp_name, is_exhibicion_qa_display_for_dist
+
+    start_iso, end_iso = _resolve_period_bounds(periodo)
+    suc_pk = _resolve_sucursal_pk(dist_id, sucursal_id)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(dist_id, suc_pk)
+
+    # SINGLE fetch — clave del bundle: kpis y ranking usan los mismos datos
+    ex_rows = _fetch_exhibiciones_periodo(dist_id, start_iso, end_iso)
+    iid_to_erp = build_integrante_to_erp_name(dist_id)
+
+    filtered: list[dict] = []
+    for ex in ex_rows:
+        iid_raw = ex.get("id_integrante")
+        if iid_raw is None:
+            continue
+        try:
+            iid_i = int(iid_raw)
+        except (TypeError, ValueError):
+            continue
+        if allowed_integrantes is not None and iid_i not in allowed_integrantes:
+            continue
+        if hide_qa:
+            vendedor = iid_to_erp.get(iid_i, "")
+            if is_exhibicion_qa_display_for_dist(dist_id, vendedor):
+                continue
+        filtered.append(ex)
+
+    # KPIs + ranking desde el mismo conjunto filtrado
+    kpi_totals = aggregate_kpi_totals(filtered)
+    vendedores_activos = count_active_vendors(filtered, iid_to_erp)
+    total_logicas = kpi_totals.get("total", 0)
+    exhibiciones_por_vendedor = (
+        round(total_logicas / vendedores_activos, 1) if vendedores_activos > 0 else 0.0
+    )
+    kpis = {
+        **kpi_totals,
+        "vendedores_activos": vendedores_activos,
+        "exhibiciones_por_vendedor": exhibiciones_por_vendedor,
+    }
+
+    ranking = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+
+    # Ultimas: query simple (top 8 más recientes no rechazadas)
+    ultimas = _fetch_ultimas_simple(dist_id, suc_pk)
+
+    # Sucursales + evolución via RPC
+    sucursales = _fetch_sucursales(dist_id, periodo, _enrich_por_sucursal_rows)
+    evolucion = _fetch_evolucion(dist_id, periodo, suc_pk)
+
+    return {
+        "meta": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "periodo": periodo,
+            "sucursal_id": sucursal_id,
+            "dist_id": dist_id,
+        },
+        "kpis": kpis,
+        "ranking": ranking,
+        "ultimas": ultimas,
+        "sucursales": sucursales,
+        "evolucion": evolucion,
+    }
+
+
+def _fetch_ultimas_simple(dist_id: int, suc_pk: int | None, n: int = 8) -> list[dict]:
+    try:
+        q = (
+            sb.table("exhibiciones")
+            .select(
+                "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,"
+                "id_cliente_pdv,id_cliente,cliente_sombra_codigo,telegram_chat_id"
+            )
+            .eq("id_distribuidor", dist_id)
+            .neq("estado", "Rechazado")
+            .order("timestamp_subida", desc=True)
+            .limit(n * 3)  # sobremargen para filtrado adicional si se añade
+        )
+        rows = q.execute().data or []
+        return rows[:n]
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] ultimas dist={dist_id}: {e}")
+        return []
+
+
+def _fetch_sucursales(dist_id: int, periodo: str, enrich_fn) -> list[dict]:
+    try:
+        res = sb.rpc(
+            "fn_dashboard_por_sucursal",
+            {"p_dist_id": dist_id, "p_periodo": periodo},
+        ).execute()
+        rows = res.data or []
+        return enrich_fn(rows, dist_id)
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] sucursales dist={dist_id}: {e}")
+        return []
+
+
+def _fetch_evolucion(dist_id: int, periodo: str, suc_pk: int | None) -> list[dict]:
+    try:
+        res = sb.rpc(
+            "fn_dashboard_evolucion_tiempo",
+            {"p_dist_id": dist_id, "p_periodo": periodo, "p_sucursal_id": suc_pk},
+        ).execute()
+        return res.data or []
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] evolucion dist={dist_id}: {e}")
+        return []
+
+
+# ── Snapshot read/write ───────────────────────────────────────────────────────
+
+def _read_dashboard_snapshot(
+    dist_id: int, periodo: str, sucursal_id: str | None
+) -> dict | None:
+    try:
+        q = (
+            sb.table("portal_snapshot_dashboard")
+            .select("payload, generated_at")
+            .eq("id_distribuidor", dist_id)
+            .eq("periodo", periodo)
+        )
+        if sucursal_id is None:
+            q = q.is_("sucursal_id", "null")
+        else:
+            try:
+                q = q.eq("sucursal_id", int(sucursal_id))
+            except (TypeError, ValueError):
+                q = q.is_("sucursal_id", "null")
+        res = q.limit(1).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] read dist={dist_id}: {e}")
+        return None
+
+
+def _upsert_dashboard_snapshot(
+    dist_id: int, periodo: str, sucursal_id: str | None, payload: dict
+) -> None:
+    """
+    Delete-then-insert para evitar el problema de que PostgREST no puede usar
+    índices únicos con expresiones (COALESCE) en ON CONFLICT.
+    """
+    try:
+        suc_id_int: int | None = None
+        if sucursal_id is not None:
+            try:
+                suc_id_int = int(sucursal_id)
+            except (TypeError, ValueError):
+                pass
+        now_iso = datetime.now(timezone.utc).isoformat()
+        # Borrar snapshot existente con los mismos parámetros
+        dq = (
+            sb.table("portal_snapshot_dashboard")
+            .delete()
+            .eq("id_distribuidor", dist_id)
+            .eq("periodo", periodo)
+        )
+        if suc_id_int is None:
+            dq = dq.is_("sucursal_id", "null")
+        else:
+            dq = dq.eq("sucursal_id", suc_id_int)
+        dq.execute()
+        # Insertar nuevo
+        sb.table("portal_snapshot_dashboard").insert(
+            {
+                "id_distribuidor": dist_id,
+                "periodo": periodo,
+                "sucursal_id": suc_id_int,
+                "payload": payload,
+                "generated_at": now_iso,
+            }
+        ).execute()
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] upsert dist={dist_id}: {e}")
+
+
+# ── Shared freshness check ────────────────────────────────────────────────────
+
+def _is_fresh(generated_at_iso: str, max_stale_seconds: int) -> bool:
+    try:
+        if generated_at_iso.startswith("1970"):
+            return False
+        generated_at = datetime.fromisoformat(
+            generated_at_iso.replace("Z", "+00:00")
+        )
+        age = (datetime.now(timezone.utc) - generated_at).total_seconds()
+        return age < max_stale_seconds
+    except Exception:
+        return False

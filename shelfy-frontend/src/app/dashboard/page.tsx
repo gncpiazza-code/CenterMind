@@ -9,11 +9,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
-  fetchEvolucionTiempo, getWSUrl,
-} from "@/lib/api";
-import type {
-  KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo,
+  fetchDashboardBundle, getWSUrl,
+  type DashboardBundle, type KPIs, type VendedorRanking, type UltimaEvaluada, type SucursalStats, type EvolucionTiempo,
 } from "@/lib/api";
 import { XCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,7 +28,8 @@ import {
   resolvePeriodBounds,
 } from "@/lib/dashboard-period";
 import { filterUltimasCoherentes } from "@/lib/dashboard-ultimas";
-import { dashboardKeys } from "@/lib/query-keys";
+import { bundleKeys } from "@/lib/query-keys";
+import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
 import { HeroCarouselSkeleton } from "@/components/dashboard/HeroCarouselSkeleton";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 import {
@@ -108,66 +106,35 @@ export default function DashboardPage() {
     setSucursalFiltro("");
   }
 
-  // Queries
-  const { data: kpis, isLoading: loadingKpis, isFetching: fetchingKpis, error: errorKpis } = useQuery<KPIs>({
-    queryKey: ["dashboard", "kpis", distId, periodo, sucursalFiltro],
-    queryFn: () => fetchKPIs(distId, periodo, sucursalFiltro),
+  // Bundle query — replaces 5 separate queries
+  const {
+    data: bundle,
+    isLoading: loadingBundle,
+    isFetching: fetchingBundle,
+    error: errorBundle,
+  } = useQuery<DashboardBundle>({
+    queryKey: bundleKeys.dashboard(distId, periodo, sucursalFiltro || null),
+    queryFn: () => fetchDashboardBundle(distId, periodo, sucursalFiltro || null),
     enabled,
-    placeholderData: (prev: unknown) => prev as KPIs | undefined,
+    placeholderData: (prev) => prev,
+    staleTime: BUNDLE_STALE_MS,
+    gcTime: BUNDLE_GC_MS,
     refetchInterval: 300_000,
   });
 
-  const { data: ranking = [], isLoading: loadingRanking, isFetching: fetchingRanking, error: errorRanking } = useQuery<VendedorRanking[]>({
-    queryKey: ["dashboard", "ranking", distId, periodo, sucursalFiltro],
-    queryFn: () => fetchRanking(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as VendedorRanking[] | undefined,
-    refetchInterval: 300_000,
-  });
+  // Desestructurar para mantener compatibilidad con el JSX existente
+  const kpis = bundle?.kpis;
+  const ranking = bundle?.ranking ?? [];
+  const ultimas = bundle?.ultimas ?? [];
+  const sucursales = bundle?.sucursales ?? [];
+  const evolucion = bundle?.evolucion ?? [];
 
-  const ultimasSucursalKey = sucursalFiltro || null;
+  const loading = loadingBundle;
+  const loadingHero = loadingBundle && !bundle;
+  const error = errorBundle;
 
-  const { data: ultimas = [], isLoading: loadingUltimas, isFetching: fetchingUltimas } = useQuery<UltimaEvaluada[]>({
-    queryKey: dashboardKeys.ultimas(distId, ultimasSucursalKey),
-    queryFn: () => fetchUltimasEvaluadas(distId, 0, sucursalFiltro || undefined),
-    enabled,
-    placeholderData: (prev: unknown) => prev as UltimaEvaluada[] | undefined,
-    staleTime: 5 * 60_000,
-    gcTime: 30 * 60_000,
-    refetchInterval: 300_000,
-  });
-
-  useEffect(() => {
-    if (!enabled) return;
-    void queryClient.prefetchQuery({
-      queryKey: dashboardKeys.ultimas(distId, ultimasSucursalKey),
-      queryFn: () => fetchUltimasEvaluadas(distId, 0, sucursalFiltro || undefined),
-      staleTime: 5 * 60_000,
-    });
-  }, [enabled, distId, ultimasSucursalKey, sucursalFiltro, queryClient]);
-
-  const { data: sucursales = [], isLoading: loadingSucursales } = useQuery<SucursalStats[]>({
-    queryKey: ["dashboard", "sucursales", distId, periodo, sucursalFiltro],
-    queryFn: () => fetchPorSucursal(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as SucursalStats[] | undefined,
-    refetchInterval: 300_000,
-  });
-
-  const { data: evolucion = [] } = useQuery<EvolucionTiempo[]>({
-    queryKey: ["dashboard", "evolucion", distId, periodo, sucursalFiltro],
-    queryFn: () => fetchEvolucionTiempo(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as EvolucionTiempo[] | undefined,
-    refetchInterval: 300_000,
-  });
-
-  const loading = loadingKpis || loadingRanking || loadingSucursales;
-  const loadingHero = loadingUltimas && ultimas.length === 0;
-  const error   = errorKpis || errorRanking;
-
-  const isFetchingLeft  = fetchingUltimas && !loadingUltimas && ultimas.length > 0;
-  const isFetchingRight = (fetchingKpis && !loadingKpis) || (fetchingRanking && !loadingRanking);
+  const isFetchingLeft  = fetchingBundle && !loadingBundle && (bundle?.ultimas?.length ?? 0) > 0;
+  const isFetchingRight = fetchingBundle && !loadingBundle;
 
   // WS: invalida todas las queries del dashboard al recibir eventos
   useEffect(() => {
@@ -182,11 +149,7 @@ export default function DashboardPage() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "new_exhibition" || data.type === "evaluation_updated") {
-            queryClient.invalidateQueries({ queryKey: ["dashboard", "kpis"] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard", "ranking"] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard", "ultimas"] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard", "evolucion"] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard", "sucursales"] });
+            queryClient.invalidateQueries({ queryKey: ['bundle', 'dashboard'] });
           }
         } catch {}
       };
@@ -268,7 +231,7 @@ export default function DashboardPage() {
               <DashboardKpiCarousel
                 kpis={kpis}
                 evolucion={evolucion}
-                loading={loadingKpis}
+                loading={loadingBundle}
                 isDark={isDark}
                 bandHeightPx={dashLayout.kpiHeightPx}
                 chartYear={bounds.start.getFullYear()}

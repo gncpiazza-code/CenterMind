@@ -509,6 +509,149 @@ export async function fetchEvolucionTiempo(distribuidorId: number, periodo: stri
   return apiFetch<EvolucionTiempo[]>(`/api/dashboard/evolucion-tiempo/${distribuidorId}?${q.toString()}`);
 }
 
+// ── Portal bundles (snapshot cache) ───────────────────────────────────────────
+
+export interface BundleMeta {
+  generated_at?: string;
+  cache_hit?: boolean;
+  periodo?: string;
+  sucursal_id?: string | null;
+  dist_id?: number;
+  meses?: string[];
+  sucursal?: string | null;
+  fecha_snapshot_cc?: string | null;
+}
+
+export interface DashboardBundle {
+  meta: BundleMeta;
+  kpis: KPIs;
+  ranking: VendedorRanking[];
+  ultimas: UltimaEvaluada[];
+  sucursales: SucursalStats[];
+  evolucion: EvolucionTiempo[];
+}
+
+export async function fetchDashboardBundle(
+  distribuidorId: number,
+  periodo: string = "mes",
+  sucursalId?: string | null,
+): Promise<DashboardBundle> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  const data = await apiFetch<{
+    meta: BundleMeta;
+    kpis: KPIs;
+    ranking: Record<string, unknown>[];
+    ultimas: Record<string, unknown>[];
+    sucursales: SucursalStats[];
+    evolucion: EvolucionTiempo[];
+  }>(`/api/bundle/dashboard/${distribuidorId}?${q.toString()}`);
+
+  const ranking = (data.ranking ?? []).map((row) => ({
+    ...(row as unknown as VendedorRanking),
+    vendedor:
+      resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+      "Sin vendedor",
+  }));
+
+  const ultimas = (data.ultimas ?? []).map((row) => {
+    const erp =
+      resolveVendorERPName(row, ["vendedor_erp", "nombre_erp"]) ?? "Sin vendedor";
+    const pdvAsignado = row.pdv_asignado_vendedor;
+    return {
+      ...(row as unknown as UltimaEvaluada),
+      id_exhibicion: Number(row.id_exhibicion ?? 0),
+      drive_link: toNonEmptyString(row.url_foto_drive ?? row.drive_link) ?? "",
+      vendedor: erp,
+      vendedor_erp: erp,
+      id_vendedor: typeof row.id_vendedor === "number" ? row.id_vendedor : undefined,
+      pdv_asignado_vendedor:
+        typeof pdvAsignado === "boolean" ? pdvAsignado : undefined,
+      nro_cliente: toNonEmptyString(row.nro_cliente) ?? "",
+      nombre_fantasia: toNonEmptyString(row.nombre_fantasia) ?? undefined,
+      razon_social: toNonEmptyString(row.razon_social) ?? undefined,
+      ciudad: toNonEmptyString(row.ciudad) ?? undefined,
+    };
+  });
+
+  return {
+    meta: data.meta ?? {},
+    kpis: data.kpis,
+    ranking,
+    ultimas,
+    sucursales: (data.sucursales ?? []).map((row) => ({
+      ...row,
+      id_sucursal: row.id_sucursal ?? undefined,
+    })),
+    evolucion: data.evolucion ?? [],
+  };
+}
+
+export interface SupervisionBundle {
+  meta: BundleMeta;
+  cuentas: CuentasSupervision;
+}
+
+export async function fetchSupervisionBundle(
+  distId: number,
+  sucursal: string | null = null,
+  idVendedor: number | null = null,
+): Promise<SupervisionBundle> {
+  const qp = new URLSearchParams();
+  if (sucursal) qp.set("sucursal", sucursal);
+  if (idVendedor != null) qp.set("id_vendedor", String(idVendedor));
+  const qs = qp.toString() ? `?${qp.toString()}` : "";
+  const data = await apiFetch<{
+    meta: BundleMeta;
+    cuentas: CuentasSupervision & { vendedores?: Record<string, unknown>[] };
+  }>(`/api/bundle/supervision/${distId}${qs}`);
+  return {
+    meta: data.meta ?? {},
+    cuentas: {
+      ...data.cuentas,
+      vendedores: (data.cuentas?.vendedores ?? []).map((row) => ({
+        ...(row as unknown as VendedorCuentas),
+        vendedor:
+          resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+          "Sin vendedor",
+      })),
+    },
+  };
+}
+
+export interface EstadisticasBundle {
+  meta: BundleMeta;
+  cartas: VendorCartaResumen[];
+  total: number;
+}
+
+export async function fetchEstadisticasBundle(
+  distId: number,
+  meses: string[],
+  sucursal: string | null = null,
+): Promise<EstadisticasBundle> {
+  const q = new URLSearchParams({ meses: meses.join(",") });
+  if (sucursal) q.append("sucursal", sucursal);
+  return apiFetch<EstadisticasBundle>(`/api/bundle/estadisticas/${distId}?${q.toString()}`);
+}
+
+export interface VisorBundleStats {
+  pendientes: number;
+  aprobados: number;
+  destacados: number;
+  total: number;
+}
+
+export interface VisorBundle {
+  meta: BundleMeta;
+  pendientes: GrupoPendiente[];
+  stats: VisorBundleStats;
+}
+
+export async function fetchVisorBundle(distId: number): Promise<VisorBundle> {
+  return apiFetch<VisorBundle>(`/api/bundle/visor/${distId}`);
+}
+
 export async function fetchRendimientoCiudad(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<RendimientoCiudad[]> {
   const q = new URLSearchParams({ periodo });
   if (sucursalId) q.append("sucursal_id", sucursalId);

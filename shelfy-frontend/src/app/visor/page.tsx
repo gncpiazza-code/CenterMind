@@ -10,11 +10,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useViewerStore } from "../../store/useViewerStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  fetchPendientes, fetchStatsHoy, fetchVendedores,
+  fetchVisorBundle, fetchVendedores,
   evaluar, revertir,
   resolveImageUrl,
-  type GrupoPendiente, type StatsHoy,
+  type GrupoPendiente, type VisorBundle,
 } from "@/lib/api";
+import { bundleKeys } from "@/lib/query-keys";
+import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
 import {
   useVisorClienteContext,
   useVisorPdvPrefetch,
@@ -325,18 +327,30 @@ export default function VisorPage() {
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
-  const { data: grupos = [], isLoading: loadingPendientes, error: errorPend } = useQuery({
-    queryKey: ["pendientes", distId],
-    queryFn: () => fetchPendientes(distId),
-    enabled: !!user,
-    staleTime: 1000 * 60,
+  const {
+    data: visorBundle,
+    isLoading: loadingPendientes,
+    error: errorPend,
+  } = useQuery({
+    queryKey: bundleKeys.visor(distId),
+    queryFn: () => fetchVisorBundle(distId),
+    enabled: !!user && distId > 0,
+    staleTime: BUNDLE_STALE_MS,
+    gcTime: BUNDLE_GC_MS,
+    refetchInterval: 90_000, // 1.5 min — dato operativo
   });
 
-  const { data: stats } = useQuery({
-    queryKey: ["stats", distId],
-    queryFn: () => fetchStatsHoy(distId),
-    enabled: !!user,
-  });
+  // Extract data from bundle (field names adapted to match existing JSX)
+  const grupos: GrupoPendiente[] = (visorBundle?.pendientes ?? []) as GrupoPendiente[];
+  const stats = visorBundle?.stats
+    ? {
+        pendientes: visorBundle.stats.pendientes,
+        aprobadas: visorBundle.stats.aprobados,
+        rechazadas: 0, // not provided by bundle; display suppressed when 0
+        destacadas: visorBundle.stats.destacados,
+        total: visorBundle.stats.total,
+      }
+    : undefined;
 
   const { data: vendedores = [] } = useQuery({
     queryKey: ["vendedores", distId],
@@ -445,51 +459,48 @@ export default function VisorPage() {
       isSubmittingRef.current = false;
     },
     onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey: ["pendientes", distId] });
-      const previousPendientes = queryClient.getQueryData<GrupoPendiente[]>(["pendientes", distId]);
+      await queryClient.cancelQueries({ queryKey: bundleKeys.visor(distId) });
+      const previousBundle = queryClient.getQueryData<VisorBundle>(bundleKeys.visor(distId));
 
-      queryClient.setQueryData(["stats", distId], (old: StatsHoy | undefined) => {
+      queryClient.setQueryData<VisorBundle>(bundleKeys.visor(distId), (old) => {
         if (!old) return old;
+        const firstEvalId = variables.ids[0];
+        const nextPendientes = old.pendientes.filter(
+          (g: GrupoPendiente) => !g.fotos.some((f) => f.id_exhibicion === firstEvalId)
+        );
+        setCurrentIndex(Math.min(currentIndex, Math.max(0, nextPendientes.length - 1)));
+        resetGroupState();
+        setComentario("");
         return {
           ...old,
-          pendientes: Math.max(0, old.pendientes - 1),
-          aprobadas: variables.estado === "Aprobado" ? old.aprobadas + 1 : old.aprobadas,
-          destacadas: variables.estado === "Destacado" ? old.destacadas + 1 : old.destacadas,
-          rechazadas: variables.estado === "Rechazado" ? old.rechazadas + 1 : old.rechazadas,
+          pendientes: nextPendientes,
+          stats: {
+            ...old.stats,
+            pendientes: Math.max(0, old.stats.pendientes - 1),
+            aprobados: variables.estado === "Aprobado" ? old.stats.aprobados + 1 : old.stats.aprobados,
+            destacados: variables.estado === "Destacado" ? old.stats.destacados + 1 : old.stats.destacados,
+          },
         };
       });
 
       setFlash({ msg: variables.estado, type: "ok" });
       setTimeout(() => setFlash(null), 2000);
 
-      const firstEvalId = variables.ids[0];
-      queryClient.setQueryData<GrupoPendiente[]>(["pendientes", distId], (old = []) => {
-        const next = old.filter((g) => !g.fotos.some((f) => f.id_exhibicion === firstEvalId));
-        setCurrentIndex(Math.min(currentIndex, Math.max(0, next.length - 1)));
-        resetGroupState();
-        // Misma posición numérica puede mostrar otra exhibición al compactar la lista — limpiar siempre.
-        setComentario("");
-        return next;
-      });
-
-      return { previousPendientes };
+      return { previousBundle };
     },
     onSuccess: (data: { affected?: number } | undefined) => {
       if (data?.affected === 0) {
         setFlash({ msg: "Ya evaluado por otro usuario", type: "err" });
         setTimeout(() => setFlash(null), 2000);
-        queryClient.invalidateQueries({ queryKey: ["pendientes", distId] });
-        queryClient.invalidateQueries({ queryKey: ["stats", distId] });
+        queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
         return;
       }
-      queryClient.invalidateQueries({ queryKey: ["pendientes", distId] });
-      queryClient.invalidateQueries({ queryKey: ["stats", distId] });
+      queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
     },
     onError: (err) => {
       setFlash({ msg: "Error al evaluar", type: "err" });
       console.error(err);
-      queryClient.invalidateQueries({ queryKey: ["pendientes", distId] });
-      queryClient.invalidateQueries({ queryKey: ["stats", distId] });
+      queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
     },
   });
 
@@ -497,8 +508,7 @@ export default function VisorPage() {
     mutationFn: (ids: number[]) => revertir(ids),
     onSuccess: () => {
       setFlash({ msg: "Revertido", type: "ok" });
-      queryClient.invalidateQueries({ queryKey: ["pendientes", distId] });
-      queryClient.invalidateQueries({ queryKey: ["stats", distId] });
+      queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
     },
   });
 
@@ -817,7 +827,7 @@ export default function VisorPage() {
       <p className="text-2xl font-black text-slate-800 mb-2 tracking-tight">¡Todo al día!</p>
       <p className="text-slate-500 font-medium mb-8">No hay exhibiciones pendientes de evaluación</p>
       <button
-        onClick={() => queryClient.invalidateQueries({ queryKey: ["pendientes", distId] })}
+        onClick={() => queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] })}
         className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold shadow-sm hover:bg-slate-50 transition-all active:scale-95"
       >
         <RefreshCw size={16} /> Buscar nuevas
@@ -1362,7 +1372,7 @@ export default function VisorPage() {
                           onRechazado={() => handleEvaluar("Rechazado")}
                           onDestacado={() => handleEvaluar("Destacado")}
                           onAprobado={() => handleEvaluar("Aprobado")}
-                          onRefresh={() => queryClient.invalidateQueries({ queryKey: ["pendientes", distId] })}
+                          onRefresh={() => queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] })}
                           canRevertir={lastEvalIds.current.length > 0}
                           revertirPending={mutationRevertir.isPending}
                           evaluarPending={mutationEvaluar.isPending}
@@ -1594,7 +1604,7 @@ export default function VisorPage() {
                             <Check size={20} strokeWidth={3.5} />
                           </button>
                           <button
-                            onClick={() => queryClient.invalidateQueries({ queryKey: ["pendientes", distId] })}
+                            onClick={() => queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] })}
                             className="size-9 flex items-center justify-center rounded-full bg-amber-400/80 text-white transition-all active:scale-90"
                           >
                             <RefreshCw size={14} strokeWidth={2.5} />

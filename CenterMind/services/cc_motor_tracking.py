@@ -166,6 +166,13 @@ def finish_cc_motor_run(
     except Exception:
         pass
 
+    if estado == "ok":
+        try:
+            from services.snapshot_refresh_service import handle_ingestion_event
+            handle_ingestion_event("cuentas_corrientes", dist_id)
+        except Exception as e_snap:
+            logger.debug("[CCMotor] snapshot invalidate omitido: %s", e_snap)
+
 
 def record_cc_sin_cambios(dist_id: int, source: str = "rpa_hash_guard") -> int | None:
     run_id = start_cc_motor_run(dist_id)

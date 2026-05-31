@@ -14,13 +14,16 @@ import {
   fetchDeudorDetalle,
   fetchSyncStatus,
   fetchVendedoresSupervision,
+  fetchSupervisionBundle,
   type CcKpisResponse,
   type CuentasSupervision,
   type DeudorDetalle,
   type SyncStatus,
   type VendedorSupervision,
+  type SupervisionBundle,
 } from "@/lib/api";
-import { supervisionPanelKeys } from "@/lib/query-keys";
+import { supervisionPanelKeys, bundleKeys } from "@/lib/query-keys";
+import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
 
 export const SUPERVISION_VENDEDORES_STALE = 10 * 60_000;
 export const SUPERVISION_CUENTAS_STALE = 5 * 60_000;
@@ -238,4 +241,42 @@ export function useSupervisionPanelQueries(
     prefetchDeudor: (erp: string | null | undefined) =>
       prefetchDeudorDetalle(qc, distId, erp),
   };
+}
+
+// ── Supervision CC bundle ────────────────────────────────────────────────────
+
+export const SUPERVISION_BUNDLE_STALE = BUNDLE_STALE_MS;   // 5 min
+export const SUPERVISION_BUNDLE_GC    = BUNDLE_GC_MS;       // 30 min
+
+export function supervisionBundleQueryOptions(
+  distId: number,
+  sucursal: string | null,
+  idVendedor: number | null,
+) {
+  return {
+    queryKey: bundleKeys.supervision(distId, sucursal, idVendedor),
+    queryFn: () => fetchSupervisionBundle(distId, sucursal, idVendedor),
+    enabled: distId > 0,
+    staleTime: SUPERVISION_BUNDLE_STALE,
+    gcTime: SUPERVISION_BUNDLE_GC,
+    placeholderData: keepPreviousData,
+  } as const;
+}
+
+export function useSupervisionBundle(
+  distId: number,
+  sucursal: string | null = null,
+  idVendedor: number | null = null,
+) {
+  return useQuery<SupervisionBundle>(supervisionBundleQueryOptions(distId, sucursal, idVendedor));
+}
+
+export function prefetchSupervisionBundle(
+  queryClient: QueryClient,
+  distId: number,
+  sucursal: string | null,
+  idVendedor: number | null,
+) {
+  if (!distId) return;
+  void queryClient.prefetchQuery(supervisionBundleQueryOptions(distId, sucursal, idVendedor));
 }

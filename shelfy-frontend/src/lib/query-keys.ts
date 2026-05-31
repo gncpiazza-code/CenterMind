@@ -154,3 +154,19 @@ export const reporteriaKeys = {
   explore: (distId: number, source: string, from: string, to: string, sucursal?: string, vendedor?: string) =>
     ['reporteria', 'explore', distId, source, from, to, sucursal ?? '', vendedor ?? ''] as const,
 };
+
+// ── Bundle keys ───────────────────────────────────────────────────────────────
+// NOTE: bundle queries should use staleTime: BUNDLE_STALE_MS (imported from
+// ReactQueryProvider) in each useQuery call — TanStack Query v5 does not
+// support per-key staleTime in defaultOptions.
+export const bundleKeys = {
+  all: ['bundle'] as const,
+  dashboard: (distId: number, periodo: string, sucursal?: string | null) =>
+    ['bundle', 'dashboard', distId, periodo, sucursal ?? null] as const,
+  supervision: (distId: number, sucursal?: string | null, idVendedor?: number | null) =>
+    ['bundle', 'supervision', distId, sucursal ?? null, idVendedor ?? null] as const,
+  estadisticas: (distId: number, meses: string[], sucursal?: string | null) =>
+    ['bundle', 'estadisticas', distId, meses.join(','), sucursal ?? null] as const,
+  visor: (distId: number) =>
+    ['bundle', 'visor', distId] as const,
+};

@@ -12,8 +12,12 @@ import {
   fetchEstadisticasMeses,
   fetchEstadisticasSucursales,
   fetchEstadisticasVendedorDetalle,
+  fetchEstadisticasBundle,
+  type EstadisticasBundle,
 } from "@/lib/api";
 import { estadisticasKeys } from "@/lib/estadisticas-query-keys";
+import { bundleKeys } from "@/lib/query-keys";
+import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
 
 export const ESTADISTICAS_MESES_STALE = 15 * 60_000;
 export const ESTADISTICAS_CARTAS_STALE = 10 * 60_000;
@@ -82,7 +86,10 @@ export function useEstadisticasCartas(
   meses: string[],
   sucursal: string | null,
 ) {
-  return useQuery(cartasQueryOptions(distId, meses, sucursal));
+  return useQuery({
+    ...cartasBundleQueryOptions(distId, meses, sucursal),
+    select: (data) => data.cartas,
+  });
 }
 
 export function prefetchEstadisticasDetalle(
@@ -121,4 +128,39 @@ export function useEstadisticasWarmCache(
       prefetchEstadisticasDetalle(queryClient, distId, id, meses);
     }
   }, [queryClient, distId, meses, sucursal, neighborVendorIds.join("|")]);
+}
+
+// ── Bundle variant (Estadísticas Cartas via snapshot backend) ────────────────
+
+export function cartasBundleQueryOptions(
+  distId: number,
+  meses: string[],
+  sucursal: string | null,
+) {
+  return {
+    queryKey: bundleKeys.estadisticas(distId, meses, sucursal),
+    queryFn: () => fetchEstadisticasBundle(distId, meses, sucursal),
+    enabled: distId > 0 && meses.length > 0,
+    staleTime: BUNDLE_STALE_MS,
+    gcTime: BUNDLE_GC_MS,
+    placeholderData: keepPreviousData,
+  } as const;
+}
+
+export function useEstadisticasCartasBundle(
+  distId: number,
+  meses: string[],
+  sucursal: string | null,
+) {
+  return useQuery(cartasBundleQueryOptions(distId, meses, sucursal));
+}
+
+export function prefetchEstadisticasCartasBundle(
+  queryClient: QueryClient,
+  distId: number,
+  meses: string[],
+  sucursal: string | null,
+) {
+  if (!distId || meses.length === 0) return;
+  void queryClient.prefetchQuery(cartasBundleQueryOptions(distId, meses, sucursal));
 }

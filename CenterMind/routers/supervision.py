@@ -1162,7 +1162,7 @@ def _ventas_enriched_es_devolucion(tipo_documento: str | None, importe: float) -
     if importe < 0:
         return True
     s = (tipo_documento or "").strip().upper()
-    return "DEVOL" in s or ("NOTA" in s and "CRED" in s)
+    return "DEVOL" in s or "PRDVO" in s or ("NOTA" in s and "CRED" in s)
 
 
 @router.get("/api/supervision/ventas/{dist_id}", tags=["Supervisión"])

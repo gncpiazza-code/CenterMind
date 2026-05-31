@@ -167,7 +167,15 @@ def _es_devolucion(tipo: str | None, importe: float) -> bool:
     if importe < 0:
         return True
     s = (tipo or "").strip().upper()
-    return "DEVOL" in s or ("NOTA" in s and "CRED" in s)
+    return "DEVOL" in s or "PRDVO" in s or ("NOTA" in s and "CRED" in s)
+
+
+def _es_operacion_bultos_neto(tipo: str | None, importe: float) -> bool:
+    """
+    Bultos netos al estilo Informe Consolido / comprobantes: ventas + devoluciones.
+    Excluye solo recaudaciones (sin volumen comercial).
+    """
+    return not _es_recaudacion(tipo)
 
 
 def _collect_meses_from_rows(rows: list[dict], field: str) -> set[str]:
@@ -622,11 +630,12 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
             continue
         tipo = r.get("tipo_documento")
         imp = float(r.get("importe_final") or 0)
-        if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
+        if not _es_operacion_bultos_neto(tipo, imp):
             continue
-        ceid = r.get("id_cliente_erp")
-        if ceid:
-            compradores.add(str(ceid))
+        if not _es_devolucion(tipo, imp):
+            ceid = r.get("id_cliente_erp")
+            if ceid:
+                compradores.add(str(ceid))
         bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
 
     # Cobertura exhibición = unique PDVs con exhibicion / PDVs activos
@@ -910,19 +919,23 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
             continue
         tipo = row.get("tipo_documento")
         imp = float(row.get("importe_final") or 0)
-        if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
+        if not _es_operacion_bultos_neto(tipo, imp):
             continue
-        ventas_total += 1
+        es_dev = _es_devolucion(tipo, imp)
+        if not es_dev:
+            ventas_total += 1
         vid = _resolve_vid_from_venta_row(row, match_indexes)
         if vid is None:
-            ventas_unmatched += 1
+            if not es_dev:
+                ventas_unmatched += 1
             continue
         bultos_by_vend[vid], unidades_cig_by_vend[vid] = _acumular_bultos_unidades(
             row, bultos_by_vend[vid], unidades_cig_by_vend[vid]
         )
-        ceid = row.get("id_cliente_erp")
-        if ceid:
-            compradores_by_vend[vid].add(str(ceid))
+        if not es_dev:
+            ceid = row.get("id_cliente_erp")
+            if ceid:
+                compradores_by_vend[vid].add(str(ceid))
 
     hoy = date.today()
     obj_by_vend: dict[int, list] = defaultdict(list)
@@ -1261,7 +1274,7 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
             continue
         tipo = r.get("tipo_documento")
         imp = float(r.get("importe_final") or 0)
-        if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
+        if not _es_operacion_bultos_neto(tipo, imp):
             continue
         art = r.get("descripcion_articulo") or "Sin descripción"
         bucket = bultos_by_art[art]

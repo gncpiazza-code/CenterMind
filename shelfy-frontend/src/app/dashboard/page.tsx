@@ -38,7 +38,6 @@ import {
   type DashboardLayoutConfig,
 } from "@/lib/dashboard-layout";
 import { DashboardLayoutTuner } from "@/components/dashboard/DashboardLayoutTuner";
-import { BundleRevalidatingBadge } from "@/components/shared/BundleRevalidatingBadge";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -111,7 +110,6 @@ export default function DashboardPage() {
   const {
     data: bundle,
     isLoading: loadingBundle,
-    isFetching: fetchingBundle,
     error: errorBundle,
   } = useQuery<DashboardBundle>({
     queryKey: bundleKeys.dashboard(distId, periodo, sucursalFiltro || null),
@@ -131,13 +129,9 @@ export default function DashboardPage() {
   const sucursales = bundle?.sucursales ?? [];
   const evolucion = bundle?.evolucion ?? [];
 
-  const revalidating = !!bundle?.meta?.revalidating;
   const loading = loadingBundle && !bundle;
   const loadingHero = loadingBundle && !bundle;
   const error = errorBundle;
-
-  const isFetchingLeft  = fetchingBundle && !loadingBundle && (bundle?.ultimas?.length ?? 0) > 0;
-  const isFetchingRight = fetchingBundle && !loadingBundle;
 
   // WS: invalida todas las queries del dashboard al recibir eventos
   useEffect(() => {
@@ -178,6 +172,11 @@ export default function DashboardPage() {
     : ranking;
 
   const ultimasCoherentes = filterUltimasCoherentes(ultimas, rankingFiltrado);
+  // Si el filtro de ciudad deja vacío el hero pero hay últimas, mostrar las asignadas al vendedor
+  const ultimasHero =
+    ultimasCoherentes.length > 0
+      ? ultimasCoherentes
+      : ultimas.filter((u) => u.pdv_asignado_vendedor !== false);
 
   return (
     <div className={cn(
@@ -204,12 +203,6 @@ export default function DashboardPage() {
         )}
 
         {!isFullscreen && <Topbar title="Dashboard" live />}
-
-        {revalidating && (
-          <div className="shrink-0 px-4 md:px-6 pb-1 z-10">
-            <BundleRevalidatingBadge visible />
-          </div>
-        )}
 
         <main className={cn(
           "flex-1 flex flex-col min-h-0 overflow-hidden p-4 md:p-6 pb-20 md:pb-4 w-full max-w-[1800px] mx-auto z-10",
@@ -285,22 +278,11 @@ export default function DashboardPage() {
                 animate="show"
                 custom={2}
               >
-                {isFetchingLeft && (
-                  <div className={cn(
-                    "absolute inset-0 rounded-3xl z-50 flex items-center justify-center pointer-events-none",
-                    isDark ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
-                  )}>
-                    <div className={cn(
-                      "w-4 h-4 border-2 border-t-transparent rounded-full animate-spin",
-                      isDark ? "border-slate-400" : "border-violet-500",
-                    )} />
-                  </div>
-                )}
                 {loadingHero ? (
                   <HeroCarouselSkeleton className="h-full min-h-0 flex-1" />
                 ) : (
                   <HeroCarousel
-                    items={ultimasCoherentes}
+                    items={ultimasHero}
                     compact
                     isDark={isDark}
                     className="h-full min-h-0 flex-1"
@@ -316,17 +298,6 @@ export default function DashboardPage() {
                 animate="show"
                 custom={3}
               >
-                {isFetchingRight && (
-                  <div className={cn(
-                    "absolute inset-0 rounded-3xl z-50 flex items-center justify-center pointer-events-none",
-                    isDark ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
-                  )}>
-                    <div className={cn(
-                      "w-4 h-4 border-2 border-t-transparent rounded-full animate-spin",
-                      isDark ? "border-slate-400" : "border-violet-500",
-                    )} />
-                  </div>
-                )}
                 <div className="h-full min-h-0 overflow-hidden rounded-3xl">
                   <RankingTable
                     dense

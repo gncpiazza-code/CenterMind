@@ -58,6 +58,8 @@ const TOP3_IMMERSIVE = [
   { row: "bg-orange-950/40 border border-orange-700/40", badge: "bg-orange-500 text-white", pts: "text-orange-400" },
 ];
 
+/** Mínimo de filas para loop + autoscroll; debajo se muestra lista única sin duplicar */
+const MIN_RANKING_FOR_AUTOSCROLL = 6;
 /** px/ms — ~36 px/s a 60fps */
 const SCROLL_SPEED_PX_PER_MS = 0.036;
 const HOVER_RESUME_MS = 400;
@@ -177,7 +179,8 @@ export function RankingTable({
   } = useLiveRankingMovements(ranking, distId, periodo, sucursalFiltro);
 
   const baseRows = useMemo(() => ranking.slice(0, 30), [ranking]);
-  const isLoopDuplicated = baseRows.length > 1;
+  const enableAutoscrollLoop = baseRows.length >= MIN_RANKING_FOR_AUTOSCROLL;
+  const isLoopDuplicated = enableAutoscrollLoop;
   void animTick;
 
   useEffect(() => {
@@ -226,10 +229,10 @@ export function RankingTable({
     };
   }, [markUserScrolling, ranking.length]);
 
-  // Auto-scroll continuo (rAF + delta) — no compite con scroll nativo del usuario
+  // Auto-scroll continuo (rAF + delta) — solo con 6+ integrantes
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || ranking.length === 0) return;
+    if (!el || ranking.length === 0 || !enableAutoscrollLoop) return;
 
     let rafId = 0;
     let lastTs = performance.now();
@@ -259,7 +262,7 @@ export function RankingTable({
 
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
-  }, [ranking.length, baseRows.length, autoScrollPaused, isLoopDuplicated]);
+  }, [ranking.length, baseRows.length, autoScrollPaused, isLoopDuplicated, enableAutoscrollLoop]);
 
   // Pause on hover
   function handleMouseEnter() {
@@ -325,21 +328,22 @@ export function RankingTable({
 
         {/* Controles derecha */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Pausa autoscroll */}
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setAutoScrollPaused(v => !v)}
-            title={autoScrollPaused ? "Reanudar scroll" : "Pausar scroll"}
-            className={cn(
-              "h-8 w-8 rounded-xl transition-all",
-              isDark
-                ? "border-slate-600 text-slate-400 hover:text-white hover:bg-slate-800"
-                : "border-slate-200 text-slate-400 hover:text-slate-700",
-            )}
-          >
-            {autoScrollPaused ? <Play size={13} /> : <Pause size={13} />}
-          </Button>
+          {enableAutoscrollLoop && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setAutoScrollPaused(v => !v)}
+              title={autoScrollPaused ? "Reanudar scroll" : "Pausar scroll"}
+              className={cn(
+                "h-8 w-8 rounded-xl transition-all",
+                isDark
+                  ? "border-slate-600 text-slate-400 hover:text-white hover:bg-slate-800"
+                  : "border-slate-200 text-slate-400 hover:text-slate-700",
+              )}
+            >
+              {autoScrollPaused ? <Play size={13} /> : <Pause size={13} />}
+            </Button>
+          )}
 
           {/* Vista Cía */}
           {isCompania && (

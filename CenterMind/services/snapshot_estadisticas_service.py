@@ -76,9 +76,16 @@ def _refresh_estadisticas_background(
     sucursal: str | None,
     meses_hash: str,
 ) -> None:
-    from services.estadisticas_service import build_carta_resumen
+    from services.estadisticas_service import build_carta_resumen, _cartas_comercial_ventas_plausible
 
     cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
+    if not _cartas_comercial_ventas_plausible(cartas):
+        logger.warning(
+            "[snap_estadisticas] skip persist dist=%s meses=%s — ventas KPIs vacíos con exhibiciones",
+            dist_id,
+            meses,
+        )
+        return
     _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
 
 
@@ -87,13 +94,17 @@ def get_or_refresh_estadisticas(
     meses: list[str],
     sucursal: str | None,
 ) -> dict:
+    from services.estadisticas_service import _cartas_comercial_ventas_plausible
+
     meses_hash = _hash_meses(meses)
     snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
     if snap is not None:
         gen = snap["generated_at"]
-        if is_fresh(gen, ESTADISTICAS_MAX_STALE_SECONDS):
+        payload = _normalize_cartas_payload(snap["payload"])
+        plausible = _cartas_comercial_ventas_plausible(payload)
+        if is_fresh(gen, ESTADISTICAS_MAX_STALE_SECONDS) and plausible:
             return _build_estadisticas_response(
-                snap["payload"],
+                payload,
                 dist_id,
                 meses,
                 sucursal,
@@ -102,14 +113,14 @@ def get_or_refresh_estadisticas(
                 stale=False,
                 revalidating=False,
             )
-        if is_serveable_stale(gen, ESTADISTICAS_SERVE_STALE_SECONDS):
+        if is_serveable_stale(gen, ESTADISTICAS_SERVE_STALE_SECONDS) and plausible:
             key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
             trigger_background_refresh(
                 key,
                 lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
             )
             return _build_estadisticas_response(
-                snap["payload"],
+                payload,
                 dist_id,
                 meses,
                 sucursal,
@@ -140,10 +151,17 @@ def _cold_compute_estadisticas(
     sucursal: str | None,
     meses_hash: str,
 ) -> dict:
-    from services.estadisticas_service import build_carta_resumen
+    from services.estadisticas_service import build_carta_resumen, _cartas_comercial_ventas_plausible
 
     cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
-    _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
+    if _cartas_comercial_ventas_plausible(cartas):
+        _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
+    else:
+        logger.warning(
+            "[snap_estadisticas] cold compute sin persist dist=%s meses=%s — ventas KPIs vacíos",
+            dist_id,
+            meses,
+        )
     generated_at = datetime.now(timezone.utc).isoformat()
     return _build_estadisticas_response(
         cartas,

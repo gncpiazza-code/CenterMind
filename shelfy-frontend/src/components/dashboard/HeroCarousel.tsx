@@ -458,9 +458,9 @@ function preloadStoryImage(item: UltimaEvaluada) {
 }
 
 export function HeroCarousel({ items, compact = false, isDark: _isDark = false, className }: HeroCarouselProps) {
-  const filtered = items.filter(
-    (e) => !/rechaz/i.test(e.estado) && isUltimaCoherenteConVendedor(e),
-  );
+  const notRejected = items.filter((e) => !/rechaz/i.test(e.estado));
+  const coherent = notRejected.filter((e) => isUltimaCoherenteConVendedor(e));
+  const filtered = coherent.length > 0 ? coherent : notRejected;
   const [mediaReady, setMediaReady] = useState(false);
   const filteredSig = filtered.map((e) => e.id_exhibicion).join(",");
   const [ci, setCi] = useState(0);

@@ -3,7 +3,7 @@ import logging
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 from threading import Lock
 
@@ -62,6 +62,87 @@ _CARTA_CACHE: dict[str, tuple[float, list]] = {}
 _CARTA_CACHE_LOCK = Lock()
 _CARTA_TTL_SEC = 90
 _POOL = ThreadPoolExecutor(max_workers=10, thread_name_prefix="estad-stats")
+_VENTAS_CHUNK_DAYS = 7
+_VENTAS_CHUNK_RETRIES = 2
+
+
+def _ventas_date_chunks(fecha_desde: str, fecha_hasta: str, chunk_days: int = _VENTAS_CHUNK_DAYS) -> list[tuple[str, str]]:
+    """Parte el rango en ventanas chicas: el mes entero en una query hace timeout en PostgREST."""
+    start = date.fromisoformat(fecha_desde)
+    end = date.fromisoformat(fecha_hasta)
+    chunks: list[tuple[str, str]] = []
+    cur = start
+    while cur <= end:
+        chunk_end = min(cur + timedelta(days=chunk_days - 1), end)
+        chunks.append((cur.isoformat(), chunk_end.isoformat()))
+        cur = chunk_end + timedelta(days=1)
+    return chunks
+
+
+def _fetch_ventas_estadisticas(
+    dist_id: int,
+    fecha_desde: str,
+    fecha_hasta: str,
+    ventas_ctx: dict[str, object],
+) -> list[dict]:
+    """Lee ventas_enriched paginado por ventanas de fecha (evita statement timeout)."""
+    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    rows: list[dict] = []
+
+    def fetch_chunk(desde: str, hasta: str) -> list[dict]:
+        out: list[dict] = []
+        offset = 0
+        while True:
+            q = (
+                sb.table(t_v)
+                .select(_ventas_select_cols())
+                .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
+                .gte("fecha_factura", desde)
+                .lte("fecha_factura", hasta)
+                .eq("anulado", False)
+            )
+            q = _apply_ventas_scope(q, ventas_ctx)
+            batch = q.range(offset, offset + PAGE - 1).execute().data or []
+            out.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+        return out
+
+    for desde, hasta in _ventas_date_chunks(fecha_desde, fecha_hasta):
+        for attempt in range(_VENTAS_CHUNK_RETRIES):
+            try:
+                rows.extend(fetch_chunk(desde, hasta))
+                break
+            except Exception as e:
+                logger.warning(
+                    "[estadisticas] ventas chunk %s..%s attempt=%s dist=%s: %s",
+                    desde,
+                    hasta,
+                    attempt + 1,
+                    dist_id,
+                    e,
+                )
+    return rows
+
+
+def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
+    """Detecta snapshots/cartas con ventas vacías pese a exhibiciones (timeout silencioso)."""
+    if not cartas:
+        return False
+    ex_sum = 0
+    cmp_sum = 0
+    blt_sum = 0.0
+    for c in cartas:
+        raw = c.get("raw_kpis") or {}
+        if not isinstance(raw, dict):
+            return False
+        ex_sum += int(raw.get("exhibiciones") or 0)
+        cmp_sum += int(raw.get("compradores") or 0)
+        blt_sum += float(raw.get("bultos_raw") or raw.get("bultos") or 0)
+    if ex_sum >= 20 and cmp_sum == 0 and blt_sum == 0:
+        return False
+    return True
 
 
 def _paginate(query_fn):
@@ -700,7 +781,6 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
     ventas_ctx = resolve_estadisticas_ventas_fetch(
         dist_id, vend_prescan if vend_prescan else None
     )
-    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
 
     def rutas_q(offset):
         return sb.table(t_rutas).select("id_ruta,id_vendedor")
@@ -722,23 +802,11 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
             .lte("timestamp_subida", fecha_hasta + "T23:59:59")
         )
 
-    def venta_q(offset):
-        q = (
-            sb.table(t_v)
-            .select(_ventas_select_cols())
-            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
-            .gte("fecha_factura", fecha_desde)
-            .lte("fecha_factura", fecha_hasta)
-            .eq("anulado", False)
-        )
-        return _apply_ventas_scope(q, ventas_ctx)
-
     parallel = _run_parallel(
         {
             "rutas": lambda: _paginate(rutas_q),
             "pdv": lambda: _paginate(pdv_q),
             "ex": lambda: _paginate(ex_q),
-            "ventas": lambda: _paginate(venta_q),
             "vendedores": lambda: (
                 sb.table(t_vend)
                 .select("id_vendedor,id_vendedor_erp,nombre_erp,id_sucursal")
@@ -767,6 +835,9 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
             "ideal_dist": lambda: _get_ideal(dist_id, "distribuidora"),
             "ideal_comp": lambda: _get_ideal(None, "compania"),
         }
+    )
+    parallel["ventas"] = _fetch_ventas_estadisticas(
+        dist_id, fecha_desde, fecha_hasta, ventas_ctx
     )
     ventas_rows = parallel.get("ventas") or []
     if not ventas_rows and ((parallel.get("ex") or []) or (parallel.get("pdv") or [])):

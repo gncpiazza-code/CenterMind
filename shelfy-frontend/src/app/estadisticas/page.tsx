@@ -25,7 +25,6 @@ import { mesActual } from "@/lib/estadisticas-period";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 import { DashboardThemeToggle } from "@/components/dashboard/DashboardThemeToggle";
-import { BundleRevalidatingBadge } from "@/components/shared/BundleRevalidatingBadge";
 import {
   Settings2,
   TrendingUp,
@@ -97,16 +96,11 @@ export default function EstadisticasPage() {
   const {
     data: cartasBundle,
     isLoading: loadingCards,
-    isFetching,
-    isPlaceholderData,
   } = useEstadisticasCartasBundle(distId, mesesSeleccionados, filterSucursal);
 
   const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
 
   const showLoadingStrip = loadingCards && vendors.length === 0;
-  const showRefreshingOverlay =
-    isFetching && isPlaceholderData && vendors.length > 0;
-  const revalidating = !!cartasBundle?.meta?.revalidating;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);
@@ -270,20 +264,6 @@ export default function EstadisticasPage() {
           >
             <PeriodSelector mesesDisponibles={mesesDisponibles} />
             <SucursalSelector sucursales={sucursales} />
-
-            {/* Fetching / SWR revalidating indicator */}
-            {(revalidating || (isFetching && !isLoading && vendors.length > 0)) && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 8 }}>
-                {revalidating ? (
-                  <BundleRevalidatingBadge visible />
-                ) : (
-                  <>
-                    <Loader2 size={13} style={{ color: "#a855f7", animation: "spin 1s linear infinite" }} />
-                    <span style={{ fontSize: 11, color: "var(--shelfy-muted)" }}>Actualizando…</span>
-                  </>
-                )}
-              </div>
-            )}
           </div>
 
           {/* ── Vendor count summary ── */}
@@ -376,45 +356,6 @@ export default function EstadisticasPage() {
                   exit={{ opacity: 0 }}
                   style={{ position: "relative" }}
                 >
-                  {showRefreshingOverlay && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        zIndex: 20,
-                        background: "var(--est-overlay-refresh, rgba(255,255,255,0.55))",
-                        backdropFilter: "blur(2px)",
-                        display: "flex",
-                        alignItems: "flex-start",
-                        justifyContent: "center",
-                        paddingTop: 48,
-                        pointerEvents: "none",
-                      }}
-                    >
-                      <motion.div
-                        className="estadisticas-refresh-chip"
-                        animate={{ opacity: [0.7, 1, 0.7] }}
-                        transition={{ repeat: Infinity, duration: 1.2 }}
-                        style={{
-                          padding: "10px 18px",
-                          borderRadius: 12,
-                          background: "white",
-                          border: "1px solid rgba(168,85,247,0.3)",
-                          boxShadow: "0 8px 24px rgba(124,58,237,0.2)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: "#7C3AED",
-                        }}
-                      >
-                        <Loader2 size={16} className="animate-spin" />
-                        Actualizando cartas…
-                      </motion.div>
-                    </div>
-                  )}
-
                   <MissingIdealBanner onConfigure={() => setShowIdealModal(true)} vendors={vendors} />
 
                   <VendorCollection

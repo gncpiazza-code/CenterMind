@@ -3,9 +3,17 @@ import type { CcKpiDelta } from "@/lib/api";
 export type CcTrendUnit = "currency" | "pdv";
 
 export function shouldShowCcKpiTrend(trend: CcKpiDelta | null | undefined): trend is CcKpiDelta {
-  if (!trend) return false;
-  if (trend.dir !== "neutral") return true;
-  return trend.anterior != null && Number.isFinite(trend.anterior);
+  return !!trend;
+}
+
+/** Hay deltas de tendencia CC listos para mostrar (referencia hace ≥7 días). */
+export function hasCcKpiTrends(
+  deltas: Record<string, CcKpiDelta | null> | null | undefined,
+  trendsAvailable?: boolean,
+): boolean {
+  if (trendsAvailable === false) return false;
+  if (!deltas) return false;
+  return Object.values(deltas).some((d) => d != null);
 }
 
 function fmtPct(pct: number): string {
@@ -25,8 +33,8 @@ function fmtSignedMoney(diff: number, formatCurrency: (n: number) => string): st
 }
 
 /**
- * Tendencia KPI CC: % + variación absoluta + referencia (valor corrida anterior).
- * Ej.: "18,2% · −2 PDVs · anterior 11" o "9,8% · −$41.234 · anterior $476.268"
+ * Tendencia KPI CC: % + variación absoluta + referencia (valor hace 7 días).
+ * Ej.: "18,2% · −2 PDVs · hace 7d 11" o "9,8% · −$41.234 · hace 7d $476.268"
  */
 export function formatCcKpiTrendDisplay(
   trend: CcKpiDelta,
@@ -54,10 +62,10 @@ export function formatCcKpiTrendDisplay(
   const anterior = trend.anterior;
   if (anterior != null && Number.isFinite(anterior)) {
     if (unit === "currency" && formatCurrency) {
-      parts.push(`anterior ${formatCurrency(anterior)}`);
+      parts.push(`hace 7d ${formatCurrency(anterior)}`);
     } else if (unit === "pdv") {
       const n = Math.round(anterior);
-      parts.push(`anterior ${n} ${n === 1 ? "PDV" : "PDVs"}`);
+      parts.push(`hace 7d ${n} ${n === 1 ? "PDV" : "PDVs"}`);
     }
   }
 

@@ -915,6 +915,13 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             except Exception as e_vin:
                 logger.warning(f"[evaluar] enrich vínculo exhibición-objetivo: {e_vin}")
 
+            # Invalidar snapshots de dashboard y visor tras evaluación
+            try:
+                from services.snapshot_refresh_service import handle_ingestion_event
+                handle_ingestion_event("evaluacion", dist_id)
+            except Exception as _e:
+                logger.debug(f"[evaluar] snapshot invalidate: {_e}")
+
         # Aprobado / Destacado: cerrar ítems de objetivo vinculados a la exhibición
         estados_avance_objetivo = ("Aprobado", "Destacado")
         # Rechazado: marcar ítem como falla para que la meta pueda cerrarse (terminado / falla)
@@ -1378,7 +1385,7 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             .select(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                 "domicilio, localidad, provincia, canal, latitud, longitud, "
-                "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado, updated_at"
+                "fecha_ultima_compra, fecha_compra_anterior, fecha_alta, id_distribuidor, id_ruta, estado, updated_at"
             )
             .eq("id_ruta", id_ruta)
             # Excluye anulados + fuera de padrón; sin_compra_* permanecen para pin inactivo.
@@ -2377,11 +2384,13 @@ def supervision_cc_kpis(
     user_payload=Depends(verify_auth),
 ):
     """
-    Retorna KPIs de la última corrida CC y deltas vs la corrida anterior (created_at).
+    Retorna KPIs de la última corrida CC y deltas vs snapshot de hace 7 días.
     Flechas: delta>0 → roja (deuda subió); delta<0 → verde (deuda bajó).
     """
     check_dist_permission(user_payload, dist_id)
     try:
+        from core.helpers import build_cc_kpi_deltas, fetch_cc_kpi_reference_snapshot
+
         q = (
             sb.table("cc_kpi_snapshot")
             .select(
@@ -2390,7 +2399,7 @@ def supervision_cc_kpis(
             )
             .eq("id_distribuidor", int(dist_id))
             .order("created_at", desc=True)
-            .limit(2)
+            .limit(1)
         )
         if id_vendedor is not None:
             q = q.eq("id_vendedor", int(id_vendedor))
@@ -2402,10 +2411,11 @@ def supervision_cc_kpis(
         if not rows:
             return {"kpis": None, "deltas": None}
 
-        from core.helpers import cc_kpi_delta
-
         actual = rows[0]
-        anterior = rows[1] if len(rows) >= 2 else None
+        referencia = fetch_cc_kpi_reference_snapshot(
+            int(dist_id), id_vendedor, actual, lookback_days=7
+        )
+        deltas = build_cc_kpi_deltas(actual, referencia, lookback_days=7)
 
         return {
             "kpis": {
@@ -2415,11 +2425,8 @@ def supervision_cc_kpis(
                 "dias_promedio_atraso": float(actual.get("dias_promedio_atraso") or 0),
                 "fecha_snapshot": actual.get("fecha_snapshot"),
             },
-            "deltas": {
-                "total_deuda": cc_kpi_delta(actual, anterior, "total_deuda"),
-                "clientes_deudores": cc_kpi_delta(actual, anterior, "clientes_deudores"),
-                "pdvs_atraso_15": cc_kpi_delta(actual, anterior, "pdvs_atraso_15"),
-            },
+            "deltas": deltas,
+            "trends_available": deltas is not None,
         }
     except Exception as e:
         logger.error(f"supervision_cc_kpis: {e}")
@@ -2817,55 +2824,23 @@ def supervision_pdvs_movimiento(
 
         if "activacion" in cats:
             rows = _fetch_client_rows(
-                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, fecha_alta, id_ruta",
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, "
+                "fecha_ultima_compra, fecha_compra_anterior, fecha_alta, id_ruta",
                 "fecha_ultima_compra",
             )
-            # Activación real: compra en mes + no haber estado activo al inicio del mes.
-            start_dt = datetime.fromisoformat(f"{fecha_inicio[:10]}T00:00:00")
-            threshold_prev = (start_dt - timedelta(days=30)).date().isoformat()
-            erp_for_prev: dict[str, int] = {}
-            for r in rows:
-                cid = r.get("id_cliente")
-                erp = str(r.get("id_cliente_erp") or "").strip()
-                if isinstance(cid, int) and erp:
-                    erp_for_prev[erp] = int(cid)
-            prev_last_by_id: dict[int, str] = {}
-            if erp_for_prev:
-                t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
-                erp_list = list(erp_for_prev.keys())
-                for i in range(0, len(erp_list), 400):
-                    chunk = erp_list[i:i + 400]
-                    try:
-                        vr = (
-                            sb.table(t_ventas)
-                            .select("id_cliente_erp,fecha_factura")
-                            .eq("id_distribuidor", dist_id)
-                            .eq("anulado", False)
-                            .in_("id_cliente_erp", chunk)
-                            .lt("fecha_factura", fecha_inicio[:10])
-                            .order("fecha_factura", desc=True)
-                            .execute()
-                        )
-                        for v in (vr.data or []):
-                            erp = str(v.get("id_cliente_erp") or "").strip()
-                            cid = erp_for_prev.get(erp)
-                            f = str(v.get("fecha_factura") or "")[:10]
-                            if cid is not None and f and cid not in prev_last_by_id:
-                                prev_last_by_id[cid] = f
-                    except Exception as e_prev:
-                        logger.warning(f"[pdvs-movimiento] lookup ventas prev falló: {e_prev}")
+            from core.compras_fechas import es_activacion_en_periodo
+
             for r in rows:
                 falta = (r.get("fecha_alta") or "")[:10]
-                fuc = r.get("fecha_ultima_compra", "") or ""
+                fuc = (r.get("fecha_ultima_compra") or "")[:10]
+                fca = (r.get("fecha_compra_anterior") or "")[:10] or None
                 is_alta = (falta >= fecha_inicio[:10] and falta <= fecha_fin[:10])
                 if is_alta:
                     continue
                 id_cl = r.get("id_cliente")
                 if isinstance(id_cl, int) and id_cl in seen_ids:
                     continue
-                # Solo activaciones (transición): sin compra previa o con previa vieja (>30d al inicio mes).
-                prev_f = prev_last_by_id.get(id_cl) if isinstance(id_cl, int) else None
-                if prev_f and prev_f > threshold_prev:
+                if not es_activacion_en_periodo(fuc, fca, fecha_inicio, fecha_fin):
                     continue
                 idx = len(items)
                 if isinstance(id_cl, int):
@@ -2879,6 +2854,7 @@ def supervision_pdvs_movimiento(
                     "categoria": "activacion",
                     "exhibido": False,
                     "fecha_evento": fuc,
+                    "fecha_compra_anterior": fca,
                     "es_comprador_mes": False,
                 })
                 if isinstance(id_cl, int):
@@ -3084,7 +3060,10 @@ def pdvs_cercanos(
             t_clientes = tenant_table_name("clientes_pdv_v2", int(dist_id))
             page_res = (
                 sb.table(t_clientes)
-                .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, provincia, canal, latitud, longitud, fecha_alta, fecha_ultima_compra, id_ruta")
+                .select(
+                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, "
+                    "provincia, canal, latitud, longitud, fecha_alta, fecha_ultima_compra, fecha_compra_anterior, id_ruta"
+                )
                 .eq("id_distribuidor", int(dist_id))
                 .neq("es_limbo", True)
                 .limit(PAGE).offset(offset)
@@ -3160,7 +3139,9 @@ def pdvs_cercanos(
                 "domicilio": row.get("domicilio"), "localidad": row.get("localidad"),
                 "provincia": row.get("provincia"), "canal": row.get("canal"),
                 "latitud": row.get("latitud"), "longitud": row.get("longitud"),
-                "fecha_alta": row.get("fecha_alta"), "fecha_ultima_compra": row.get("fecha_ultima_compra"),
+                "fecha_alta": row.get("fecha_alta"),
+                "fecha_ultima_compra": row.get("fecha_ultima_compra"),
+                "fecha_compra_anterior": row.get("fecha_compra_anterior"),
                 "fecha_ultima_exhibicion": ultima_exhibicion_map.get(row["id_cliente"]),
                 "vendedor_nombre": vendedor_map.get(ruta_info.get("id_vendedor")),
                 "ruta_nombre": ruta_info.get("id_ruta_erp"),

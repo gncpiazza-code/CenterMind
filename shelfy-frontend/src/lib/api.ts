@@ -1955,7 +1955,7 @@ export interface CcKpiDelta {
   pct: number | null;
   /** "up" = subió (rojo), "down" = bajó (verde), "neutral" */
   dir: "up" | "down" | "neutral";
-  /** Valor corrida anterior (referencia del delta) */
+  /** Valor de referencia hace 7 días (base del delta) */
   anterior?: number;
   actual?: number;
 }
@@ -1975,6 +1975,8 @@ export interface CcKpisResponse {
     clientes_deudores: CcKpiDelta | null;
     pdvs_atraso_15: CcKpiDelta | null;
   } | null;
+  /** false hasta acumular snapshot de referencia (≥7 días) */
+  trends_available?: boolean;
 }
 
 // ── Deudor detalle (perfil + comprobantes matcheados) ─────────────────────

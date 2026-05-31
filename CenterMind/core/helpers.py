@@ -610,8 +610,91 @@ def _upsert_cc_kpi_snapshot(dist_id: int, records: list[dict], fecha_snapshot: s
         sb.table("cc_kpi_snapshot").insert(snapshot_rows).execute()
 
 
+_CC_KPI_SNAPSHOT_SELECT = (
+    "fecha_snapshot, created_at, total_deuda, clientes_deudores, "
+    "pdvs_atraso_15, dias_promedio_atraso"
+)
+
+
+def fetch_cc_kpi_reference_snapshot(
+    dist_id: int,
+    id_vendedor: int | None,
+    actual: dict,
+    *,
+    lookback_days: int = 7,
+) -> dict | None:
+    """Snapshot de referencia para deltas (p. ej. fecha_snapshot <= hoy − 7 días)."""
+    from datetime import date, timedelta
+
+    fecha_raw = actual.get("fecha_snapshot") or actual.get("created_at")
+    if not fecha_raw:
+        return None
+
+    try:
+        if isinstance(fecha_raw, date):
+            base = fecha_raw
+        else:
+            base = date.fromisoformat(str(fecha_raw)[:10])
+    except (ValueError, TypeError):
+        return None
+
+    target = (base - timedelta(days=lookback_days)).isoformat()
+
+    q = (
+        sb.table("cc_kpi_snapshot")
+        .select(_CC_KPI_SNAPSHOT_SELECT)
+        .eq("id_distribuidor", int(dist_id))
+        .lte("fecha_snapshot", target)
+        .order("fecha_snapshot", desc=True)
+        .order("created_at", desc=True)
+        .limit(1)
+    )
+    if id_vendedor is not None:
+        q = q.eq("id_vendedor", int(id_vendedor))
+    else:
+        q = q.is_("id_vendedor", "null")
+
+    rows = q.execute().data or []
+    return rows[0] if rows else None
+
+
+def cc_kpi_trend_reference_valid(
+    actual: dict,
+    referencia: dict,
+    *,
+    lookback_days: int = 7,
+) -> bool:
+    """True solo si la referencia está al menos lookback_days calendario antes del actual."""
+    from datetime import date
+
+    try:
+        actual_date = date.fromisoformat(str(actual.get("fecha_snapshot"))[:10])
+        ref_date = date.fromisoformat(str(referencia.get("fecha_snapshot"))[:10])
+    except (ValueError, TypeError):
+        return False
+    return (actual_date - ref_date).days >= lookback_days
+
+
+def build_cc_kpi_deltas(
+    actual: dict,
+    referencia: dict | None,
+    *,
+    lookback_days: int = 7,
+) -> dict | None:
+    """Deltas KPI CC; None si aún no hay snapshot de referencia válido (p. ej. hace 7d)."""
+    if not referencia or not cc_kpi_trend_reference_valid(
+        actual, referencia, lookback_days=lookback_days
+    ):
+        return None
+    return {
+        "total_deuda": cc_kpi_delta(actual, referencia, "total_deuda"),
+        "clientes_deudores": cc_kpi_delta(actual, referencia, "clientes_deudores"),
+        "pdvs_atraso_15": cc_kpi_delta(actual, referencia, "pdvs_atraso_15"),
+    }
+
+
 def cc_kpi_delta(actual: dict, anterior: dict | None, campo: str) -> dict | None:
-    """Delta entre dos filas de cc_kpi_snapshot (última vs corrida anterior)."""
+    """Delta entre dos filas de cc_kpi_snapshot (actual vs referencia, p. ej. hace 7d)."""
     if not anterior:
         return None
     a = float(actual.get(campo) or 0)

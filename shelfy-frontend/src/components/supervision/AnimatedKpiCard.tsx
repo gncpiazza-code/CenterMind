@@ -34,7 +34,7 @@ interface AnimatedKpiCardProps {
   color: keyof typeof COLOR_MAP;
   loading?: boolean;
   delay?: number;
-  /** Flecha de tendencia (delta vs corrida CC anterior). */
+  /** Flecha de tendencia (delta vs snapshot CC de hace 7 días). */
   trend?: CcKpiDelta | null;
   /** Unidad del delta absoluto y referencia. */
   trendUnit?: CcTrendUnit;

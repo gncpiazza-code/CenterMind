@@ -16,7 +16,7 @@ import {
   rangoBadgeClass,
   sortClientesCC,
 } from "@/lib/cuentasCorrientes";
-import { formatCcKpiTrendDisplay, shouldShowCcKpiTrend } from "@/lib/supervision-cc-trend";
+import { formatCcKpiTrendDisplay, hasCcKpiTrends, shouldShowCcKpiTrend } from "@/lib/supervision-cc-trend";
 import { CcSyncStatusBadge } from "@/components/supervision/CcSyncStatusBadge";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
@@ -247,6 +247,7 @@ export default function SupervisionPage() {
   // ── KPIs CC ──────────────────────────────────────────────────────────────────
   const kpis = ccKpisData?.kpis;
   const deltas = ccKpisData?.deltas;
+  const showCcKpiTrends = hasCcKpiTrends(deltas, ccKpisData?.trends_available);
 
   const deudaFromClientes = useMemo(
     () => clientesOrdenados.reduce((s, c) => s + (c.deuda_total ?? 0), 0),
@@ -395,7 +396,7 @@ export default function SupervisionPage() {
                                 <p className="text-xl font-black text-foreground tracking-tight leading-none tabular-nums">
                                   {fmt$$(deudaTotalDisplay)}
                                 </p>
-                                {shouldShowCcKpiTrend(deltas?.total_deuda) ? (
+                                {showCcKpiTrends && shouldShowCcKpiTrend(deltas?.total_deuda) ? (
                                   <span
                                     className={cn(
                                       "inline-flex items-start gap-0.5 text-[10px] font-semibold tabular-nums w-full min-w-0",
@@ -467,7 +468,7 @@ export default function SupervisionPage() {
                       color="amber"
                       loading={loadingCuentas && !!selectedVendedorNombre}
                       delay={0.06}
-                      trend={deltas?.clientes_deudores}
+                      trend={showCcKpiTrends ? deltas?.clientes_deudores : null}
                       trendUnit="pdv"
                     />
                   </div>
@@ -481,7 +482,7 @@ export default function SupervisionPage() {
                       color="rose"
                       loading={loadingCuentas && !!selectedVendedorNombre}
                       delay={0.12}
-                      trend={deltas?.pdvs_atraso_15}
+                      trend={showCcKpiTrends ? deltas?.pdvs_atraso_15 : null}
                       trendUnit="pdv"
                     />
                   </div>

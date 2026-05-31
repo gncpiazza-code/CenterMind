@@ -12,7 +12,7 @@ import {
 } from "react";
 import { ImageOff } from "lucide-react";
 import { resolveImageUrl } from "@/lib/api";
-import { markVisorImageCached } from "@/lib/visor-image-prefetch";
+import { isVisorImageCached, markVisorImageCached } from "@/lib/visor-image-prefetch";
 import { parseIntrinsicFromSrc } from "@/components/visor/foto-viewer-intrinsic";
 import { cn } from "@/lib/utils";
 
@@ -86,7 +86,9 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   { driveUrl, idExhibicion, priority = false, onZoomChange, overlay },
   ref,
 ) {
+  const src = resolveVisorImageSrc(driveUrl, idExhibicion);
   const [err, setErr] = useState(false);
+  const [imgPainted, setImgPainted] = useState(() => isVisorImageCached(src));
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [shellSize, setShellSize] = useState({ w: 0, h: 0 });
   const [userZoom, setUserZoom] = useState(1);
@@ -95,11 +97,13 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const userZoomRef = useRef(1);
   const presentationZoomRef = useRef(1);
-  /** Doble clic: 4 acercamientos seguidos; el 5.º vuelve al zoom inicial de la foto. */
+  /** Doble clic: 3 acercamientos; el 4.º vuelve al zoom inicial de la foto. */
   const dblClickZoomCountRef = useRef(0);
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const src = resolveVisorImageSrc(driveUrl, idExhibicion);
+  /** Última posición del puntero sobre la foto (rueda / botones ±). */
+  const lastPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
 
   const isPortrait = useMemo(() => {
     if (!naturalSize) return false;
@@ -163,8 +167,11 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     setPan({ x: 0, y: 0 });
     setDragging(false);
     dblClickZoomCountRef.current = 0;
+    setImgPainted(isVisorImageCached(src));
 
     const intrinsic = parseIntrinsicFromSrc(src);
+    const cached = isVisorImageCached(src);
+
     if (intrinsic) {
       setNaturalSize(intrinsic);
       const pres = presentationZoomForPortrait(
@@ -176,10 +183,12 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       return;
     }
 
-    setNaturalSize(null);
-    userZoomRef.current = 1;
-    setUserZoom(1);
-    notifyZoom(1, 1);
+    if (!cached) {
+      setNaturalSize(null);
+      userZoomRef.current = 1;
+      setUserZoom(1);
+      notifyZoom(1, 1);
+    }
   }, [notifyZoom, src]);
 
   useEffect(() => {
@@ -212,35 +221,52 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         Math.min(ZOOM_MAX, Number(nextZoomRaw.toFixed(2))),
       );
       const prevZoom = userZoomRef.current;
-      userZoomRef.current = nextZoom;
-      setUserZoom(nextZoom);
+      if (Math.abs(nextZoom - prevZoom) < 0.001) return;
 
-      if (focal && shellRef.current && naturalSize && Math.abs(nextZoom - prevZoom) > 0.001) {
-        const rect = shellRef.current.getBoundingClientRect();
-        const relX = focal.clientX - rect.left;
-        const relY = focal.clientY - rect.top;
-        const shellCx = rect.width / 2;
-        const shellCy = rect.height / 2;
-        const factor = nextZoom / prevZoom;
-        setPan((prev) => {
-          const ox = relX - shellCx - prev.x;
-          const oy = relY - shellCy - prev.y;
-          return clampPan(
-            prev.x - ox * (factor - 1),
-            prev.y - oy * (factor - 1),
+      const factor = nextZoom / prevZoom;
+      const content = contentRef.current;
+      const shell = shellRef.current;
+
+      if (focal && content && shell) {
+        const r = content.getBoundingClientRect();
+        const shellRect = shell.getBoundingClientRect();
+        const w = Math.max(1, r.width);
+        const h = Math.max(1, r.height);
+        const u = (focal.clientX - r.left) / w;
+        const v = (focal.clientY - r.top) / h;
+        const newW = w * factor;
+        const newH = h * factor;
+        const shellCx = shellRect.left + shellRect.width / 2;
+        const shellCy = shellRect.top + shellRect.height / 2;
+        setPan(() =>
+          clampPan(
+            focal.clientX - shellCx + newW * (0.5 - u),
+            focal.clientY - shellCy + newH * (0.5 - v),
             nextZoom,
-          );
-        });
+          ),
+        );
       } else {
         setPan((prev) => clampPan(prev.x, prev.y, nextZoom));
       }
 
+      userZoomRef.current = nextZoom;
+      setUserZoom(nextZoom);
       notifyZoom(nextZoom, presentationZoomRef.current);
     },
-    [clampPan, naturalSize, notifyZoom],
+    [clampPan, notifyZoom],
   );
 
-  /** Alterna fit completo ↔ zoom de presentación (vertical). */
+  /** Vuelve al zoom de presentación inicial (vertical 1.48 / horizontal 1) y centra. */
+  const resetToPresentationZoom = useCallback(() => {
+    const pres = presentationZoomRef.current;
+    dblClickZoomCountRef.current = 0;
+    userZoomRef.current = pres;
+    setUserZoom(pres);
+    setPan({ x: 0, y: 0 });
+    notifyZoom(pres, pres);
+  }, [notifyZoom]);
+
+  /** Alterna fit completo ↔ zoom de presentación (atajo teclado). */
   const togglePresentationZoom = useCallback(() => {
     const pres = presentationZoomRef.current;
     const current = userZoomRef.current;
@@ -252,11 +278,11 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   }, [notifyZoom]);
 
   const zoomIn = useCallback(() => {
-    applyUserZoom(userZoomRef.current + ZOOM_STEP);
+    applyUserZoom(userZoomRef.current + ZOOM_STEP, lastPointerRef.current ?? undefined);
   }, [applyUserZoom]);
 
   const zoomOut = useCallback(() => {
-    applyUserZoom(userZoomRef.current - ZOOM_STEP);
+    applyUserZoom(userZoomRef.current - ZOOM_STEP, lastPointerRef.current ?? undefined);
   }, [applyUserZoom]);
 
   useImperativeHandle(
@@ -264,24 +290,18 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     () => ({
       zoomIn,
       zoomOut,
-      resetZoom: togglePresentationZoom,
+      resetZoom: resetToPresentationZoom,
       getImgElement: () => imgRef.current,
     }),
-    [togglePresentationZoom, zoomIn, zoomOut],
-  );
-
-  const onWheelZoom = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      applyUserZoom(userZoomRef.current + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
-    },
-    [applyUserZoom],
+    [resetToPresentationZoom, zoomIn, zoomOut],
   );
 
   const onDoubleClickZoom = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
       const pres = presentationZoomRef.current;
-      if (dblClickZoomCountRef.current >= 4) {
+      if (dblClickZoomCountRef.current >= 3) {
         dblClickZoomCountRef.current = 0;
         userZoomRef.current = pres;
         setUserZoom(pres);
@@ -290,32 +310,37 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         return;
       }
       dblClickZoomCountRef.current += 1;
-      applyUserZoom(userZoomRef.current + DBL_CLICK_ZOOM_STEP, {
-        clientX: e.clientX,
-        clientY: e.clientY,
-      });
+      const focal = { clientX: e.clientX, clientY: e.clientY };
+      lastPointerRef.current = focal;
+      applyUserZoom(userZoomRef.current + DBL_CLICK_ZOOM_STEP, focal);
     },
     [applyUserZoom, notifyZoom],
   );
 
+  const trackPointer = useCallback((clientX: number, clientY: number) => {
+    lastPointerRef.current = { clientX, clientY };
+  }, []);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      trackPointer(e.clientX, e.clientY);
       if (userZoom <= ZOOM_MIN + 0.02) return;
       setDragging(true);
       dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [pan.x, pan.y, userZoom],
+    [pan.x, pan.y, trackPointer, userZoom],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      trackPointer(e.clientX, e.clientY);
       if (!dragging || userZoom <= ZOOM_MIN + 0.02) return;
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
       setPan(clampPan(dragStartRef.current.panX + dx, dragStartRef.current.panY + dy, userZoom));
     },
-    [clampPan, dragging, userZoom],
+    [clampPan, dragging, trackPointer, userZoom],
   );
 
   const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -331,7 +356,12 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     const onWheel = (e: WheelEvent) => {
       if (isTypingTarget(e.target)) return;
       e.preventDefault();
-      applyUserZoom(userZoomRef.current + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+      const focal = { clientX: e.clientX, clientY: e.clientY };
+      lastPointerRef.current = focal;
+      applyUserZoom(
+        userZoomRef.current + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP),
+        focal,
+      );
     };
     shell.addEventListener("wheel", onWheel, { passive: false });
     return () => shell.removeEventListener("wheel", onWheel);
@@ -385,17 +415,17 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         "relative w-full h-full min-h-[200px] overflow-hidden select-none",
         canPan ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
       )}
-      onWheel={onWheelZoom}
       onDoubleClick={onDoubleClickZoom}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       tabIndex={-1}
-      title="Doble clic para acercar (hasta 4 veces); el 5.º vuelve al tamaño inicial. Rueda o botones ±."
+      title="Doble clic para acercar (3 veces); el 4.º vuelve al tamaño inicial. Rueda o botones ±."
     >
       <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
         <div
+          ref={contentRef}
           className="shrink-0"
           style={{
             width: hasIntrinsic ? displayW : availSize.w,
@@ -412,7 +442,8 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
             width={naturalSize?.w ?? undefined}
             height={naturalSize?.h ?? undefined}
             className={cn(
-              "block max-w-none w-full h-full",
+              "block max-w-none w-full h-full transition-opacity duration-75 ease-out",
+              imgPainted ? "opacity-100" : "opacity-0",
               !hasIntrinsic && "object-contain max-w-full max-h-full w-auto h-auto",
             )}
             style={
@@ -420,13 +451,24 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
                 ? { maxWidth: availSize.w, maxHeight: availSize.h }
                 : undefined
             }
-            loading={priority ? "eager" : "lazy"}
+            loading={priority || isVisorImageCached(src) ? "eager" : "lazy"}
             crossOrigin={src && !src.startsWith("data:") && !src.startsWith("blob:") && !src.startsWith("/") ? "anonymous" : undefined}
             onLoad={(e) => {
               const img = e.currentTarget;
               if (src) markVisorImageCached(src);
+              setImgPainted(true);
               const size = readNaturalSize(img) ?? parseIntrinsicFromSrc(src);
-              if (size) commitNatural(size);
+              if (size) {
+                commitNatural(size);
+                const pres = presentationZoomForPortrait(
+                  size.w / size.h < PORTRAIT_ASPECT_MAX,
+                );
+                if (userZoomRef.current <= FIT_ZOOM + 0.02) {
+                  userZoomRef.current = pres;
+                  setUserZoom(pres);
+                  notifyZoom(pres, presentationZoomRef.current);
+                }
+              }
             }}
             onError={() => setErr(true)}
             draggable={false}

@@ -79,7 +79,7 @@ export const VisorWaterGlass = forwardRef<HTMLDivElement, ShellProps>(
         ref={ref}
         variant="clear"
         compact={compact}
-        className={className}
+        className={cn("pointer-events-auto", className)}
         glyphMode={glyphMode}
         getImg={getImg}
       >

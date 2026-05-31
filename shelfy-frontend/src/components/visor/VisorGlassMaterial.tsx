@@ -32,7 +32,7 @@ type Props = {
  * Architecture (6 layers, innermost first):
  *   A. refract   — backdrop-filter ONLY (no filter); zero fill
  *   B. illuminate — near-zero tint (0–9% white depending on variant)
- *   C. lens       — VisorGlassLensLayer canvas/webgl (Chromium/Firefox only)
+ *   C. lens       — VisorGlassLensLayer canvas (no Safari)
  *   D. rim        — hairline top-highlight + outer ring; no inset flood
  *   E. specular   — pointer-driven radial highlight (prefers-reduced-motion off)
  *   F. content    — z-[1], children

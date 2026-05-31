@@ -39,7 +39,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { daysSinceFechaAR } from "@/lib/fecha-ar";
 import {
-  isVisorImageCached,
+  preloadVisorCurrentGroup,
   preloadVisorFotoNeighbors,
   preloadVisorImageUrl,
   preloadVisorQueueIdle,
@@ -72,10 +72,9 @@ import {
 
 const VISOR_TEMPLATE_KEY = "shelfy:visor:comment-templates";
 
+/** Mock solo si se pide explícito (?mock=fit|1). Datos reales por defecto (también en dev). */
 function isVisorMockMode(mockParam: string | null): boolean {
-  if (mockParam === "live" || mockParam === "0") return false;
-  if (mockParam === "fit" || mockParam === "1") return true;
-  return process.env.NODE_ENV === "development";
+  return mockParam === "fit" || mockParam === "1";
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -347,27 +346,9 @@ export function VisorPageContent() {
   const todasVistas = vistas.size >= totalFotos;
   const isValidacion = fotosGrupo.some((f) => f.estado === "VALIDACION");
 
-  const currentFotoSrc = useMemo(
-    () =>
-      resolveVisorImageSrc(
-        fotosGrupo[currentFotoIdx]?.drive_link ?? "",
-        fotosGrupo[currentFotoIdx]?.id_exhibicion,
-      ),
-    [fotosGrupo, currentFotoIdx],
-  );
-  const fotoCached = isVisorImageCached(currentFotoSrc);
-  const fotoMotion = useMemo(
-    () => ({
-      initial: { opacity: fotoCached ? 1 : 0 },
-      animate: { opacity: 1 },
-      exit: { opacity: 0 },
-      transition: { duration: fotoCached ? 0.04 : 0.07, ease: "linear" as const },
-    }),
-    [fotoCached],
-  );
-
   useEffect(() => {
     if (!filtrados.length) return;
+    preloadVisorCurrentGroup(filtrados, currentIndex);
     preloadVisorFotoNeighbors(filtrados, currentIndex, currentFotoIdx);
   }, [filtrados, currentIndex, currentFotoIdx]);
 
@@ -375,6 +356,20 @@ export function VisorPageContent() {
     if (!filtrados.length) return;
     preloadVisorQueueIdle(filtrados);
   }, [filtrados]);
+
+  const navigateToFoto = useCallback(
+    (idx: number) => {
+      const clamped = Math.max(0, Math.min(totalFotos - 1, idx));
+      const f = fotosGrupo[clamped];
+      if (f) {
+        void preloadVisorImageUrl(
+          resolveVisorImageSrc(f.drive_link, f.id_exhibicion),
+        );
+      }
+      setCurrentFotoIdx(clamped);
+    },
+    [fotosGrupo, totalFotos, setCurrentFotoIdx],
+  );
 
   // ── Mutations ────────────────────────────────────────────────────────────────
 
@@ -611,12 +606,12 @@ export function VisorPageContent() {
 
         case "ArrowRight":
           e.preventDefault();
-          if (currentFotoIdx < totalFotos - 1) setCurrentFotoIdx(currentFotoIdx + 1);
+          if (currentFotoIdx < totalFotos - 1) navigateToFoto(currentFotoIdx + 1);
           break;
 
         case "ArrowLeft":
           e.preventDefault();
-          if (currentFotoIdx > 0) setCurrentFotoIdx(currentFotoIdx - 1);
+          if (currentFotoIdx > 0) navigateToFoto(currentFotoIdx - 1);
           break;
 
         case "ArrowDown":
@@ -665,6 +660,7 @@ export function VisorPageContent() {
     mutationEvaluar, mutationRevertir,
     currentIndex, currentFotoIdx, totalFotos, totalGrupos,
     setCurrentIndex, setCurrentFotoIdx, resetGroupState,
+    navigateToFoto,
     commentTemplates,
   ]);
 
@@ -699,16 +695,10 @@ export function VisorPageContent() {
   }
 
   function handleNextFoto() {
-    const next = Math.min(totalFotos - 1, currentFotoIdx + 1);
-    const f = fotosGrupo[next];
-    if (f) void preloadVisorImageUrl(resolveVisorImageSrc(f.drive_link, f.id_exhibicion));
-    setCurrentFotoIdx(next);
+    navigateToFoto(currentFotoIdx + 1);
   }
   function handlePrevFoto() {
-    const prev = Math.max(0, currentFotoIdx - 1);
-    const f = fotosGrupo[prev];
-    if (f) void preloadVisorImageUrl(resolveVisorImageSrc(f.drive_link, f.id_exhibicion));
-    setCurrentFotoIdx(prev);
+    navigateToFoto(currentFotoIdx - 1);
   }
 
   async function handleRevertir() {
@@ -996,13 +986,13 @@ export function VisorPageContent() {
               </>
             ) : (
               <>
-                Mocks auto-fit (4 proporciones). Sin login:{" "}
+                Vista mock (?mock=fit). Datos reales:{" "}
+                <a href="/visor" className="underline font-bold">
+                  /visor
+                </a>
+                {" · "}Demo sin login:{" "}
                 <a href="/visor/demo" className="underline font-bold">
                   /visor/demo
-                </a>
-                {" · "}Datos reales:{" "}
-                <a href="/visor?mock=live" className="underline font-bold">
-                  ?mock=live
                 </a>
               </>
             )}
@@ -1296,40 +1286,33 @@ export function VisorPageContent() {
 
                   {/* Image area — edge-to-edge, sin caja anidada */}
                   <div className="flex-1 min-h-0 relative overflow-hidden">
-                    <AnimatePresence initial={false}>
-                      <motion.div
-                        key={`${currentIndex}-${currentFotoIdx}`}
-                        initial={fotoMotion.initial}
-                        animate={fotoMotion.animate}
-                        exit={fotoMotion.exit}
-                        transition={fotoMotion.transition}
-                        className="absolute inset-0"
-                      >
-                        {isMdUp ? (
-                          <FotoViewer
-                            ref={desktopFotoViewerRef}
-                            driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
-                            idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
-                            priority
-                            onZoomChange={handlePhotoZoomChange}
-                            overlay={
-                              !focusHoldActive ? (
-                                <VisorPhotoControls
-                                  zoomActions={photoZoomActions}
-                                  userZoom={photoZoom}
-                                  presentationZoom={photoBaselineZoom}
-                                  totalFotos={fotosGrupo.length}
-                                  currentFotoIdx={currentFotoIdx}
-                                  onPrevFoto={handlePrevFoto}
-                                  onNextFoto={handleNextFoto}
-                                  onSelectFoto={setCurrentFotoIdx}
-                                />
-                              ) : null
-                            }
-                          />
-                        ) : null}
-                      </motion.div>
-                    </AnimatePresence>
+                    <div className="absolute inset-0">
+                      {isMdUp ? (
+                        <FotoViewer
+                          key={`g-${currentIndex}`}
+                          ref={desktopFotoViewerRef}
+                          driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
+                          idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
+                          priority
+                          onZoomChange={handlePhotoZoomChange}
+                          overlay={
+                            !focusHoldActive ? (
+                              <VisorPhotoControls
+                                viewerRef={desktopFotoViewerRef}
+                                zoomActions={photoZoomActions}
+                                userZoom={photoZoom}
+                                presentationZoom={photoBaselineZoom}
+                                totalFotos={fotosGrupo.length}
+                                currentFotoIdx={currentFotoIdx}
+                                onPrevFoto={handlePrevFoto}
+                                onNextFoto={handleNextFoto}
+                                onSelectFoto={navigateToFoto}
+                              />
+                            ) : null
+                          }
+                        />
+                      ) : null}
+                    </div>
 
                     {/* Validation lock overlay */}
                     {isValidacion && (
@@ -1393,40 +1376,33 @@ export function VisorPageContent() {
 
                 {/* Canvas + overlays */}
                 <div className="flex-1 min-h-0 relative">
-                  <AnimatePresence initial={false}>
-                    <motion.div
-                      key={`mob-${currentIndex}-${currentFotoIdx}`}
-                      initial={fotoMotion.initial}
-                      animate={fotoMotion.animate}
-                      exit={fotoMotion.exit}
-                      transition={fotoMotion.transition}
-                      className="absolute inset-0"
-                    >
-                      {!isMdUp ? (
-                        <FotoViewer
-                          ref={mobileFotoViewerRef}
-                          driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
-                          idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
-                          priority
-                          onZoomChange={handlePhotoZoomChange}
-                          overlay={
-                            !focusHoldActive ? (
-                              <VisorPhotoControls
-                                zoomActions={photoZoomActions}
-                                userZoom={photoZoom}
-                                presentationZoom={photoBaselineZoom}
-                                totalFotos={fotosGrupo.length}
-                                currentFotoIdx={currentFotoIdx}
-                                onPrevFoto={handlePrevFoto}
-                                onNextFoto={handleNextFoto}
-                                onSelectFoto={setCurrentFotoIdx}
-                              />
-                            ) : null
-                          }
-                        />
-                      ) : null}
-                    </motion.div>
-                  </AnimatePresence>
+                  <div className="absolute inset-0">
+                    {!isMdUp ? (
+                      <FotoViewer
+                        key={`g-${currentIndex}`}
+                        ref={mobileFotoViewerRef}
+                        driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
+                        idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
+                        priority
+                        onZoomChange={handlePhotoZoomChange}
+                        overlay={
+                          !focusHoldActive ? (
+                            <VisorPhotoControls
+                              viewerRef={mobileFotoViewerRef}
+                              zoomActions={photoZoomActions}
+                              userZoom={photoZoom}
+                              presentationZoom={photoBaselineZoom}
+                              totalFotos={fotosGrupo.length}
+                              currentFotoIdx={currentFotoIdx}
+                              onPrevFoto={handlePrevFoto}
+                              onNextFoto={handleNextFoto}
+                              onSelectFoto={navigateToFoto}
+                            />
+                          ) : null
+                        }
+                      />
+                    ) : null}
+                  </div>
 
                   {/* Mobile top overlay */}
                   <AnimatePresence>

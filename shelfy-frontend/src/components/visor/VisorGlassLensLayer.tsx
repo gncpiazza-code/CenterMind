@@ -4,7 +4,9 @@ import { useEffect, useRef, useCallback } from "react";
 import { LENS_FILTER_ID, injectLensSvgDefs } from "./visor-glass-lens.svg";
 import { pickLensStrategy, type LensStrategy } from "./visor-glass-lens-strategy";
 import { updateCanvasLens } from "./visor-glass-canvas-lens";
-import { VisorGlassWebGLLens } from "./visor-glass-webgl";
+
+/** Cambia si el bundle cargó esta versión (sin WebGL). Ver consola en dev. */
+export const VISOR_GLASS_LENS_REV = "canvas-only-2026-05-31";
 
 type Props = {
   pillRef: React.RefObject<HTMLDivElement | null>;
@@ -16,35 +18,27 @@ type Props = {
  * Capa C del material — renderiza el efecto de lente sobre una capa SEPARADA
  * del backdrop-filter, eliminando la "niebla blanca" (H1/H6 fix).
  *
- * Chromium: canvas 2D + SVG displacement filter aplicado al canvas.
- * Firefox:  WebGL displacement shader.
- * Safari:   nada — Clear backdrop + vibrancy compensan.
+ * Chromium / Firefox / Edge: canvas 2D + SVG displacement filter en el canvas.
+ * Safari: sin lens — Clear backdrop + vibrancy compensan.
  */
 export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const webglRef = useRef<VisorGlassWebGLLens | null>(null);
   const strategyRef = useRef<LensStrategy>("none");
   const rafRef = useRef<number | null>(null);
   const frameRef = useRef(0);
 
-  // Pick strategy and init WebGL once
   useEffect(() => {
     const s = pickLensStrategy();
     strategyRef.current = s;
 
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.debug("[VisorGlassLens]", VISOR_GLASS_LENS_REV, "strategy:", s);
+    }
+
     if (s === "canvas") {
       injectLensSvgDefs(lensScale);
     }
-
-    if (s === "webgl" && canvasRef.current) {
-      webglRef.current = new VisorGlassWebGLLens(canvasRef.current);
-      webglRef.current.setLensScale(lensScale);
-    }
-
-    return () => {
-      webglRef.current?.destroy();
-      webglRef.current = null;
-    };
   }, [lensScale]);
 
   const renderFrame = useCallback(() => {
@@ -62,10 +56,6 @@ export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
 
         if (strategy === "canvas") {
           updateCanvasLens(canvas, img, pillRect, imgRect);
-        } else if (strategy === "webgl" && webglRef.current) {
-          webglRef.current.setImg(img);
-          webglRef.current.setRects(imgRect, pillRect);
-          webglRef.current.render();
         }
       }
     }
@@ -92,25 +82,6 @@ export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
 
   if (strategy === "none" || !getImg) return null;
 
-  if (strategy === "canvas") {
-    return (
-      <canvas
-        ref={canvasRef}
-        aria-hidden
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          pointerEvents: "none",
-          filter: `url(#${LENS_FILTER_ID})`,
-          mixBlendMode: "soft-light",
-          opacity: 0.26,
-          borderRadius: "inherit",
-        }}
-      />
-    );
-  }
-
   return (
     <canvas
       ref={canvasRef}
@@ -120,8 +91,9 @@ export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
         top: 0,
         left: 0,
         pointerEvents: "none",
+        filter: `url(#${LENS_FILTER_ID})`,
         mixBlendMode: "soft-light",
-        opacity: 0.28,
+        opacity: 0.26,
         borderRadius: "inherit",
       }}
     />

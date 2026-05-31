@@ -3,8 +3,8 @@ import { pickLensStrategy } from "../visor-glass-lens-strategy";
 import { resolveGlassAnchor } from "../visor-glass-placement";
 
 describe("pickLensStrategy", () => {
-  it("returns 'none' in jsdom (no Chromium/Firefox WebGL)", () => {
-    // jsdom: no chrome key in window, no WebGL support → 'none'
+  it("returns 'none' in jsdom (sin backdrop-filter)", () => {
+    // jsdom: CSS.supports backdrop-filter suele ser false → 'none'
     expect(pickLensStrategy()).toBe("none");
   });
 });

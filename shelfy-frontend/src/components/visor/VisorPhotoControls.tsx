@@ -14,7 +14,6 @@ import {
 } from "@/components/visor/VisorWaterGlass";
 import { GlassIcon } from "@/components/visor/VisorGlassVibrancy";
 import { useVisorGlassGlyphMode } from "@/components/visor/useVisorGlassGlyphMode";
-import { resolveGlassAnchor } from "@/components/visor/visor-glass-placement";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -64,16 +63,10 @@ export function VisorPhotoControls({
     glassRef,
   );
 
-  // Intelligent placement: raise pill when it falls below image boundary (H7)
+  // Fijo al pie del visor (no anclar al borde de la imagen: en vertical queda al medio).
   useEffect(() => {
-    const img = viewerRef?.current?.getImgElement();
-    if (!img) return;
-    const imgRect = img.getBoundingClientRect();
-    const shellEl = img.closest("[data-foto-shell]") as HTMLElement | null;
-    const shellRect = shellEl?.getBoundingClientRect() ?? null;
-    const anchor = resolveGlassAnchor(imgRect, shellRect);
-    setBottomPx(anchor.bottomPx);
-  }, [viewerRef, userZoom]);
+    setBottomPx(16);
+  }, [userZoom]);
 
   return (
     <motion.div
@@ -81,14 +74,12 @@ export function VisorPhotoControls({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.22, ease: "easeOut" }}
       className={cn(
-        "absolute inset-x-0 flex justify-center px-3 pointer-events-none",
+        "absolute inset-x-0 bottom-0 flex justify-center px-3 pointer-events-none",
+        "pb-[max(1rem,env(safe-area-inset-bottom))]",
         "max-md:pb-[max(5.75rem,env(safe-area-inset-bottom))]",
         className,
       )}
-      style={{
-        bottom: bottomPx,
-        paddingBottom: "max(0px, env(safe-area-inset-bottom))",
-      }}
+      style={{ bottom: bottomPx }}
     >
       <VisorWaterGlass
         ref={glassRef}

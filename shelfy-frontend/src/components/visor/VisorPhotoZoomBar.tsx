@@ -96,15 +96,16 @@ export function VisorPhotoZoomBar({
   glyphMode = "dark",
   className,
 }: Props) {
-  const atFit = userZoom <= FIT_ZOOM + 0.05;
   const atPresentation = Math.abs(userZoom - presentationZoom) <= 0.05;
-  const canTogglePresentation = presentationZoom > FIT_ZOOM + 0.05;
   const tone = GLASS[surface];
   const useOverlay = surface === "overlay" || embedded;
 
   const zoomOut = () => zoomActions?.zoomOut() ?? viewerRef?.current?.zoomOut();
   const zoomIn = () => zoomActions?.zoomIn() ?? viewerRef?.current?.zoomIn();
-  const resetZoom = () => zoomActions?.resetZoom() ?? viewerRef?.current?.resetZoom();
+  const resetZoom = () => {
+    zoomActions?.resetZoom();
+    viewerRef?.current?.resetZoom();
+  };
 
   const btnClass = useOverlay ? WATER_GLASS_BTN_BASE : cn("size-9 rounded-full", tone.btn);
 
@@ -113,9 +114,9 @@ export function VisorPhotoZoomBar({
       <GlassZoomButton
         onClick={zoomOut}
         onPointerDown={stopControlPointer}
-        disabled={atFit}
+        disabled={userZoom <= FIT_ZOOM + 0.05}
         ariaLabel="Alejar"
-        title={atFit ? "Ya estás en imagen completa" : "Alejar"}
+        title={userZoom <= FIT_ZOOM + 0.05 ? "Ya estás en imagen completa" : "Alejar"}
         className={useOverlay ? btnClass : cn("size-9 rounded-full", tone.btn)}
       >
         {useOverlay ? (
@@ -138,14 +139,12 @@ export function VisorPhotoZoomBar({
       <GlassZoomButton
         onClick={resetZoom}
         onPointerDown={stopControlPointer}
-        disabled={!canTogglePresentation || (atFit && atPresentation)}
-        ariaLabel={atFit ? "Zoom recomendado" : "Ver imagen completa"}
+        disabled={atPresentation}
+        ariaLabel="Restablecer zoom"
         title={
-          atFit
-            ? "Aplicar zoom recomendado (vertical)"
-            : atPresentation
-              ? "Ver imagen completa"
-              : "Alternar zoom recomendado / imagen completa"
+          atPresentation
+            ? "Ya estás en el zoom recomendado"
+            : "Restablecer zoom recomendado"
         }
         className={useOverlay ? btnClass : cn("size-9 rounded-full", tone.btn)}
       >

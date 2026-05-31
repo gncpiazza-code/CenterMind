@@ -13,6 +13,17 @@ export function markVisorImageCached(src: string | null | undefined): void {
   if (src) loaded.add(src);
 }
 
+/** Misma política CORS que FotoViewer — sin esto el prefetch no alimenta el <img>. */
+function applyVisorImgCors(img: HTMLImageElement, src: string): void {
+  if (
+    !src.startsWith("data:") &&
+    !src.startsWith("blob:") &&
+    !src.startsWith("/")
+  ) {
+    img.crossOrigin = "anonymous";
+  }
+}
+
 export function preloadVisorImageUrl(src: string | null | undefined): Promise<void> {
   if (!src) return Promise.resolve();
   if (loaded.has(src)) return Promise.resolve();
@@ -21,6 +32,7 @@ export function preloadVisorImageUrl(src: string | null | undefined): Promise<vo
 
   const p = new Promise<void>((resolve) => {
     const img = new Image();
+    applyVisorImgCors(img, src);
     img.decoding = "async";
     if ("fetchPriority" in img) {
       (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "high";
@@ -28,10 +40,17 @@ export function preloadVisorImageUrl(src: string | null | undefined): Promise<vo
     const done = () => {
       loaded.add(src);
       inflight.delete(src);
-      resolve();
+      if (typeof img.decode === "function") {
+        img.decode().then(() => resolve()).catch(() => resolve());
+      } else {
+        resolve();
+      }
     };
     img.onload = done;
-    img.onerror = done;
+    img.onerror = () => {
+      inflight.delete(src);
+      resolve();
+    };
     img.src = src;
     if (img.complete) done();
   });
@@ -74,6 +93,18 @@ export function preloadVisorFotoNeighbors(
   [...new Set(urls)].forEach((u) => void preloadVisorImageUrl(u));
 }
 
+/** Todas las fotos del grupo actual — prioridad al abrir/cambiar PDV. */
+export function preloadVisorCurrentGroup(
+  grupos: GrupoPendiente[],
+  groupIndex: number,
+): void {
+  const fotos = grupos[groupIndex]?.fotos ?? [];
+  for (const f of fotos) {
+    const u = fotoUrl(f);
+    if (u) void preloadVisorImageUrl(u);
+  }
+}
+
 /** Resto del lote en idle — no compite con la foto visible. */
 export function preloadVisorQueueIdle(grupos: GrupoPendiente[]): void {
   const all = [
@@ -85,7 +116,7 @@ export function preloadVisorQueueIdle(grupos: GrupoPendiente[]): void {
   ];
   const run = () => {
     for (const url of all) {
-      if (!loaded.has(url)) void preloadVisorImageUrl(url);
+      void preloadVisorImageUrl(url);
     }
   };
   if (typeof requestIdleCallback !== "undefined") {

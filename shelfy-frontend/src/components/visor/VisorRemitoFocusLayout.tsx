@@ -81,11 +81,33 @@ export function VisorRemitoFocusLayout({
 
         {showRemito ? (
           <>
+            <motion.div
+              ref={slotRef}
+              layout
+              transition={VISOR_LAYOUT_TRANSITION}
+              className={cn(
+                "px-3 min-w-0 z-[3]",
+                expanded ? "pb-1" : "pb-2",
+                expanded
+                  ? "shrink-0 overflow-y-auto overflow-x-hidden overscroll-contain max-h-[min(78vh,100%)]"
+                  : "flex-1 min-h-0 flex flex-col overflow-hidden",
+              )}
+            >
+              <motion.div
+                ref={cardRef}
+                layout
+                transition={VISOR_LAYOUT_TRANSITION}
+                className="w-full min-w-0 shrink-0"
+              >
+                {remito(expanded)}
+              </motion.div>
+            </motion.div>
+
             {showToggle ? (
               <motion.div
                 layout
                 transition={VISOR_LAYOUT_TRANSITION}
-                className="shrink-0 flex justify-center px-3 py-1.5 z-[2]"
+                className="shrink-0 flex justify-center px-3 pt-1 pb-2 z-[2]"
               >
                 <button
                   type="button"
@@ -116,27 +138,6 @@ export function VisorRemitoFocusLayout({
                 </button>
               </motion.div>
             ) : null}
-
-            <motion.div
-              ref={slotRef}
-              layout
-              transition={VISOR_LAYOUT_TRANSITION}
-              className={cn(
-                "px-3 pb-2 min-w-0 z-[3]",
-                expanded
-                  ? "shrink-0 overflow-y-auto overflow-x-hidden overscroll-contain max-h-[min(78vh,100%)]"
-                  : "flex-1 min-h-0 flex flex-col overflow-hidden",
-              )}
-            >
-              <motion.div
-                ref={cardRef}
-                layout
-                transition={VISOR_LAYOUT_TRANSITION}
-                className="w-full min-w-0 shrink-0"
-              >
-                {remito(expanded)}
-              </motion.div>
-            </motion.div>
           </>
         ) : null}
       </motion.div>

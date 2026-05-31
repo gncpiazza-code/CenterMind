@@ -28,13 +28,46 @@ def get_or_refresh_dashboard(
 ) -> dict:
     snap = _read_dashboard_snapshot(dist_id, periodo, sucursal_id)
     if snap is not None and _is_fresh(snap["generated_at"], DASHBOARD_MAX_STALE_SECONDS):
-        payload = snap["payload"]
+        payload = _normalize_dashboard_payload(snap["payload"], dist_id)
         payload.setdefault("meta", {})["cache_hit"] = True
         return payload
     payload = _compute_dashboard(dist_id, periodo, sucursal_id, hide_qa)
     payload.setdefault("meta", {})["cache_hit"] = False
     _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
     return payload
+
+
+def _normalize_dashboard_payload(payload: dict, dist_id: int) -> dict:
+    """Snapshots viejos guardaban ranking como dict crudo de aggregate_ranking_by_vendor."""
+    out = dict(payload)
+    out["ranking"] = _normalize_ranking_field(out.get("ranking"), dist_id)
+    if not isinstance(out.get("ultimas"), list):
+        out["ultimas"] = []
+    if not isinstance(out.get("sucursales"), list):
+        out["sucursales"] = []
+    if not isinstance(out.get("evolucion"), list):
+        out["evolucion"] = []
+    return out
+
+
+def _normalize_ranking_field(ranking: Any, dist_id: int) -> list[dict]:
+    if ranking is None:
+        return []
+    if isinstance(ranking, list):
+        return ranking
+    if isinstance(ranking, dict) and ranking:
+        sample = next(iter(ranking.values()))
+        if isinstance(sample, dict) and "puntos" in sample and "vendedor" not in sample:
+            from routers.reportes import _dashboard_ranking_rows
+            return _dashboard_ranking_rows(dist_id, ranking)
+        if isinstance(sample, dict) and "vendedor" in sample:
+            return sorted(
+                ranking.values(),
+                key=lambda x: (x or {}).get("puntos") or 0,
+                reverse=True,
+            )
+    logger.warning("[snap_dashboard] ranking shape desconocido dist=%s", dist_id)
+    return []
 
 
 def mark_dashboard_stale(dist_id: int, periodo: str | None = None) -> None:
@@ -113,7 +146,9 @@ def _compute_dashboard(
         "exhibiciones_por_vendedor": exhibiciones_por_vendedor,
     }
 
-    ranking = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+    stats = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+    from routers.reportes import _dashboard_ranking_rows
+    ranking = _dashboard_ranking_rows(dist_id, stats)
 
     # Ultimas: query simple (top 8 más recientes no rechazadas)
     ultimas = _fetch_ultimas_simple(dist_id, suc_pk)
@@ -138,23 +173,43 @@ def _compute_dashboard(
 
 
 def _fetch_ultimas_simple(dist_id: int, suc_pk: int | None, n: int = 8) -> list[dict]:
+    """Obtiene las últimas evaluadas con enrich legacy (paridad con dashboard_ultimas endpoint)."""
     try:
-        q = (
-            sb.table("exhibiciones")
-            .select(
-                "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,"
-                "id_cliente_pdv,id_cliente,cliente_sombra_codigo,telegram_chat_id"
-            )
-            .eq("id_distribuidor", dist_id)
-            .neq("estado", "Rechazado")
-            .order("timestamp_subida", desc=True)
-            .limit(n * 3)  # sobremargen para filtrado adicional si se añade
+        from routers.reportes import (
+            _fetch_ultimas_evaluadas_rows,
+            _enrich_ultimas_dashboard_rows,
+            _filter_ultimas_by_sucursal,
         )
-        rows = q.execute().data or []
-        return rows[:n]
-    except Exception as e:
-        logger.warning(f"[snap_dashboard] ultimas dist={dist_id}: {e}")
+        allowed_integrantes: set[int] | None = None
+        if suc_pk is not None:
+            from routers.reportes import _allowed_integrantes_for_sucursal
+            allowed_integrantes = _allowed_integrantes_for_sucursal(dist_id, suc_pk)
+
+        rows = _fetch_ultimas_evaluadas_rows(dist_id, n)
+        rows = _filter_ultimas_by_sucursal(rows, allowed_integrantes)
+        if n > 0:
+            rows = rows[:n]
+        if rows:
+            return _enrich_ultimas_dashboard_rows(rows, dist_id)
         return []
+    except Exception as e:
+        logger.warning(f"[snap_dashboard] ultimas enrich dist={dist_id}: {e}")
+        # Fallback simple si el enrich falla
+        try:
+            q = (
+                sb.table("exhibiciones")
+                .select(
+                    "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,"
+                    "id_cliente_pdv,id_cliente,cliente_sombra_codigo,telegram_chat_id"
+                )
+                .eq("id_distribuidor", dist_id)
+                .neq("estado", "Rechazado")
+                .order("timestamp_subida", desc=True)
+                .limit(n if n > 0 else 8)
+            )
+            return q.execute().data or []
+        except Exception:
+            return []
 
 
 def _fetch_sucursales(dist_id: int, periodo: str, enrich_fn) -> list[dict]:

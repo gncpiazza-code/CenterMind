@@ -531,6 +531,29 @@ export interface DashboardBundle {
   evolucion: EvolucionTiempo[];
 }
 
+/** Snapshots viejos guardaban ranking como dict de aggregate_ranking_by_vendor, no array. */
+function coerceDashboardRankingRows(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") {
+    const entries = Object.entries(raw as Record<string, unknown>);
+    if (entries.length === 0) return [];
+    const sample = entries[0][1];
+    if (
+      sample &&
+      typeof sample === "object" &&
+      "puntos" in sample &&
+      !("vendedor" in sample)
+    ) {
+      return entries.map(([vendedor, stats]) => ({
+        vendedor,
+        ...(stats as Record<string, unknown>),
+      }));
+    }
+    return Object.values(raw as Record<string, Record<string, unknown>>);
+  }
+  return [];
+}
+
 export async function fetchDashboardBundle(
   distribuidorId: number,
   periodo: string = "mes",
@@ -541,20 +564,20 @@ export async function fetchDashboardBundle(
   const data = await apiFetch<{
     meta: BundleMeta;
     kpis: KPIs;
-    ranking: Record<string, unknown>[];
+    ranking: unknown;
     ultimas: Record<string, unknown>[];
     sucursales: SucursalStats[];
     evolucion: EvolucionTiempo[];
   }>(`/api/bundle/dashboard/${distribuidorId}?${q.toString()}`);
 
-  const ranking = (data.ranking ?? []).map((row) => ({
+  const ranking = coerceDashboardRankingRows(data.ranking).map((row) => ({
     ...(row as unknown as VendedorRanking),
     vendedor:
       resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
       "Sin vendedor",
   }));
 
-  const ultimas = (data.ultimas ?? []).map((row) => {
+  const ultimas = (Array.isArray(data.ultimas) ? data.ultimas : []).map((row) => {
     const erp =
       resolveVendorERPName(row, ["vendedor_erp", "nombre_erp"]) ?? "Sin vendedor";
     const pdvAsignado = row.pdv_asignado_vendedor;

@@ -1062,40 +1062,16 @@ def dashboard_kpis(
     }
 
 
-@router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(
+def _dashboard_ranking_rows(
     distribuidor_id: int,
-    periodo: str = "mes",
-    top: int = 999,
-    sucursal_id: Optional[str] = Query(None),
-    payload=Depends(verify_auth),
-):
-    check_dist_permission(payload, distribuidor_id)
-    start_iso, end_iso = _resolve_period_bounds(periodo)
-    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
-    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, suc_pk)
-    ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
-
-    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
-    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
-
-    filtered: list[dict] = []
-    for ex in ex_rows:
-        iid = ex.get("id_integrante")
-        if iid is None:
-            continue
-        try:
-            iid_i = int(iid)
-        except (TypeError, ValueError):
-            continue
-        if allowed_integrantes is not None and iid_i not in allowed_integrantes:
-            continue
-        vendedor = iid_to_erp.get(iid_i, "Desconocido")
-        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
-            continue
-        filtered.append(ex)
-
-    stats = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+    stats: dict[str, dict[str, int]],
+) -> list[dict[str, Any]]:
+    """
+    Convierte el dict de aggregate_ranking_by_vendor a filas ordenadas
+    (mismo shape que GET /api/dashboard/ranking).
+    """
+    if not stats:
+        return []
     erp_to_sucursal = _build_erp_sucursal_map(distribuidor_id)
     t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
     vend_rows = (
@@ -1136,8 +1112,44 @@ def dashboard_ranking(
         for vendedor, s in stats.items()
     }
 
-    sorted_rows = sorted(aggregated.values(), key=lambda x: x.get("puntos") or 0, reverse=True)
-    return sorted_rows[:top]
+    return sorted(aggregated.values(), key=lambda x: x.get("puntos") or 0, reverse=True)
+
+
+@router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
+def dashboard_ranking(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    top: int = 999,
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
+    check_dist_permission(payload, distribuidor_id)
+    start_iso, end_iso = _resolve_period_bounds(periodo)
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, suc_pk)
+    ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
+
+    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
+
+    filtered: list[dict] = []
+    for ex in ex_rows:
+        iid = ex.get("id_integrante")
+        if iid is None:
+            continue
+        try:
+            iid_i = int(iid)
+        except (TypeError, ValueError):
+            continue
+        if allowed_integrantes is not None and iid_i not in allowed_integrantes:
+            continue
+        vendedor = iid_to_erp.get(iid_i, "Desconocido")
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
+            continue
+        filtered.append(ex)
+
+    stats = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+    return _dashboard_ranking_rows(distribuidor_id, stats)[:top]
 
 
 @router.get("/api/dashboard/ranking-compania/{distribuidor_id}", summary="Ranking paralelo de Compañía (overlay re-evaluaciones)")

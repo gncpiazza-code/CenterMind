@@ -245,6 +245,21 @@ export function VendorCardFusion({
           >
             {vendor.nombre}
           </p>
+          {vendor.top_localidades ? (
+            <p
+              style={{
+                margin: "3px 0 0",
+                fontSize: 9,
+                fontWeight: 600,
+                color: "rgba(0,0,0,0.45)",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                lineHeight: 1.2,
+              }}
+            >
+              {vendor.top_localidades}
+            </p>
+          ) : null}
         </div>
       </motion.div>
       </div>

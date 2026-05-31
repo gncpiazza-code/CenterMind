@@ -849,12 +849,13 @@ def aggregate_kpis_vendedor_bounds(
 
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
     pdvs_unicos: set = set()
+    localidad_clients: dict[str, set[str]] = defaultdict(set)
     if ruta_ids:
         for i in range(0, len(ruta_ids), 50):
             batch_ids = ruta_ids[i : i + 50]
             q = (
                 sb.table(t_pdv)
-                .select("id_cliente_erp")
+                .select("id_cliente_erp,localidad")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", batch_ids)
                 .or_(_PADRON_VISIBLE_OR)
@@ -863,7 +864,11 @@ def aggregate_kpis_vendedor_bounds(
             for r in rows:
                 eid = r.get("id_cliente_erp")
                 if eid:
-                    pdvs_unicos.add(str(eid))
+                    eid_s = str(eid)
+                    pdvs_unicos.add(eid_s)
+                    loc = _normalize_localidad_label(r.get("localidad"))
+                    if loc:
+                        localidad_clients[loc].add(eid_s)
     pdvs_activos = len(pdvs_unicos)
 
     altas = 0
@@ -969,7 +974,7 @@ def aggregate_kpis_vendedor_bounds(
     cumplidos = sum(1 for o in vendor_activos if o.get("cumplido"))
     objetivos_pct = (cumplidos / len(vendor_activos) * 100) if vendor_activos else 0.0
 
-    return {
+    raw_out: dict = {
         "pdvs": pdvs_activos,
         "altas": altas,
         "exhibiciones": exhibiciones_logicas,
@@ -980,6 +985,10 @@ def aggregate_kpis_vendedor_bounds(
         "cobertura_pct": round(cobertura_pct, 1),
         "objetivos_pct": round(objetivos_pct, 1),
     }
+    top_loc = _top_localidades_label(localidad_clients)
+    if top_loc:
+        raw_out["top_localidades"] = top_loc
+    return raw_out
 
 
 def build_carta_for_vendor_period(
@@ -1051,6 +1060,9 @@ def build_carta_for_vendor_period(
         "has_ideal_compania": bool(ideal_comp),
         "has_ideal_distribuidora": bool(ideal_dist),
     }
+    top_loc = raw.get("top_localidades")
+    if top_loc:
+        card["top_localidades"] = top_loc
     if ideal_comp:
         card["radar_ideal_compania"] = radar_ideal_target()
         card["ideal_meta_compania"] = ideal_meta_display_values(ideal_comp, n_meses, raw)
@@ -1182,7 +1194,7 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
     def pdv_q(offset):
         return (
             sb.table(t_pdv)
-            .select("id_ruta,id_cliente_erp,fecha_alta")
+            .select("id_ruta,id_cliente_erp,fecha_alta,localidad")
             .eq("id_distribuidor", dist_id)
             .or_(_PADRON_VISIBLE_OR)
         )
@@ -1266,6 +1278,9 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
 
     pdvs_by_vend: dict[int, set] = defaultdict(set)
     altas_by_vend: dict[int, int] = defaultdict(int)
+    localidad_clients_by_vend: dict[int, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
     for row in parallel.get("pdv") or []:
         rid = row.get("id_ruta")
         if rid is None:
@@ -1275,7 +1290,11 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
             continue
         eid = row.get("id_cliente_erp")
         if eid:
-            pdvs_by_vend[vid].add(str(eid))
+            eid_s = str(eid)
+            pdvs_by_vend[vid].add(eid_s)
+            loc = _normalize_localidad_label(row.get("localidad"))
+            if loc:
+                localidad_clients_by_vend[vid][loc].add(eid_s)
         if _in_meses(row.get("fecha_alta", ""), meses_set):
             altas_by_vend[vid] += 1
 
@@ -1342,7 +1361,7 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         ex_u = ex_pdvs_unique_by_vend.get(vid, 0)
         cob = min(100.0, ex_u / pdvs * 100) if pdvs else 0.0
         bultos_raw = bultos_by_vend.get(vid, 0.0)
-        out[str(vid)] = {
+        raw_entry: dict = {
             "pdvs": pdvs,
             "altas": altas_by_vend.get(vid, 0),
             "exhibiciones": ex_logicas_by_vend.get(vid, 0),
@@ -1356,6 +1375,10 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
             "cobertura_pct": round(cob, 1),
             "objetivos_pct": round(obj_pct, 1),
         }
+        top_loc = _top_localidades_label(localidad_clients_by_vend.get(vid))
+        if top_loc:
+            raw_entry["top_localidades"] = top_loc
+        out[str(vid)] = raw_entry
     unmatched_pct = round(ventas_unmatched / max(ventas_total, 1) * 100, 1)
     out["__ventas_meta__"] = {  # type: ignore[assignment]
         "ventas_total": ventas_total,
@@ -1445,6 +1468,9 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
             "has_ideal_compania": bool(ideal_comp),
             "has_ideal_distribuidora": bool(ideal_dist),
         }
+        top_loc = raw.get("top_localidades")
+        if top_loc:
+            card["top_localidades"] = top_loc
         if erp_sync_alert:
             card["erp_sync_alert"] = True
             card["erp_sync_reason"] = "ventas_sin_match_vendedor"
@@ -1503,6 +1529,27 @@ _DIA_SEMANA_ORDEN = {
 def _dia_semana_sort_key(dia: str) -> tuple[int, str]:
     norm = _normalize_dia_semana(dia)
     return (_DIA_SEMANA_ORDEN.get(norm, 50), norm)
+
+
+def _normalize_localidad_label(loc: object) -> str:
+    s = " ".join(str(loc or "").strip().split())
+    return s.upper() if s else ""
+
+
+def _top_localidades_label(
+    localidad_clients: dict[str, set[str]] | None,
+    *,
+    limit: int = 2,
+) -> str:
+    """Las N localidades con más clientes únicos en cartera (ej. 'PARANA - DIAMANTE')."""
+    if not localidad_clients:
+        return ""
+    ranked = sorted(
+        localidad_clients.items(),
+        key=lambda item: (-len(item[1]), item[0]),
+    )
+    names = [name for name, clients in ranked[:limit] if clients and name]
+    return " - ".join(names)
 
 
 def _pdv_detalle_row(row: dict) -> dict:

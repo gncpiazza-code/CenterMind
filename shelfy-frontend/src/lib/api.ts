@@ -3386,6 +3386,8 @@ export interface VendorCartaResumen {
   erp_sync_alert?: boolean;
   erp_sync_reason?: string;
   erp_sync_unmatched_pct?: number;
+  /** Top 2 localidades por cantidad de clientes en cartera (ej. "PARANA - DIAMANTE"). */
+  top_localidades?: string;
 }
 
 export interface VendorDetallePdv {

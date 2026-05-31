@@ -54,6 +54,7 @@ const MOCK_GOLD: VendorCartaResumen = {
     objetivos_pct: 65,
   },
   has_ideal_compania: true,
+  top_localidades: "PARANA - DIAMANTE",
 };
 
 const MOCK_SILVER: VendorCartaResumen = {

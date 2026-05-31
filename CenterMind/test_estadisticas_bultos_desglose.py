@@ -3,6 +3,7 @@
 from services.estadisticas_service import (
     _build_bultos_desglose,
     _venta_pertenece_vendedor,
+    _cartas_comercial_ventas_plausible,
     bultos_display_2dec,
 )
 
@@ -70,3 +71,34 @@ def test_build_bultos_desglose_suma_coincide_con_total():
     assert bultos_display_2dec(total_raw) == bultos_display_2dec(
         sum(float(x.get("bultos_raw") or 0) for x in top)
     )
+
+
+def test_cartas_plausible_rechaza_ventas_parciales():
+    """Snapshot con ventas truncadas (exhibiciones OK, bultos muy bajos) no debe persistirse."""
+    cartas = [
+        {
+            "nombre": "IVAN SOTO",
+            "raw_kpis": {
+                "exhibiciones": 432,
+                "compradores": 411,
+                "bultos": 95,
+                "bultos_raw": 95.0,
+            },
+        }
+    ]
+    assert _cartas_comercial_ventas_plausible(cartas) is False
+
+
+def test_cartas_plausible_acepta_kpis_coherentes():
+    cartas = [
+        {
+            "nombre": "IVAN SOTO",
+            "raw_kpis": {
+                "exhibiciones": 432,
+                "compradores": 544,
+                "bultos": 329,
+                "bultos_raw": 329.0,
+            },
+        }
+    ]
+    assert _cartas_comercial_ventas_plausible(cartas) is True

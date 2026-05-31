@@ -63,7 +63,11 @@ _CARTA_CACHE_LOCK = Lock()
 _CARTA_TTL_SEC = 90
 _POOL = ThreadPoolExecutor(max_workers=10, thread_name_prefix="estad-stats")
 _VENTAS_CHUNK_DAYS = 7
-_VENTAS_CHUNK_RETRIES = 2
+_VENTAS_CHUNK_RETRIES = 3
+
+
+class VentasFetchIncompleteError(RuntimeError):
+    """Ventas_enriched incompleto (timeout parcial) — no usar para KPIs ni snapshot."""
 
 
 def _ventas_date_chunks(fecha_desde: str, fecha_hasta: str, chunk_days: int = _VENTAS_CHUNK_DAYS) -> list[tuple[str, str]]:
@@ -110,11 +114,14 @@ def _fetch_ventas_estadisticas(
         return out
 
     for desde, hasta in _ventas_date_chunks(fecha_desde, fecha_hasta):
+        last_err: Exception | None = None
         for attempt in range(_VENTAS_CHUNK_RETRIES):
             try:
                 rows.extend(fetch_chunk(desde, hasta))
+                last_err = None
                 break
             except Exception as e:
+                last_err = e
                 logger.warning(
                     "[estadisticas] ventas chunk %s..%s attempt=%s dist=%s: %s",
                     desde,
@@ -123,11 +130,15 @@ def _fetch_ventas_estadisticas(
                     dist_id,
                     e,
                 )
+        if last_err is not None:
+            raise VentasFetchIncompleteError(
+                f"ventas_enriched incompleto dist={dist_id} rango={desde}..{hasta}: {last_err}"
+            ) from last_err
     return rows
 
 
 def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
-    """Detecta snapshots/cartas con ventas vacías pese a exhibiciones (timeout silencioso)."""
+    """Detecta snapshots/cartas con ventas vacías o parciales (timeout silencioso)."""
     if not cartas:
         return False
     ex_sum = 0
@@ -140,6 +151,21 @@ def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
         ex_sum += int(raw.get("exhibiciones") or 0)
         cmp_sum += int(raw.get("compradores") or 0)
         blt_sum += float(raw.get("bultos_raw") or raw.get("bultos") or 0)
+        cmp = int(raw.get("compradores") or 0)
+        ex = int(raw.get("exhibiciones") or 0)
+        blt = float(raw.get("bultos_raw") or raw.get("bultos") or 0)
+        # Ventas parciales: exhibiciones altas + muchos compradores + bultos muy bajos
+        if cmp >= 100 and ex >= 120 and blt > 0 and (blt / cmp) < 0.35:
+            logger.warning(
+                "[estadisticas] carta implausible bultos/compradores dist=%s vendedor=%s "
+                "bultos=%s compradores=%s exhibiciones=%s",
+                c.get("id_distribuidor"),
+                c.get("nombre"),
+                blt,
+                cmp,
+                ex,
+            )
+            return False
     if ex_sum >= 20 and cmp_sum == 0 and blt_sum == 0:
         return False
     return True

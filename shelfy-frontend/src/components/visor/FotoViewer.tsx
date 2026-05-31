@@ -336,6 +336,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   return (
     <div
       ref={shellRef}
+      data-foto-shell
       className={cn(
         "relative w-full h-full min-h-[200px] overflow-hidden select-none",
         canPan ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
@@ -382,6 +383,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
                 : undefined
             }
             loading={priority ? "eager" : "lazy"}
+            crossOrigin={src && !src.startsWith("data:") && !src.startsWith("blob:") && !src.startsWith("/") ? "anonymous" : undefined}
             onLoad={(e) => {
               const img = e.currentTarget;
               const size = readNaturalSize(img) ?? parseIntrinsicFromSrc(src);

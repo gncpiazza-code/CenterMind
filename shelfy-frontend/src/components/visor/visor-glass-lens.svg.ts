@@ -1,3 +1,8 @@
+/**
+ * SVG lens filter defs — used by VisorGlassLensLayer (canvas strategy, Chromium).
+ * Applied to the canvas element, NOT to the backdrop-filter layer (H1/H6 fix).
+ * Legacy bench toggle: keep for /visor/glass-bench lens=off comparison.
+ */
 export const LENS_FILTER_ID = "shelfy-glass-lens";
 
 /** Inject once into <body>; idempotent. */

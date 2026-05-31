@@ -132,6 +132,23 @@ Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
 - Layout de 3 paneles en desktop.
 - Atajos de teclado para evaluar/navegar.
 - Filtro por sucursal y foco en imagen.
+- Animaciones foto: **solo `opacity`** — sin `x`/`transform` (rompe backdrop-filter sampling).
+
+### Visor — Liquid Glass Clear material (`components/visor/`)
+
+- `VisorGlassMaterial` — `forwardRef`; 6 capas: **A** refract / **B** tint / **C** LensLayer / **D** rim / **E** specular / **F** content; `glyphMode`+`getImg` props; `data-glyph-mode` en root.
+- **Invariante H1/H6:** `filter` **NUNCA** en la capa A (backdrop-filter); el SVG lens va solo en el canvas de capa C.
+- `VisorGlassLensLayer` — capa C separada: Chromium usa canvas 2D + `filter:url(#lens)` en el canvas; Firefox usa `VisorGlassWebGLLens` (fragment shader fbm); Safari sin lens.
+- `useVisorGlassGlyphMode(getImg, pillRef)` — hook que muestrea luminancia real c/200ms → retorna `{glyphMode, luma}`.
+- `GlassIcon`/`GlassLabel` — vibrancy adaptativa: iconos oscuros en fondo claro, claros en fondo oscuro.
+- `WATER_GLASS_BTN_BASE` — clase base estructural sin color/filter; usar con `<GlassIcon>` para vibrancy adaptativa.
+- `WATER_GLASS_ICON_BTN` — retrocompat: base + blanco hardcodeado (dark backdrop). Usar cuando no hay hook.
+- `resolveGlassAnchor(imgRect, shellRect)` — sube píldora cuando cae >40% bajo la imagen.
+- `FotoViewer` — `crossOrigin="anonymous"` en img remota (CORS fix para canvas luma); `data-foto-shell` en shell.
+- `VisorWaterGlass` — `forwardRef`; props `glyphMode`+`getImg`; exporta `WATER_GLASS_BTN_BASE`.
+- Bench dev: `/visor/glass-bench` — HUD luma/mode/strategy; toggle vibrancy.
+- **Nunca** `filter` en ancestro del material ni `transform` en wrapper de controles.
+- `pickLensStrategy()` — Chromium→`"canvas"`, Firefox+WebGL→`"webgl"`, Safari→`"none"`.
 
 ### `galeria/ReevaluarCompaniaSheet.tsx` + `SlideToConfirm.tsx`
 

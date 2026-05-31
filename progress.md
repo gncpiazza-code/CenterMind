@@ -74,6 +74,8 @@
 
 27. Validación cartera bot + aviso PDV nuevo (2026-05-28): `BOT_VALIDACION_CARTERA=1` activa bloqueo en `handle_text` cuando el NRO no está en rutas del vendedor. Dos botones: "Enviar NRO otra vez" (`RETRY_CLIENTE_*`) y "Es PDV nuevo / continuar" (`PDV_NUEVO_*`). PDV nuevo → flag `pdv_nuevo_declarado` en sesión → inserción en `bot_pdv_pendiente_aviso`. Post-padrón: `procesar_pendientes(dist_id)` en `_ingest_for_dist` detecta clientes ya ingresados y envía mensaje HTML al grupo. Nuevos módulos: `core/bot_cliente_cartera.py`, `services/bot_pdv_aviso_service.py`, `scripts/test_bot_cartera_validacion.py`. SQL: `bot_pdv_pendiente_aviso` (tabla + índices) + `fn_reconcile_exhibiciones` extendida (paso 2 por `cliente_sombra_codigo`). **SQL pendiente ejecutar en Supabase.** Feature flag off por defecto en prod.
 
+28. Liquid Glass Clear visor — fase 1 (2026-05-31): `VisorGlassMaterial` arquitectura 5 capas; SVG lens Chromium-only; bench `/visor/glass-bench`; 15 tests. Fase 2 — 199% (2026-05-31): **H1/H6 fix** elimina niebla blanca quitando `filter` de la capa backdrop; **H2 fix** elimina `onGlyphMode("dark")` hardcodeado; `VisorGlassLensLayer` capa C separada (canvas Chromium, WebGL Firefox con fragment shader fbm); `useVisorGlassGlyphMode` hook luma real c/200ms; `GlassIcon`/`GlassLabel` adaptativo en controles; `crossOrigin="anonymous"` CORS fix; `resolveGlassAnchor` placement inteligente; bench HUD luma+mode; `VisorGlassMaterial` y `VisorWaterGlass` como `forwardRef`; 33 tests unitarios. Nuevos archivos: `visor-glass-lens-strategy.ts`, `visor-glass-canvas-lens.ts`, `visor-glass-placement.ts`, `useVisorGlassGlyphMode.ts`, `VisorGlassLensLayer.tsx`.
+
 ## Proximos Pasos Prioritarios
 
 1. Activar tenant `extra` (credenciales + validacion E2E).

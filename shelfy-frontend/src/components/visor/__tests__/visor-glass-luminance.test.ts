@@ -39,4 +39,24 @@ describe("sampleBackdropLuma", () => {
     const r = new DOMRect(0, 0, 100, 50);
     expect(sampleBackdropLuma(img, r, r)).toBe(0.2);
   });
+
+  it("returns 0.2 fallback when canvas ctx is unavailable (jsdom)", () => {
+    const img = {
+      complete: true,
+      naturalWidth: 100,
+      naturalHeight: 100,
+    } as HTMLImageElement;
+    const r = new DOMRect(0, 0, 50, 50);
+    // jsdom does not implement canvas 2D drawing — falls back to 0.2
+    const result = sampleBackdropLuma(img, r, r);
+    expect(result).toBe(0.2);
+  });
+
+  it("fallback 0.2 maps to glyphMode 'dark'", () => {
+    expect(glyphMode(0.2)).toBe("dark");
+  });
+
+  it("luma 0.8 maps to glyphMode 'light' (AC-199-1)", () => {
+    expect(glyphMode(0.8)).toBe("light");
+  });
 });

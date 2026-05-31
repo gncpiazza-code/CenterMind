@@ -2,17 +2,15 @@
 
 /**
  * Liquid Glass Bench — dev playground.
- * Access: /visor/glass-bench (or /visor/glass-bench?debug=glass)
+ * Access: /visor/glass-bench
  *
- * Shows all 6 bench backgrounds with the pill overlay for visual AC validation.
- * AC1: identify product colors through pill ✓
- * AC2: single silhouette, no opaque box ✓
- * AC3: icons legible on light and dark regions ✓
- * AC5: lensing visible in Chromium ✓
- * AC6: Safari/Firefox — same legibility, no lens ✓
+ * HUD shows: luma, glyph-mode, lens strategy, opacity delta.
+ * AC-199-1: Light background → dark icons.
+ * AC-199-2: Dark background → light icons.
+ * AC-199-3: Chromium lens delta < 0.12.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -23,11 +21,15 @@ import {
 import { BENCH_MOCKS } from "@/lib/visor-mock-images";
 import { VisorGlassMaterial } from "@/components/visor/VisorGlassMaterial";
 import {
+  WATER_GLASS_BTN_BASE,
   WATER_GLASS_ICON_BTN,
   WATER_GLASS_DIVIDER,
   WATER_GLASS_COUNTER,
   waterGlassDotClass,
 } from "@/components/visor/VisorWaterGlass";
+import { GlassIcon } from "@/components/visor/VisorGlassVibrancy";
+import { useVisorGlassGlyphMode } from "@/components/visor/useVisorGlassGlyphMode";
+import { pickLensStrategy } from "@/components/visor/visor-glass-lens-strategy";
 import { cn } from "@/lib/utils";
 
 type Variant = "clear" | "regular";
@@ -38,6 +40,7 @@ export default function GlassBenchPage() {
   const [lensOn, setLensOn] = useState(true);
   const [totalFotos] = useState(3);
   const [fotoIdx, setFotoIdx] = useState(0);
+  const [vibrancyOn, setVibrancyOn] = useState(true);
 
   const prev = useCallback(
     () => setFotoIdx((i) => Math.max(0, i - 1)),
@@ -47,6 +50,9 @@ export default function GlassBenchPage() {
     () => setFotoIdx((i) => Math.min(totalFotos - 1, i + 1)),
     [totalFotos],
   );
+
+  const lensStrategy =
+    typeof window !== "undefined" ? pickLensStrategy() : "none";
 
   return (
     <div
@@ -59,13 +65,15 @@ export default function GlassBenchPage() {
           Liquid Glass — Bench
         </h1>
         <p className="text-white/45 text-xs font-medium">
-          Dev playground · /visor/glass-bench · AC1–AC8 validation matrix
+          Dev playground · /visor/glass-bench · AC-199 validation matrix
+        </p>
+        <p className="text-emerald-400/70 text-[10px] font-mono mt-1">
+          lens strategy: <span className="text-emerald-300 font-bold">{lensStrategy}</span>
         </p>
       </div>
 
       {/* Controls */}
       <div className="flex flex-wrap gap-3 mb-8">
-        {/* Variant */}
         <div className="flex gap-1 bg-white/5 border border-white/10 rounded-xl p-1">
           {(["clear", "regular"] as Variant[]).map((v) => (
             <button
@@ -83,7 +91,6 @@ export default function GlassBenchPage() {
           ))}
         </div>
 
-        {/* Compact */}
         <button
           onClick={() => setCompact((c) => !c)}
           className={cn(
@@ -96,7 +103,6 @@ export default function GlassBenchPage() {
           compact
         </button>
 
-        {/* Lens */}
         <button
           onClick={() => setLensOn((l) => !l)}
           className={cn(
@@ -107,6 +113,18 @@ export default function GlassBenchPage() {
           )}
         >
           lens {lensOn ? "on" : "off"}
+        </button>
+
+        <button
+          onClick={() => setVibrancyOn((v) => !v)}
+          className={cn(
+            "px-3 py-1.5 rounded-xl text-xs font-bold border transition-all",
+            vibrancyOn
+              ? "bg-amber-500 text-white border-amber-400"
+              : "text-white/50 border-white/10 hover:text-white/80",
+          )}
+        >
+          vibrancy {vibrancyOn ? "on" : "off"}
         </button>
       </div>
 
@@ -120,6 +138,7 @@ export default function GlassBenchPage() {
             variant={variant}
             compact={compact}
             enableLens={lensOn}
+            vibrancyOn={vibrancyOn}
             totalFotos={totalFotos}
             fotoIdx={fotoIdx}
             onPrev={prev}
@@ -129,7 +148,7 @@ export default function GlassBenchPage() {
         ))}
       </div>
 
-      {/* Spec */}
+      {/* Token snapshot */}
       <div className="mt-10 border-t border-white/10 pt-6">
         <h2 className="text-white/60 text-xs font-bold uppercase tracking-widest mb-3">
           Token snapshot — variant: {variant}
@@ -140,7 +159,7 @@ export default function GlassBenchPage() {
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── BenchCard ─────────────────────────────────────────────────────────────────
 
 function BenchCard({
   label,
@@ -148,6 +167,7 @@ function BenchCard({
   variant,
   compact,
   enableLens,
+  vibrancyOn,
   totalFotos,
   fotoIdx,
   onPrev,
@@ -159,21 +179,33 @@ function BenchCard({
   variant: Variant;
   compact: boolean;
   enableLens: boolean;
+  vibrancyOn: boolean;
   totalFotos: number;
   fotoIdx: number;
   onPrev: () => void;
   onNext: () => void;
   onSelect: (i: number) => void;
 }) {
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+
+  const getImg = useCallback(() => imgRef.current, []);
+
+  const { glyphMode, luma } = useVisorGlassGlyphMode(
+    vibrancyOn ? getImg : undefined,
+    pillRef,
+  );
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 shadow-2xl">
-      {/* Background image */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imgRef}
         src={src}
         alt={label}
         className="block w-full h-56 object-cover"
         draggable={false}
+        crossOrigin="anonymous"
       />
 
       {/* Label */}
@@ -181,22 +213,38 @@ function BenchCard({
         {label}
       </div>
 
-      {/* Pill overlay — at the bottom of the image */}
+      {/* HUD — luma + mode (AC-199-1/2) */}
+      <div className="absolute top-2 right-2 flex flex-col items-end gap-0.5">
+        <div className="text-[9px] font-mono text-white/55 bg-black/40 backdrop-blur-sm px-1.5 py-0.5 rounded border border-white/10">
+          luma {luma.toFixed(2)} · {glyphMode}
+        </div>
+      </div>
+
+      {/* Pill overlay */}
       <div className="absolute inset-x-0 bottom-3 flex justify-center pointer-events-none">
         <div className="pointer-events-auto">
           <VisorGlassMaterial
+            ref={pillRef}
             variant={variant}
             compact={compact}
             enableLens={enableLens}
+            glyphMode={glyphMode}
+            getImg={vibrancyOn ? getImg : undefined}
           >
             <button
               type="button"
               onClick={onPrev}
               disabled={fotoIdx === 0}
-              className={WATER_GLASS_ICON_BTN}
+              className={vibrancyOn ? WATER_GLASS_BTN_BASE : WATER_GLASS_ICON_BTN}
               aria-label="Anterior"
             >
-              <ChevronLeft size={compact ? 16 : 18} strokeWidth={2.25} />
+              {vibrancyOn ? (
+                <GlassIcon mode={glyphMode}>
+                  <ChevronLeft size={compact ? 16 : 18} strokeWidth={2.25} />
+                </GlassIcon>
+              ) : (
+                <ChevronLeft size={compact ? 16 : 18} strokeWidth={2.25} />
+              )}
             </button>
 
             <div className={cn(WATER_GLASS_DIVIDER, "mx-0.5")} aria-hidden />
@@ -219,16 +267,40 @@ function BenchCard({
 
             <div className={cn(WATER_GLASS_DIVIDER, "mx-0.5")} aria-hidden />
 
-            <button type="button" className={WATER_GLASS_ICON_BTN} aria-label="−">
-              <Minus size={compact ? 15 : 17} strokeWidth={2.25} />
+            <button
+              type="button"
+              className={vibrancyOn ? WATER_GLASS_BTN_BASE : WATER_GLASS_ICON_BTN}
+              aria-label="−"
+            >
+              {vibrancyOn ? (
+                <GlassIcon mode={glyphMode}><Minus size={compact ? 15 : 17} strokeWidth={2.25} /></GlassIcon>
+              ) : (
+                <Minus size={compact ? 15 : 17} strokeWidth={2.25} />
+              )}
             </button>
 
-            <button type="button" className={WATER_GLASS_ICON_BTN} aria-label="↺">
-              <RotateCcw size={compact ? 13 : 15} strokeWidth={2.25} />
+            <button
+              type="button"
+              className={vibrancyOn ? WATER_GLASS_BTN_BASE : WATER_GLASS_ICON_BTN}
+              aria-label="↺"
+            >
+              {vibrancyOn ? (
+                <GlassIcon mode={glyphMode}><RotateCcw size={compact ? 13 : 15} strokeWidth={2.25} /></GlassIcon>
+              ) : (
+                <RotateCcw size={compact ? 13 : 15} strokeWidth={2.25} />
+              )}
             </button>
 
-            <button type="button" className={WATER_GLASS_ICON_BTN} aria-label="+">
-              <Plus size={compact ? 15 : 17} strokeWidth={2.25} />
+            <button
+              type="button"
+              className={vibrancyOn ? WATER_GLASS_BTN_BASE : WATER_GLASS_ICON_BTN}
+              aria-label="+"
+            >
+              {vibrancyOn ? (
+                <GlassIcon mode={glyphMode}><Plus size={compact ? 15 : 17} strokeWidth={2.25} /></GlassIcon>
+              ) : (
+                <Plus size={compact ? 15 : 17} strokeWidth={2.25} />
+              )}
             </button>
 
             <div className={cn(WATER_GLASS_DIVIDER, "mx-0.5")} aria-hidden />
@@ -237,10 +309,16 @@ function BenchCard({
               type="button"
               onClick={onNext}
               disabled={fotoIdx >= totalFotos - 1}
-              className={WATER_GLASS_ICON_BTN}
+              className={vibrancyOn ? WATER_GLASS_BTN_BASE : WATER_GLASS_ICON_BTN}
               aria-label="Siguiente"
             >
-              <ChevronRight size={compact ? 16 : 18} strokeWidth={2.25} />
+              {vibrancyOn ? (
+                <GlassIcon mode={glyphMode}>
+                  <ChevronRight size={compact ? 16 : 18} strokeWidth={2.25} />
+                </GlassIcon>
+              ) : (
+                <ChevronRight size={compact ? 16 : 18} strokeWidth={2.25} />
+              )}
             </button>
           </VisorGlassMaterial>
         </div>
@@ -248,6 +326,8 @@ function BenchCard({
     </div>
   );
 }
+
+// ── TokenTable ────────────────────────────────────────────────────────────────
 
 import { GLASS_TOKENS } from "@/components/visor/visor-glass-tokens";
 

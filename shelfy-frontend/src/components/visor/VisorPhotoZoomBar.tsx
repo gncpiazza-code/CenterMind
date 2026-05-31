@@ -2,7 +2,9 @@
 
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { FIT_ZOOM, type FotoViewerHandle } from "@/components/visor/FotoViewer";
-import { WATER_GLASS_ICON_BTN, WATER_GLASS_DIVIDER } from "@/components/visor/VisorWaterGlass";
+import { WATER_GLASS_BTN_BASE, WATER_GLASS_ICON_BTN, WATER_GLASS_DIVIDER } from "@/components/visor/VisorWaterGlass";
+import { GlassIcon } from "@/components/visor/VisorGlassVibrancy";
+import type { GlyphMode } from "@/components/visor/visor-glass-luminance";
 import { cn } from "@/lib/utils";
 
 const GLASS = {
@@ -18,10 +20,6 @@ const GLASS = {
     btn: "text-white/95 hover:bg-white/14 active:bg-white/10",
     divider: "bg-white/15",
   },
-  /**
-   * Embedded inside VisorWaterGlass — inherits Liquid Glass Clear material.
-   * Buttons get vibrancy from WATER_GLASS_ICON_BTN (imported via parent).
-   */
   overlay: {
     panel: "",
     btn: "",
@@ -47,6 +45,8 @@ type Props = {
   surface?: keyof typeof GLASS;
   /** Sin cápsula propia — vive dentro de VisorWaterGlass. */
   embedded?: boolean;
+  /** Adaptive glyph mode from useVisorGlassGlyphMode */
+  glyphMode?: GlyphMode;
   className?: string;
 };
 
@@ -93,6 +93,7 @@ export function VisorPhotoZoomBar({
   presentationZoom,
   surface = "light",
   embedded = false,
+  glyphMode = "dark",
   className,
 }: Props) {
   const atFit = userZoom <= FIT_ZOOM + 0.05;
@@ -105,6 +106,8 @@ export function VisorPhotoZoomBar({
   const zoomIn = () => zoomActions?.zoomIn() ?? viewerRef?.current?.zoomIn();
   const resetZoom = () => zoomActions?.resetZoom() ?? viewerRef?.current?.resetZoom();
 
+  const btnClass = useOverlay ? WATER_GLASS_BTN_BASE : cn("size-9 rounded-full", tone.btn);
+
   const buttons = (
     <>
       <GlassZoomButton
@@ -113,11 +116,15 @@ export function VisorPhotoZoomBar({
         disabled={atFit}
         ariaLabel="Alejar"
         title={atFit ? "Ya estás en imagen completa" : "Alejar"}
-        className={cn(
-          useOverlay ? WATER_GLASS_ICON_BTN : cn("size-9 rounded-full", tone.btn),
-        )}
+        className={useOverlay ? btnClass : cn("size-9 rounded-full", tone.btn)}
       >
-        <Minus size={17} strokeWidth={2.25} />
+        {useOverlay ? (
+          <GlassIcon mode={glyphMode}>
+            <Minus size={17} strokeWidth={2.25} />
+          </GlassIcon>
+        ) : (
+          <Minus size={17} strokeWidth={2.25} />
+        )}
       </GlassZoomButton>
 
       <div
@@ -140,11 +147,15 @@ export function VisorPhotoZoomBar({
               ? "Ver imagen completa"
               : "Alternar zoom recomendado / imagen completa"
         }
-        className={cn(
-          useOverlay ? WATER_GLASS_ICON_BTN : cn("size-9 rounded-full", tone.btn),
-        )}
+        className={useOverlay ? btnClass : cn("size-9 rounded-full", tone.btn)}
       >
-        <RotateCcw size={15} strokeWidth={2.25} />
+        {useOverlay ? (
+          <GlassIcon mode={glyphMode}>
+            <RotateCcw size={15} strokeWidth={2.25} />
+          </GlassIcon>
+        ) : (
+          <RotateCcw size={15} strokeWidth={2.25} />
+        )}
       </GlassZoomButton>
 
       <div
@@ -161,11 +172,15 @@ export function VisorPhotoZoomBar({
         disabled={userZoom >= 5}
         ariaLabel="Acercar"
         title="Acercar"
-        className={cn(
-          useOverlay ? WATER_GLASS_ICON_BTN : cn("size-9 rounded-full", tone.btn),
-        )}
+        className={useOverlay ? btnClass : cn("size-9 rounded-full", tone.btn)}
       >
-        <Plus size={17} strokeWidth={2.25} />
+        {useOverlay ? (
+          <GlassIcon mode={glyphMode}>
+            <Plus size={17} strokeWidth={2.25} />
+          </GlassIcon>
+        ) : (
+          <Plus size={17} strokeWidth={2.25} />
+        )}
       </GlassZoomButton>
     </>
   );

@@ -1,7 +1,9 @@
 "use client";
 
+import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import { VisorGlassMaterial } from "./VisorGlassMaterial";
+import type { GlyphMode } from "./visor-glass-luminance";
 
 /** Kept for reference / bench tooling. */
 export const APPLE_GLASS = {
@@ -17,14 +19,26 @@ export const APPLE_GLASS = {
 export const GLASS_TEXT_PRIMARY = "text-[rgba(255,255,255,0.90)]";
 export const GLASS_TEXT_SECONDARY = "text-[rgba(255,255,255,0.55)]";
 
-export const WATER_GLASS_ICON_BTN = cn(
+/**
+ * Structural button base — size, layout, bg, transitions, states.
+ * Use this + GlassIcon wrapper when you need adaptive vibrancy.
+ */
+export const WATER_GLASS_BTN_BASE = cn(
   "size-9 shrink-0 flex items-center justify-center",
-  "text-[rgba(255,255,255,0.90)]",
-  "[filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.75))_drop-shadow(0_0_4px_rgba(0,0,0,0.3))]",
   "bg-transparent border-0 shadow-none font-medium",
   "transition-[transform,opacity] duration-200 ease-out",
   "hover:opacity-65 active:scale-[0.94]",
   "disabled:opacity-[0.35] disabled:pointer-events-none disabled:active:scale-100",
+);
+
+/**
+ * Icon button with hardcoded dark-backdrop vibrancy.
+ * For adaptive vibrancy use WATER_GLASS_BTN_BASE + <GlassIcon>.
+ */
+export const WATER_GLASS_ICON_BTN = cn(
+  WATER_GLASS_BTN_BASE,
+  "text-[rgba(255,255,255,0.90)]",
+  "[filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.75))_drop-shadow(0_0_4px_rgba(0,0,0,0.3))]",
 );
 
 export const WATER_GLASS_DIVIDER =
@@ -48,16 +62,29 @@ type ShellProps = {
   children: React.ReactNode;
   className?: string;
   compact?: boolean;
+  /** Adaptive glyph mode from useVisorGlassGlyphMode */
+  glyphMode?: GlyphMode;
+  /** Returns the <img> element for lens + luma sampling */
+  getImg?: () => HTMLImageElement | null;
 };
 
 /**
  * Liquid Glass Clear pill — delegates to VisorGlassMaterial.
- * Kept as a thin wrapper so all existing imports continue to work.
+ * Thin wrapper so all existing imports continue to work.
  */
-export function VisorWaterGlass({ children, className, compact }: ShellProps) {
-  return (
-    <VisorGlassMaterial variant="clear" compact={compact} className={className}>
-      {children}
-    </VisorGlassMaterial>
-  );
-}
+export const VisorWaterGlass = forwardRef<HTMLDivElement, ShellProps>(
+  function VisorWaterGlass({ children, className, compact, glyphMode, getImg }, ref) {
+    return (
+      <VisorGlassMaterial
+        ref={ref}
+        variant="clear"
+        compact={compact}
+        className={className}
+        glyphMode={glyphMode}
+        getImg={getImg}
+      >
+        {children}
+      </VisorGlassMaterial>
+    );
+  },
+);

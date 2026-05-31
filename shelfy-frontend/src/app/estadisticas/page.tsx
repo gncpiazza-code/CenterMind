@@ -1,7 +1,7 @@
 "use client";
 
 import "./estadisticas-page.css";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -43,7 +43,7 @@ const pageVariants = {
 // ── Main page ───────────────────────────────────────────────────────────────
 
 export default function EstadisticasPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
 
   const {
@@ -75,32 +75,49 @@ export default function EstadisticasPage() {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
 
-  const distId: number = user?.id_distribuidor ?? 0;
+  const distId: number = effectiveDistribuidorId ?? user?.id_distribuidor ?? 0;
 
   const { data: mesesDisponibles = [], isLoading: loadingMeses } =
     useEstadisticasMeses(distId);
 
   const { data: sucursales = [] } = useEstadisticasSucursales(distId);
 
-  // Auto-select current month on first load
+  const mesesParaQuery = useMemo(() => {
+    if (loadingMeses || mesesDisponibles.length === 0) return [];
+    return mesesSeleccionados.filter((m) => mesesDisponibles.includes(m));
+  }, [loadingMeses, mesesDisponibles, mesesSeleccionados]);
+
+  // Alinear meses persistidos con los disponibles para la distribuidora activa
   useEffect(() => {
-    if (mesesSeleccionados.length === 0 && mesesDisponibles.length > 0) {
-      const current = mesActual();
-      const toSelect = mesesDisponibles.includes(current)
-        ? [current]
-        : [mesesDisponibles[mesesDisponibles.length - 1]];
-      setMesesSeleccionados(toSelect);
+    if (loadingMeses) return;
+    if (mesesDisponibles.length === 0) {
+      if (mesesSeleccionados.length > 0) setMesesSeleccionados([]);
+      return;
     }
-  }, [mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
+    const valid = mesesSeleccionados.filter((m) => mesesDisponibles.includes(m));
+    if (valid.length === 0) {
+      const current = mesActual();
+      setMesesSeleccionados(
+        mesesDisponibles.includes(current)
+          ? [current]
+          : [mesesDisponibles[mesesDisponibles.length - 1]],
+      );
+    } else if (valid.length !== mesesSeleccionados.length) {
+      setMesesSeleccionados(valid);
+    }
+  }, [loadingMeses, mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
 
   const {
     data: cartasBundle,
     isLoading: loadingCards,
-  } = useEstadisticasCartasBundle(distId, mesesSeleccionados, filterSucursal);
+    isError: cartasError,
+    refetch: refetchCartas,
+  } = useEstadisticasCartasBundle(distId, mesesParaQuery, filterSucursal);
 
   const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
 
-  const showLoadingStrip = loadingCards && vendors.length === 0;
+  const showLoadingStrip =
+    mesesParaQuery.length > 0 && loadingCards && vendors.length === 0 && !cartasError;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);
@@ -262,7 +279,7 @@ export default function EstadisticasPage() {
               padding: "16px 24px 0",
             }}
           >
-            <PeriodSelector mesesDisponibles={mesesDisponibles} />
+            <PeriodSelector mesesDisponibles={mesesDisponibles} isLoading={loadingMeses} />
             <SucursalSelector sucursales={sucursales} />
           </div>
 
@@ -293,8 +310,78 @@ export default function EstadisticasPage() {
                 </motion.div>
               )}
 
-              {/* No period selected */}
-              {!isLoading && mesesSeleccionados.length === 0 && (
+              {/* Error loading cartas */}
+              {!loadingCards && cartasError && mesesParaQuery.length > 0 && (
+                <motion.div
+                  key="cartas-error"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  style={{ padding: "48px 24px", textAlign: "center" }}
+                >
+                  <div
+                    style={{
+                      width: 56, height: 56, borderRadius: 16, margin: "0 auto 16px",
+                      background: "rgba(239,68,68,0.08)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <AlertTriangle size={26} color="#EF4444" />
+                  </div>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "var(--shelfy-text)", margin: "0 0 6px" }}>
+                    No se pudieron cargar las cartas
+                  </p>
+                  <p style={{ fontSize: 13, color: "var(--shelfy-muted)", margin: "0 0 16px" }}>
+                    El servidor tardó demasiado o no está disponible. Reintentá en unos segundos.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void refetchCartas()}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(168,85,247,0.25)",
+                      background: "rgba(168,85,247,0.08)",
+                      color: "#7C3AED",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Reintentar
+                  </button>
+                </motion.div>
+              )}
+
+              {/* Sin meses en esta distribuidora */}
+              {!isLoading && mesesParaQuery.length === 0 && mesesDisponibles.length === 0 && !loadingMeses && (
+                <motion.div
+                  key="no-data-dist"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  style={{ padding: "48px 24px", textAlign: "center" }}
+                >
+                  <div
+                    style={{
+                      width: 56, height: 56, borderRadius: 16, margin: "0 auto 16px",
+                      background: "rgba(100,116,139,0.08)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <TrendingUp size={26} color="var(--shelfy-muted)" />
+                  </div>
+                  <p style={{ fontSize: 16, fontWeight: 700, color: "var(--shelfy-text)", margin: "0 0 6px" }}>
+                    Sin datos para esta distribuidora
+                  </p>
+                  <p style={{ fontSize: 13, color: "var(--shelfy-muted)", margin: 0 }}>
+                    Todavía no hay meses con actividad registrada en Estadísticas
+                  </p>
+                </motion.div>
+              )}
+
+              {/* Elegir período */}
+              {!isLoading && mesesParaQuery.length === 0 && mesesDisponibles.length > 0 && (
                 <motion.div
                   key="no-period"
                   initial={{ opacity: 0, y: 16 }}
@@ -321,7 +408,7 @@ export default function EstadisticasPage() {
               )}
 
               {/* No vendors */}
-              {!isLoading && mesesSeleccionados.length > 0 && !hasVendors && (
+              {!isLoading && !cartasError && mesesParaQuery.length > 0 && !hasVendors && !loadingCards && (
                 <motion.div
                   key="no-vendors"
                   initial={{ opacity: 0, y: 16 }}
@@ -361,7 +448,7 @@ export default function EstadisticasPage() {
                   <VendorCollection
                     vendors={vendors}
                     distId={distId}
-                    meses={mesesSeleccionados}
+                    meses={mesesParaQuery}
                     nombreDistribuidora={user?.nombre_empresa}
                   />
                 </motion.div>

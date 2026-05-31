@@ -10,12 +10,10 @@ import { VendorCardExpanded } from "./VendorCardExpanded";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import { computeStatLeadersByVendor } from "@/lib/vendor-card-fusion-kpi";
-import { mesForRecapEvolucion } from "@/lib/recap-utils";
 import {
   prefetchEstadisticasDetalle,
   useEstadisticasWarmCache,
 } from "@/hooks/useEstadisticasQueries";
-import { useRecapEvolucionBundle } from "@/hooks/useRecapQueries";
 
 interface VendorCollectionProps {
   vendors: VendorCartaResumen[];
@@ -126,10 +124,6 @@ export function VendorCollection({
     },
     [queryClient, distId, meses],
   );
-
-  const evolucionMes = useMemo(() => mesForRecapEvolucion(meses), [meses]);
-
-  useRecapEvolucionBundle(distId, evolucionMes, filterSucursal);
 
   return (
     <LayoutGroup id="estadisticas-vendor-cards">

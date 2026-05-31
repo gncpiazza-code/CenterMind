@@ -55,7 +55,6 @@ import {
 import { groupRutasByDia, formatFechaAR } from "@/lib/estadisticas-utils";
 import { RecapEvolucionButton } from "./recap/RecapEvolucionModal";
 import { mesForRecapEvolucion } from "@/lib/recap-utils";
-import { useRecapEvolucionBundle } from "@/hooks/useRecapQueries";
 
 type TabKey = "pdvs" | "altas" | "exhibiciones" | "bultos" | "compradores";
 
@@ -125,9 +124,6 @@ export function VendorCardExpanded({
     nextVendor?.id_vendedor,
   ].filter(Boolean) as string[];
   useEstadisticasWarmCache(queryClient, distId, meses, null, neighborIds);
-
-  const evolucionMes = mesForRecapEvolucion(meses);
-  useRecapEvolucionBundle(distId, evolucionMes, null);
 
   const { data: detalle, isLoading, isError, refetch } = useQuery(
     detalleQueryOptions(distId, vendor.id_vendedor, meses),

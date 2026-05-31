@@ -12,9 +12,10 @@ import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 
 interface PeriodSelectorProps {
   mesesDisponibles: string[];
+  isLoading?: boolean;
 }
 
-export function PeriodSelector({ mesesDisponibles }: PeriodSelectorProps) {
+export function PeriodSelector({ mesesDisponibles, isLoading = false }: PeriodSelectorProps) {
   const [open, setOpen] = useState(false);
   const { mesesSeleccionados, toggleMes, setMesesSeleccionados } = useEstadisticasStore();
 
@@ -27,6 +28,27 @@ export function PeriodSelector({ mesesDisponibles }: PeriodSelectorProps) {
       : `${mesLabelCorto(sorted[0])} – ${mesLabelCorto(sorted[sorted.length - 1])}`;
 
   const rangoText = sorted.length > 0 ? rangoLabel(sorted) : null;
+
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 14px",
+          borderRadius: 10,
+          background: "rgba(168,85,247,0.06)",
+          border: "1px solid rgba(168,85,247,0.18)",
+        }}
+      >
+        <Calendar size={14} color="#a855f7" />
+        <span style={{ fontSize: 12, color: "var(--shelfy-muted)", fontWeight: 600 }}>
+          Cargando períodos…
+        </span>
+      </div>
+    );
+  }
 
   if (!mesesDisponibles.length) {
     return (

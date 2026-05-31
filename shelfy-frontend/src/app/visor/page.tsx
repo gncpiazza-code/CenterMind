@@ -339,8 +339,7 @@ export default function VisorPage() {
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
     placeholderData: (prev) => prev,
-    refetchInterval: (query) =>
-      query.state.data?.meta?.revalidating ? 10_000 : 90_000,
+    refetchInterval: 90_000,
   });
 
   const revalidatingVisor = !!visorBundle?.meta?.revalidating;

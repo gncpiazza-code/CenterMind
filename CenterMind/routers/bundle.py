@@ -111,6 +111,6 @@ def bundle_warm(
     if domains:
         domain_list = [d.strip() for d in domains.split(",") if d.strip()]
     warm_portal_bundles(dist_id, domain_list)
-    warmed = domain_list or ["dashboard", "estadisticas", "supervision", "visor"]
+    warmed = domain_list or ["dashboard", "estadisticas"]
     response.headers["X-Bundle-Warm"] = "accepted"
     return {"ok": True, "dist_id": dist_id, "warming": warmed}

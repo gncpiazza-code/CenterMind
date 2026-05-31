@@ -4,15 +4,19 @@ Helpers compartidos para snapshots portal: freshness, SWR y refresh en backgroun
 """
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, TypeVar
 
 logger = logging.getLogger("snapshot_common")
 
+T = TypeVar("T")
+
 _in_flight: set[str] = set()
 _in_flight_lock = threading.Lock()
+_single_flight_futures: dict[str, concurrent.futures.Future] = {}
 
 EPOCH_INVALID_PREFIX = "1970"
 
@@ -89,6 +93,35 @@ def trigger_background_refresh(key: str, fn: Callable[[], None]) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
+def run_single_flight(key: str, fn: Callable[[], T], timeout: float = 120.0) -> T:
+    """
+    Coalesce computes pesados: requests concurrentes al mismo key esperan un solo resultado.
+    """
+    with _in_flight_lock:
+        fut = _single_flight_futures.get(key)
+        if fut is None:
+            fut = concurrent.futures.Future()
+            _single_flight_futures[key] = fut
+            leader = True
+        else:
+            leader = False
+
+    if leader:
+        try:
+            result = fn()
+            fut.set_result(result)
+            return result
+        except BaseException as exc:
+            fut.set_exception(exc)
+            raise
+        finally:
+            with _in_flight_lock:
+                if _single_flight_futures.get(key) is fut:
+                    del _single_flight_futures[key]
+    return fut.result(timeout=timeout)
+
+
 def clear_in_flight_for_tests() -> None:
     with _in_flight_lock:
         _in_flight.clear()
+        _single_flight_futures.clear()

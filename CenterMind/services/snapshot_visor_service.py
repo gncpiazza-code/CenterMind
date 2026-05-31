@@ -3,6 +3,7 @@
 Snapshot service para el visor operativo.
 
 Dato operativo (pendientes del día + stats hoy) → TTL corto: 90 segundos.
+Sin SWR: visor requiere datos frescos; servir stale vacío degradaba UX.
 """
 from __future__ import annotations
 
@@ -13,14 +14,12 @@ from db import sb
 from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
-    is_serveable_stale,
-    trigger_background_refresh,
+    run_single_flight,
 )
 
 logger = logging.getLogger("snapshot_visor_service")
 
 VISOR_MAX_STALE_SECONDS = 90  # 1.5 min
-VISOR_SERVE_STALE_SECONDS = 1800  # 30 min — SWR window (operativo)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -36,13 +35,23 @@ def _refresh_visor_background(dist_id: int, hide_qa: bool) -> None:
     _upsert_visor_snapshot(dist_id, payload)
 
 
+def force_persist_visor(dist_id: int, hide_qa: bool = False) -> None:
+    _refresh_visor_background(dist_id, hide_qa)
+
+
 def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
     snap = _read_visor_snapshot(dist_id)
     if snap is not None:
         gen = snap["generated_at"]
         payload = snap["payload"]
-        pendientes_ok = _pendientes_payload_valid(payload.get("pendientes") or [])
-        if is_fresh(gen, VISOR_MAX_STALE_SECONDS) and pendientes_ok:
+        pendientes = payload.get("pendientes") or []
+        pendientes_ok = _pendientes_payload_valid(pendientes)
+        has_pendientes = bool(pendientes)
+        if (
+            is_fresh(gen, VISOR_MAX_STALE_SECONDS)
+            and pendientes_ok
+            and has_pendientes
+        ):
             apply_meta_flags(
                 payload.setdefault("meta", {}),
                 cache_hit=True,
@@ -51,20 +60,13 @@ def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
                 generated_at=gen,
             )
             return payload
-        if is_serveable_stale(gen, VISOR_SERVE_STALE_SECONDS) and pendientes_ok:
-            apply_meta_flags(
-                payload.setdefault("meta", {}),
-                cache_hit=False,
-                stale=True,
-                revalidating=True,
-                generated_at=gen,
-            )
-            key = f"visor:{dist_id}:{hide_qa}"
-            trigger_background_refresh(
-                key,
-                lambda: _refresh_visor_background(dist_id, hide_qa),
-            )
-            return payload
+    return run_single_flight(
+        f"compute:visor:{dist_id}:{hide_qa}",
+        lambda: _cold_compute_visor(dist_id, hide_qa),
+    )
+
+
+def _cold_compute_visor(dist_id: int, hide_qa: bool) -> dict:
     payload = _compute_visor(dist_id, hide_qa=hide_qa)
     apply_meta_flags(
         payload.setdefault("meta", {}),
@@ -94,7 +96,7 @@ def mark_visor_stale(dist_id: int) -> None:
 def _pendientes_payload_valid(pendientes: list) -> bool:
     """Snapshots legacy guardaban filas planas de fn_pendientes sin fotos[]."""
     if not pendientes:
-        return True
+        return False
     return isinstance(pendientes[0].get("fotos"), list)
 
 
@@ -187,5 +189,3 @@ def _upsert_visor_snapshot(dist_id: int, payload: dict) -> None:
         ).execute()
     except Exception as e:
         logger.warning(f"[snap_visor] upsert dist={dist_id}: {e}")
-
-

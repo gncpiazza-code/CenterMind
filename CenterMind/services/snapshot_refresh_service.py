@@ -69,21 +69,21 @@ def handle_ingestion_event(event_type: str, dist_id: int) -> None:
 
 
 def _recompute_domain(dist_id: int, domain: str) -> None:
-    """Recompute síncrono de un dominio (usado en background threads)."""
+    """Recompute directo (sin path SWR) para warm/cron."""
     try:
+        mes_actual = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m")
         if domain == "dashboard":
-            from services.snapshot_dashboard_service import get_or_refresh_dashboard
-            get_or_refresh_dashboard(dist_id, "mes", None, hide_qa=False)
+            from services.snapshot_dashboard_service import force_persist_dashboard
+            force_persist_dashboard(dist_id, "mes", None, hide_qa=False)
         elif domain == "supervision":
-            from services.snapshot_supervision_service import get_or_refresh_supervision
-            get_or_refresh_supervision(dist_id, None, None)
+            from services.snapshot_supervision_service import force_persist_supervision
+            force_persist_supervision(dist_id, None, None)
         elif domain == "estadisticas":
-            from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
-            mes_actual = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m")
-            get_or_refresh_estadisticas(dist_id, [mes_actual], None)
+            from services.snapshot_estadisticas_service import force_persist_estadisticas
+            force_persist_estadisticas(dist_id, [mes_actual], None)
         elif domain == "visor":
-            from services.snapshot_visor_service import get_or_refresh_visor
-            get_or_refresh_visor(dist_id)
+            from services.snapshot_visor_service import force_persist_visor
+            force_persist_visor(dist_id)
         else:
             logger.warning(f"[snap_refresh] recompute dominio desconocido: {domain}")
     except Exception as e:
@@ -92,12 +92,12 @@ def _recompute_domain(dist_id: int, domain: str) -> None:
 
 def warm_portal_bundles(dist_id: int, domains: list[str] | None = None) -> None:
     """
-    Pre-calienta snapshots en background sin marcar stale (login / cron / warm endpoint).
-    Dedup por dominio vía snapshot_common.trigger_background_refresh.
+    Pre-calienta snapshots en background (solo cron / endpoint manual).
+    No usar desde login FE — satura el worker con computes paralelos.
     """
     from services.snapshot_common import trigger_background_refresh
 
-    all_domains = domains or ["dashboard", "estadisticas", "supervision", "visor"]
+    all_domains = domains or ["dashboard", "estadisticas"]
     for domain in all_domains:
         key = f"warm:{dist_id}:{domain}"
         trigger_background_refresh(key, lambda d=domain: _recompute_domain(dist_id, d))
@@ -113,10 +113,11 @@ def refresh_eager(dist_id: int, domains: list[str] | None = None) -> None:
 
 
 def prewarm_all_active_distributors(domains: list[str] | None = None) -> None:
-    """Cron matutino: warm de todos los distribuidores activos (paginado)."""
+    """Cron matutino: warm de todos los distribuidores activos (paginado, secuencial por dist)."""
     from db import sb
+    from services.snapshot_common import trigger_background_refresh
 
-    target_domains = domains or ["dashboard", "estadisticas", "supervision"]
+    target_domains = domains or ["dashboard", "estadisticas"]
     PAGE = 1000
     offset = 0
     warmed = 0
@@ -136,10 +137,21 @@ def prewarm_all_active_distributors(domains: list[str] | None = None) -> None:
             break
         for row in batch:
             dist_id = row.get("id_distribuidor")
-            if dist_id:
-                warm_portal_bundles(int(dist_id), target_domains)
-                warmed += 1
+            if not dist_id:
+                continue
+            dist_int = int(dist_id)
+            # Un solo job por dist (encadena dominios) para no saturar Railway
+            trigger_background_refresh(
+                f"prewarm-cron:{dist_int}",
+                lambda d=dist_int, doms=target_domains: _prewarm_dist_sequential(d, doms),
+            )
+            warmed += 1
         if len(batch) < PAGE:
             break
         offset += PAGE
     logger.info(f"[snap_refresh] prewarm_all queued dists={warmed} domains={target_domains}")
+
+
+def _prewarm_dist_sequential(dist_id: int, domains: list[str]) -> None:
+    for domain in domains:
+        _recompute_domain(dist_id, domain)

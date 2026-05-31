@@ -121,7 +121,7 @@ export default function DashboardPage() {
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
     refetchInterval: (query) =>
-      query.state.data?.meta?.revalidating ? 15_000 : 300_000,
+      query.state.data?.meta?.revalidating ? 2_000 : 300_000,
   });
 
   // Desestructurar para mantener compatibilidad con el JSX existente

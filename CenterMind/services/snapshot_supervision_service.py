@@ -15,6 +15,7 @@ from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
     is_serveable_stale,
+    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -74,6 +75,25 @@ def get_or_refresh_supervision(
                 lambda: _refresh_supervision_background(dist_id, sucursal, id_vendedor),
             )
             return payload
+    return run_single_flight(
+        f"compute:supervision:{dist_id}:{sucursal}:{id_vendedor}",
+        lambda: _cold_compute_supervision(dist_id, sucursal, id_vendedor),
+    )
+
+
+def force_persist_supervision(
+    dist_id: int,
+    sucursal: str | None = None,
+    id_vendedor: int | None = None,
+) -> None:
+    _refresh_supervision_background(dist_id, sucursal, id_vendedor)
+
+
+def _cold_compute_supervision(
+    dist_id: int,
+    sucursal: str | None,
+    id_vendedor: int | None,
+) -> dict:
     payload = _compute_supervision(dist_id, sucursal, id_vendedor)
     apply_meta_flags(
         payload.setdefault("meta", {}),

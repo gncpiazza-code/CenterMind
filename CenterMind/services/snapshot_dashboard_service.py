@@ -16,6 +16,7 @@ from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
     is_serveable_stale,
+    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -77,6 +78,28 @@ def get_or_refresh_dashboard(
                 lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
             )
             return payload
+    return run_single_flight(
+        f"compute:dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}",
+        lambda: _cold_compute_dashboard(dist_id, periodo, sucursal_id, hide_qa),
+    )
+
+
+def force_persist_dashboard(
+    dist_id: int,
+    periodo: str = "mes",
+    sucursal_id: str | None = None,
+    hide_qa: bool = False,
+) -> None:
+    """Recompute + upsert directo (warm/cron), sin path SWR."""
+    _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa)
+
+
+def _cold_compute_dashboard(
+    dist_id: int,
+    periodo: str,
+    sucursal_id: str | None,
+    hide_qa: bool,
+) -> dict:
     payload = _compute_dashboard(dist_id, periodo, sucursal_id, hide_qa)
     apply_meta_flags(
         payload.setdefault("meta", {}),

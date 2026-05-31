@@ -17,6 +17,7 @@ from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
     is_serveable_stale,
+    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -118,6 +119,27 @@ def get_or_refresh_estadisticas(
                 revalidating=True,
             )
 
+    return run_single_flight(
+        f"compute:estadisticas:{dist_id}:{meses_hash}:{sucursal}",
+        lambda: _cold_compute_estadisticas(dist_id, meses, sucursal, meses_hash),
+    )
+
+
+def force_persist_estadisticas(
+    dist_id: int,
+    meses: list[str],
+    sucursal: str | None = None,
+) -> None:
+    meses_hash = _hash_meses(meses)
+    _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash)
+
+
+def _cold_compute_estadisticas(
+    dist_id: int,
+    meses: list[str],
+    sucursal: str | None,
+    meses_hash: str,
+) -> dict:
     from services.estadisticas_service import build_carta_resumen
 
     cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))

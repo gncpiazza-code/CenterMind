@@ -71,11 +71,16 @@ def test_pendientes_is_list():
 
 
 def test_pendientes_empty_list_on_no_data():
-    """bundle['pendientes'] debe ser [] cuando no hay pendientes."""
+    """Sin pendientes en snapshot → recompute (no servir cache vacío)."""
     payload = _make_visor_payload(pendientes=[])
     sb_mock = _make_sb_hit(payload)
     with patch("services.snapshot_visor_service.sb", sb_mock):
-        bundle = get_or_refresh_visor(1)
+        with patch(
+            "services.snapshot_visor_service._compute_visor",
+            return_value=payload,
+        ) as compute_mock:
+            bundle = get_or_refresh_visor(1)
+    compute_mock.assert_called_once()
     assert bundle["pendientes"] == []
 
 
@@ -109,8 +114,17 @@ def test_meta_present():
 
 
 def test_meta_cache_hit_true_on_hit():
-    """Cache hit → meta.cache_hit es True."""
-    payload = _make_visor_payload()
+    """Cache hit → meta.cache_hit es True (solo con pendientes reales)."""
+    pendientes = [
+        {
+            "vendedor": "V1",
+            "nro_cliente": "123",
+            "tipo_pdv": "S/D",
+            "fecha_hora": "2026-05-30T10:00:00",
+            "fotos": [{"id_exhibicion": 1, "drive_link": "x", "estado": "Pendiente"}],
+        },
+    ]
+    payload = _make_visor_payload(pendientes=pendientes)
     sb_mock = _make_sb_hit(payload)
     with patch("services.snapshot_visor_service.sb", sb_mock):
         bundle = get_or_refresh_visor(1)

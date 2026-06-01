@@ -863,30 +863,88 @@ def _allowed_integrantes_for_sucursal(distribuidor_id: int, sucursal_id: int | N
     return allowed
 
 
-def _fetch_exhibiciones_periodo(distribuidor_id: int, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
+_EXHIBICIONES_PERIOD_SELECT = (
+    "id_exhibicion,id_integrante,estado,url_foto_drive,telegram_msg_id,telegram_chat_id,timestamp_subida,"
+    "id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+)
+
+
+def _fetch_exhibiciones_page(
+    distribuidor_id: int,
+    start_iso: str,
+    end_iso: str,
+    offset: int,
+    page_size: int,
+    *,
+    max_attempts: int = 3,
+) -> list[dict[str, Any]]:
+    import time
+
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return (
+                sb.table("exhibiciones")
+                .select(_EXHIBICIONES_PERIOD_SELECT)
+                .eq("id_distribuidor", distribuidor_id)
+                .gte("timestamp_subida", start_iso)
+                .lt("timestamp_subida", end_iso)
+                .order("timestamp_subida")
+                .range(offset, offset + page_size - 1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc).lower()
+            if "timeout" not in msg and "timed out" not in msg:
+                raise
+            if attempt + 1 >= max_attempts:
+                break
+            time.sleep(0.75 * (attempt + 1))
+    if last_exc is not None:
+        raise last_exc
+    return []
+
+
+def _fetch_exhibiciones_range(
+    distribuidor_id: int,
+    start_iso: str,
+    end_iso: str,
+) -> list[dict[str, Any]]:
     PAGE = 1000
     offset = 0
     rows: list[dict[str, Any]] = []
     while True:
-        chunk = (
-            sb.table("exhibiciones")
-            .select(
-                "id_exhibicion,id_integrante,estado,url_foto_drive,telegram_msg_id,telegram_chat_id,timestamp_subida,"
-                "id_cliente_pdv,id_cliente,cliente_sombra_codigo"
-            )
-            .eq("id_distribuidor", distribuidor_id)
-            .gte("timestamp_subida", start_iso)
-            .lt("timestamp_subida", end_iso)
-            .order("timestamp_subida")
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data
-            or []
-        )
+        chunk = _fetch_exhibiciones_page(distribuidor_id, start_iso, end_iso, offset, PAGE)
         rows.extend(chunk)
         if len(chunk) < PAGE:
             break
         offset += PAGE
+    return rows
+
+
+def _fetch_exhibiciones_periodo(distribuidor_id: int, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
+    """Pagina exhibiciones del período; ventanas semanales en meses largos para evitar timeouts."""
+    start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    span_days = (end_dt - start_dt).days
+    if span_days <= 8:
+        return _fetch_exhibiciones_range(distribuidor_id, start_iso, end_iso)
+
+    rows: list[dict[str, Any]] = []
+    cursor = start_dt
+    while cursor < end_dt:
+        chunk_end = min(cursor + timedelta(days=7), end_dt)
+        rows.extend(
+            _fetch_exhibiciones_range(
+                distribuidor_id,
+                cursor.isoformat(),
+                chunk_end.isoformat(),
+            )
+        )
+        cursor = chunk_end
     return rows
 
 

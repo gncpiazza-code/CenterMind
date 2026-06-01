@@ -78,10 +78,37 @@ def get_or_refresh_dashboard(
                 lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
             )
             return payload
-    return run_single_flight(
-        f"compute:dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}",
-        lambda: _cold_compute_dashboard(dist_id, periodo, sucursal_id, hide_qa),
-    )
+    try:
+        return run_single_flight(
+            f"compute:dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}",
+            lambda: _cold_compute_dashboard(dist_id, periodo, sucursal_id, hide_qa),
+            timeout=180.0,
+        )
+    except Exception as e:
+        logger.error(
+            "[snap_dashboard] compute failed dist=%s periodo=%s: %s",
+            dist_id,
+            periodo,
+            e,
+        )
+        if snap is not None:
+            payload = _normalize_dashboard_payload(snap["payload"], dist_id)
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=False,
+                stale=True,
+                revalidating=False,
+                generated_at=snap["generated_at"],
+            )
+            payload["meta"]["compute_error"] = str(e)[:240]
+            return payload
+        return _partial_dashboard_payload(
+            dist_id,
+            periodo,
+            sucursal_id,
+            hide_qa,
+            error=str(e)[:240],
+        )
 
 
 def force_persist_dashboard(
@@ -187,7 +214,19 @@ def _compute_dashboard(
     allowed_integrantes = _allowed_integrantes_for_sucursal(dist_id, suc_pk)
 
     # SINGLE fetch — clave del bundle: kpis y ranking usan los mismos datos
-    ex_rows = _fetch_exhibiciones_periodo(dist_id, start_iso, end_iso)
+    compute_error: str | None = None
+    try:
+        ex_rows = _fetch_exhibiciones_periodo(dist_id, start_iso, end_iso)
+    except Exception as e:
+        logger.warning(
+            "[snap_dashboard] exhibiciones fetch failed dist=%s periodo=%s: %s",
+            dist_id,
+            periodo,
+            e,
+        )
+        ex_rows = []
+        compute_error = str(e)[:240]
+
     iid_to_erp = build_integrante_to_erp_name(dist_id)
 
     filtered: list[dict] = []
@@ -231,18 +270,68 @@ def _compute_dashboard(
     sucursales = _fetch_sucursales(dist_id, periodo, _enrich_por_sucursal_rows)
     evolucion = _fetch_evolucion(dist_id, periodo, suc_pk)
 
+    meta: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "periodo": periodo,
+        "sucursal_id": sucursal_id,
+        "dist_id": dist_id,
+    }
+    if compute_error:
+        meta["compute_error"] = compute_error
+
     return {
-        "meta": {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "periodo": periodo,
-            "sucursal_id": sucursal_id,
-            "dist_id": dist_id,
-        },
+        "meta": meta,
         "kpis": kpis,
         "ranking": ranking,
         "ultimas": ultimas,
         "sucursales": sucursales,
         "evolucion": evolucion,
+    }
+
+
+def _partial_dashboard_payload(
+    dist_id: int,
+    periodo: str,
+    sucursal_id: str | None,
+    _hide_qa: bool,
+    *,
+    error: str | None = None,
+) -> dict:
+    """Respuesta degradada: RPC/ultimas siguen; KPIs/ranking vacíos si falló el fetch masivo."""
+    from routers.reportes import (
+        _resolve_period_bounds,
+        _resolve_sucursal_pk,
+        _enrich_por_sucursal_rows,
+    )
+
+    suc_pk = _resolve_sucursal_pk(dist_id, sucursal_id)
+    kpis = {
+        "total": 0,
+        "pendientes": 0,
+        "aprobadas": 0,
+        "rechazadas": 0,
+        "destacadas": 0,
+        "vendedores_activos": 0,
+        "exhibiciones_por_vendedor": 0.0,
+    }
+    meta: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "periodo": periodo,
+        "sucursal_id": sucursal_id,
+        "dist_id": dist_id,
+        "cache_hit": False,
+        "stale": False,
+        "revalidating": False,
+    }
+    if error:
+        meta["compute_error"] = error
+    return {
+        "meta": meta,
+        "kpis": kpis,
+        "ranking": [],
+        "ultimas": _fetch_ultimas_simple(dist_id, suc_pk),
+        "sucursales": _fetch_sucursales(dist_id, periodo, _enrich_por_sucursal_rows),
+        "evolucion": _fetch_evolucion(dist_id, periodo, suc_pk),
     }
 
 

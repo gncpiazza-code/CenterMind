@@ -581,7 +581,9 @@ export async function fetchDashboardBundle(
     ultimas: Record<string, unknown>[];
     sucursales: SucursalStats[];
     evolucion: EvolucionTiempo[];
-  }>(`/api/bundle/dashboard/${distribuidorId}?${q.toString()}`);
+  }>(`/api/bundle/dashboard/${distribuidorId}?${q.toString()}`, {
+    signal: AbortSignal.timeout(120_000),
+  });
 
   const ranking = coerceDashboardRankingRows(data.ranking).map((row) => ({
     ...(row as unknown as VendedorRanking),

@@ -926,25 +926,33 @@ def _fetch_exhibiciones_range(
 
 
 def _fetch_exhibiciones_periodo(distribuidor_id: int, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
-    """Pagina exhibiciones del período; ventanas semanales en meses largos para evitar timeouts."""
+    """Pagina exhibiciones del período; ventanas semanales en paralelo para meses largos."""
     start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
     span_days = (end_dt - start_dt).days
     if span_days <= 8:
         return _fetch_exhibiciones_range(distribuidor_id, start_iso, end_iso)
 
-    rows: list[dict[str, Any]] = []
+    windows: list[tuple[str, str]] = []
     cursor = start_dt
     while cursor < end_dt:
         chunk_end = min(cursor + timedelta(days=7), end_dt)
-        rows.extend(
-            _fetch_exhibiciones_range(
-                distribuidor_id,
-                cursor.isoformat(),
-                chunk_end.isoformat(),
-            )
-        )
+        windows.append((cursor.isoformat(), chunk_end.isoformat()))
         cursor = chunk_end
+
+    if len(windows) <= 1:
+        return _fetch_exhibiciones_range(distribuidor_id, start_iso, end_iso)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    rows: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=min(4, len(windows))) as pool:
+        futures = [
+            pool.submit(_fetch_exhibiciones_range, distribuidor_id, w_start, w_end)
+            for w_start, w_end in windows
+        ]
+        for fut in as_completed(futures):
+            rows.extend(fut.result())
     return rows
 
 

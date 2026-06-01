@@ -582,7 +582,7 @@ export async function fetchDashboardBundle(
     sucursales: SucursalStats[];
     evolucion: EvolucionTiempo[];
   }>(`/api/bundle/dashboard/${distribuidorId}?${q.toString()}`, {
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(45_000),
   });
 
   const ranking = coerceDashboardRankingRows(data.ranking).map((row) => ({
@@ -676,7 +676,7 @@ export async function fetchEstadisticasBundle(
   const url = `${API_URL}/api/bundle/estadisticas/${distId}?${q.toString()}`;
   const res = await fetch(url, {
     headers: getHeaders(),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(45_000),
   });
   if (!res.ok) {
     handleSessionExpired401(`/api/bundle/estadisticas/${distId}`, res.status);

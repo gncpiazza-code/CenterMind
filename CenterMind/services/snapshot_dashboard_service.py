@@ -82,7 +82,7 @@ def get_or_refresh_dashboard(
         return run_single_flight(
             f"compute:dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}",
             lambda: _cold_compute_dashboard(dist_id, periodo, sucursal_id, hide_qa),
-            timeout=180.0,
+            timeout=90.0,
         )
     except Exception as e:
         logger.error(

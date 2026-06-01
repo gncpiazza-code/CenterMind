@@ -68,8 +68,8 @@ if not SUPABASE_KEY:
 
 # Cliente Supabase singleton con parche para HTTP/2
 # Forzamos HTTP/1.1 para evitar errores <ConnectionTerminated error_code:9>
-# Meses históricos del dashboard pueden paginar miles de filas; 30s provocaba ReadTimeout.
-opts = ClientOptions(postgrest_client_timeout=120)
+# Balance: meses históricos necesitan >30s, pero 120s bloqueaba la UI ~1 min en timeout.
+opts = ClientOptions(postgrest_client_timeout=45)
 
 sb: Client = create_client(
     SUPABASE_URL, 
@@ -85,5 +85,5 @@ if hasattr(sb, "postgrest"):
         http2=False,
         base_url=old_session.base_url,
         headers=old_session.headers,
-        timeout=httpx.Timeout(120.0, connect=15.0),
+        timeout=httpx.Timeout(45.0, connect=10.0),
     )

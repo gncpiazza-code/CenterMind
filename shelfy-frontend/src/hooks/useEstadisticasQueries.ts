@@ -143,8 +143,8 @@ export function cartasBundleQueryOptions(
     gcTime: BUNDLE_GC_MS,
     placeholderData: keepPreviousData,
     retry: 1,
-    refetchInterval: (query) =>
-      query.state.data?.meta?.revalidating ? 2_000 : false,
+    // No poll on revalidating — backend refreshes in background; 2s polling saturated Railway.
+    refetchInterval: false,
   } as const;
 }
 

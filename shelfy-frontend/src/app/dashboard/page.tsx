@@ -119,8 +119,8 @@ export default function DashboardPage() {
     placeholderData: (prev) => prev,
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
-    refetchInterval: (query) =>
-      query.state.data?.meta?.revalidating ? 30_000 : 300_000,
+    // Snapshot SWR + WS invalidation; no interval polling (evita tormenta al backend).
+    refetchInterval: false,
   });
 
   // Desestructurar para mantener compatibilidad con el JSX existente

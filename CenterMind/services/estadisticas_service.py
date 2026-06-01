@@ -218,6 +218,62 @@ def _collect_meses_from_rows(rows: list[dict], field: str) -> set[str]:
     return out
 
 
+def _mes_actual_ar() -> str:
+    """YYYY-MM en calendario Argentina (UTC-3)."""
+    ar_now = datetime.utcnow() - timedelta(hours=3)
+    return ar_now.strftime("%Y-%m")
+
+
+def _mes_from_venta_row(row: dict) -> str | None:
+    """Mes comercial de una fila ventas_enriched (excluye recaudaciones)."""
+    if _es_recaudacion(row.get("tipo_documento")):
+        return None
+    f = (row.get("fecha_factura") or "")[:7]
+    return f or None
+
+
+def _vendedores_prescan_franquicia(dist_id: int) -> list[dict]:
+    if dist_id not in FRANCHISE_VENTAS_SOURCE_DIST:
+        return []
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    return (
+        sb.table(t_vend)
+        .select("id_vendedor,id_vendedor_erp,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+        .data
+        or []
+    )
+
+
+def _collect_meses_ventas_comerciales(dist_id: int) -> set[str]:
+    """Meses con ventas no anuladas (mismo scope que cartas, incl. franquicias Real)."""
+    vend_prescan = _vendedores_prescan_franquicia(dist_id)
+    ventas_ctx = resolve_estadisticas_ventas_fetch(
+        dist_id, vend_prescan if vend_prescan else None
+    )
+    t = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    meses: set[str] = set()
+    offset = 0
+    while True:
+        q = (
+            sb.table(t)
+            .select("fecha_factura,tipo_documento")
+            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
+            .eq("anulado", False)
+        )
+        q = _apply_ventas_scope(q, ventas_ctx)
+        batch = q.range(offset, offset + PAGE - 1).execute().data or []
+        for r in batch:
+            m = _mes_from_venta_row(r)
+            if m:
+                meses.add(m)
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return meses
+
+
 def _paginate_meses(dist_id: int, table_base: str, field: str) -> set[str]:
     """Meses YYYY-MM con paginación PostgREST (1000 filas)."""
     t = tenant_table_name(table_base, dist_id)
@@ -257,13 +313,15 @@ def fetch_sucursales_disponibles(dist_id: int) -> list[str]:
 
 def fetch_meses_disponibles(dist_id: int) -> list[str]:
     """
-    Returns sorted desc list of "YYYY-MM" months that have at least one event
-    across: ventas_enriched_v2, exhibiciones, clientes_pdv_v2 (altas).
+    Meses YYYY-MM con actividad comercial para estadísticas (desc):
+    ventas no anuladas (sin recaudaciones) y/o exhibiciones.
+    No incluye altas de padrón ni meses futuros respecto al calendario AR.
     """
     meses: set[str] = set()
-    meses |= _paginate_meses(dist_id, "ventas_enriched_v2", "fecha_factura")
+    meses |= _collect_meses_ventas_comerciales(dist_id)
     meses |= _paginate_meses(dist_id, "exhibiciones", "timestamp_subida")
-    meses |= _paginate_meses(dist_id, "clientes_pdv_v2", "fecha_alta")
+    cap = _mes_actual_ar()
+    meses = {m for m in meses if m <= cap}
     return sorted(meses, reverse=True)
 
 

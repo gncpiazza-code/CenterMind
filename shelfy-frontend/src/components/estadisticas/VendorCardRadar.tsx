@@ -47,11 +47,14 @@ const AXES_FULL: { key: keyof RadarKPI; label: string }[] = [
 
 const SIZE_MAP = {
   sm: { height: 148, outerRadius: "62%", fontSize: 8, dotR: 3, stroke: 1.8 },
-  fusion: { height: 162, outerRadius: "78%", fontSize: 8, dotR: 3.5, stroke: 1.8 },
+  // Márgenes amplios: CEX (abajo-derecha) no debe quedar fuera del clip de la carta FIFA.
+  fusion: { height: 162, outerRadius: "64%", fontSize: 8, dotR: 3.5, stroke: 1.8 },
   md: { height: 168, outerRadius: "64%", fontSize: 9, dotR: 3.5, stroke: 1.8 },
   lg: { height: 210, outerRadius: "66%", fontSize: 10, dotR: 4.5, stroke: 2 },
   detalle: { height: 320, outerRadius: "88%", fontSize: 11, dotR: 4.5, stroke: 2.2 },
 };
+
+const FUSION_CHART_MARGIN = { top: 18, right: 26, bottom: 18, left: 26 };
 
 type ChartRow = {
   axis: string;
@@ -213,18 +216,55 @@ function FusionRadarTooltipContent({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomAxisTick(props: any) {
-  const { x, y, payload, fontSize, tickFill = "#94a3b8" } = props as {
+  const {
+    x,
+    y,
+    payload,
+    fontSize,
+    tickFill = "#94a3b8",
+    textAnchor: rechartsAnchor,
+    dx = 0,
+    dy = 0,
+    cx,
+    cy,
+  } = props as {
     x: number;
     y: number;
     payload: { value: string };
     fontSize: number;
     tickFill?: string;
+    textAnchor?: "start" | "middle" | "end" | "inherit";
+    dx?: number;
+    dy?: number;
+    cx?: number;
+    cy?: number;
   };
+
+  const label = payload?.value ?? "";
+  let textAnchor: "start" | "middle" | "end" = rechartsAnchor ?? "middle";
+  let tickDx = Number(dx) || 0;
+  let tickDy = Number(dy) || 0;
+
+  // CEX queda en el cuadrante inferior-derecho: anclar hacia adentro para no clippear la carta.
+  if (label === "CEX") {
+    textAnchor = "end";
+    tickDx -= 3;
+    tickDy -= 2;
+  } else if (!rechartsAnchor && typeof cx === "number" && typeof cy === "number") {
+    const horiz = x - cx;
+    const vert = y - cy;
+    if (horiz > 8) textAnchor = vert > 4 ? "end" : "start";
+    else if (horiz < -8) textAnchor = vert > 4 ? "start" : "end";
+    else textAnchor = "middle";
+  }
+
   return (
     <text
       x={x}
       y={y}
-      textAnchor="middle"
+      dx={tickDx}
+      dy={tickDy}
+      textAnchor={textAnchor}
       dominantBaseline="central"
       fill={tickFill}
       fontSize={fontSize}
@@ -283,16 +323,18 @@ export function VendorCardRadar({
         overflow: axesMode === "fusion" ? "visible" : "hidden",
       }}
     >
-      <ResponsiveContainer width="100%" height={height}>
+      <ResponsiveContainer width="100%" height={height} style={{ overflow: "visible" }}>
         <RadarChart
           data={data}
           cx="50%"
           cy="50%"
           outerRadius={outerRadius}
           margin={
-            size === "fusion" || size === "detalle"
-              ? { top: 4, right: 8, bottom: 4, left: 8 }
-              : { top: 14, right: 22, bottom: 14, left: 22 }
+            size === "fusion"
+              ? FUSION_CHART_MARGIN
+              : size === "detalle"
+                ? { top: 12, right: 20, bottom: 12, left: 20 }
+                : { top: 14, right: 22, bottom: 14, left: 22 }
           }
         >
           <PolarGrid stroke={gridStroke} strokeWidth={1} gridType="polygon" />

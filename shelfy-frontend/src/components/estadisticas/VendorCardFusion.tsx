@@ -195,6 +195,7 @@ export function VendorCardFusion({
             borderRadius: 12,
             background: theme.radarPanel,
             overflow: "visible",
+            padding: "2px 4px",
             zIndex: 2,
             minHeight: fillHeight ? 0 : undefined,
             display: fillHeight ? "flex" : undefined,

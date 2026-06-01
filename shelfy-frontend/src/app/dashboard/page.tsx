@@ -125,15 +125,14 @@ export default function DashboardPage() {
     },
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
-    // Solo poll mientras esperamos el primer snapshot (respuesta parcial revalidating).
+    // Poll mientras el backend computa snapshot (mes histórico u otro cache miss).
     refetchInterval: (query) => {
       const data = query.state.data;
       const meta = data?.meta;
       if (!meta?.revalidating) return false;
-      const waitingFull =
-        !meta.cache_hit &&
-        ((data?.ranking?.length ?? 0) === 0 && (data?.kpis?.total ?? 0) === 0);
-      return waitingFull ? 8_000 : false;
+      const hasData = (data?.ranking?.length ?? 0) > 0 || (data?.kpis?.total ?? 0) > 0;
+      if (hasData) return false;
+      return 5_000;
     },
   });
 
@@ -144,9 +143,14 @@ export default function DashboardPage() {
   const sucursales = bundle?.sucursales ?? [];
   const evolucion = bundle?.evolucion ?? [];
 
-  const loading = loadingBundle && !bundle;
+  const waitingSnapshot =
+    !!bundle?.meta?.revalidating &&
+    ranking.length === 0 &&
+    (kpis?.total ?? 0) === 0;
+  const loading = (loadingBundle && !bundle) || waitingSnapshot;
   const loadingHero = loadingBundle && !bundle;
-  const periodLoading = fetchingBundle && !!bundle && (bundle.meta?.revalidating ?? false);
+  const periodLoading = fetchingBundle && waitingSnapshot;
+  const rankingLoading = loading || periodLoading;
   const error = errorBundle;
 
   // WS: invalida todas las queries del dashboard al recibir eventos
@@ -301,7 +305,7 @@ export default function DashboardPage() {
                 animate="show"
                 custom={2}
               >
-                {loadingHero ? (
+                {loadingHero || periodLoading ? (
                   <HeroCarouselSkeleton className="h-full min-h-0 flex-1" />
                 ) : (
                   <HeroCarousel
@@ -324,6 +328,7 @@ export default function DashboardPage() {
                 <div className="h-full min-h-0 overflow-hidden rounded-3xl">
                   <RankingTable
                     dense
+                    loading={rankingLoading}
                     ranking={rankingFiltrado}
                     periodo={periodo}
                     periodoLabel={bounds.hint}

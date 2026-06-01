@@ -25,6 +25,7 @@ interface RankingTableProps {
   nombreEmpresa?: string;
   isCompania?: boolean;
   dense?: boolean;
+  loading?: boolean;
   isDark?: boolean;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
@@ -145,7 +146,7 @@ function RankingColumnHeaders({
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
   kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora',
-  isCompania = false, dense = false,
+  isCompania = false, dense = false, loading = false,
   isDark = false,
   isFullscreen = false,
   onToggleFullscreen,
@@ -276,6 +277,17 @@ export function RankingTable({
   const sucursalLabel = sucursalFiltro
     ? (sucursales.find((s) => sucursalFilterKey(s) === sucursalFiltro)?.sucursal ?? sucursalFiltro)
     : null;
+
+  if (loading) {
+    return (
+      <Card className="flex flex-col items-center justify-center p-12 border-slate-200 border-dashed border-2 h-full bg-slate-50/50 rounded-3xl animate-pulse">
+        <div className="w-16 h-16 bg-slate-200 rounded-full flex items-center justify-center mb-4" />
+        <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] text-center">
+          Cargando período{periodoLabel ? ` · ${periodoLabel}` : ""}…
+        </p>
+      </Card>
+    );
+  }
 
   if (ranking.length === 0) {
     return (

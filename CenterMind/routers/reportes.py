@@ -926,15 +926,25 @@ def _fetch_exhibiciones_range(
 
 
 def _fetch_exhibiciones_periodo(distribuidor_id: int, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
-    PAGE = 1000
-    offset = 0
+    """Pagina exhibiciones; meses largos en ventanas semanales secuenciales (evita statement timeout)."""
+    start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    span_days = (end_dt - start_dt).days
+    if span_days <= 8:
+        return _fetch_exhibiciones_range(distribuidor_id, start_iso, end_iso)
+
     rows: list[dict[str, Any]] = []
-    while True:
-        chunk = _fetch_exhibiciones_page(distribuidor_id, start_iso, end_iso, offset, PAGE)
-        rows.extend(chunk)
-        if len(chunk) < PAGE:
-            break
-        offset += PAGE
+    cursor = start_dt
+    while cursor < end_dt:
+        chunk_end = min(cursor + timedelta(days=7), end_dt)
+        rows.extend(
+            _fetch_exhibiciones_range(
+                distribuidor_id,
+                cursor.isoformat(),
+                chunk_end.isoformat(),
+            )
+        )
+        cursor = chunk_end
     return rows
 
 

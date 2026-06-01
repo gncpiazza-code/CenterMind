@@ -279,15 +279,9 @@ def _partial_dashboard_payload(
     _hide_qa: bool,
     *,
     error: str | None = None,
+    instant: bool = True,
 ) -> dict:
-    """Respuesta degradada: RPC/ultimas siguen; KPIs/ranking vacíos si falló el fetch masivo."""
-    from routers.reportes import (
-        _resolve_period_bounds,
-        _resolve_sucursal_pk,
-        _enrich_por_sucursal_rows,
-    )
-
-    suc_pk = _resolve_sucursal_pk(dist_id, sucursal_id)
+    """Respuesta degradada. Por defecto instantánea (sin DB) mientras corre el refresh."""
     kpis = {
         "total": 0,
         "pendientes": 0,
@@ -308,6 +302,20 @@ def _partial_dashboard_payload(
     }
     if error:
         meta["compute_error"] = error
+
+    if instant:
+        return {
+            "meta": meta,
+            "kpis": kpis,
+            "ranking": [],
+            "ultimas": [],
+            "sucursales": [],
+            "evolucion": [],
+        }
+
+    from routers.reportes import _resolve_sucursal_pk, _enrich_por_sucursal_rows
+
+    suc_pk = _resolve_sucursal_pk(dist_id, sucursal_id)
     return {
         "meta": meta,
         "kpis": kpis,

@@ -100,7 +100,7 @@ export default function EstadisticasPage() {
       setMesesSeleccionados(
         mesesDisponibles.includes(current)
           ? [current]
-          : [mesesDisponibles[mesesDisponibles.length - 1]],
+          : [mesesDisponibles[0]],
       );
     } else if (valid.length !== mesesSeleccionados.length) {
       setMesesSeleccionados(valid);
@@ -115,6 +115,27 @@ export default function EstadisticasPage() {
   } = useEstadisticasCartasBundle(distId, mesesParaQuery, filterSucursal);
 
   const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
+
+  // Período persistido sin cartas (p. ej. mes con datos crudos pero sin KPIs) → mes más reciente con cartas
+  useEffect(() => {
+    if (loadingMeses || loadingCards || cartasError) return;
+    if (vendors.length > 0 || mesesDisponibles.length === 0) return;
+    if (mesesParaQuery.length === 0) return;
+    const best = mesesDisponibles[0];
+    if (!best) return;
+    const same =
+      mesesSeleccionados.length === 1 && mesesSeleccionados[0] === best;
+    if (!same) setMesesSeleccionados([best]);
+  }, [
+    loadingMeses,
+    loadingCards,
+    cartasError,
+    vendors.length,
+    mesesDisponibles,
+    mesesParaQuery.length,
+    mesesSeleccionados,
+    setMesesSeleccionados,
+  ]);
 
   const showLoadingStrip =
     mesesParaQuery.length > 0 && loadingCards && vendors.length === 0 && !cartasError;

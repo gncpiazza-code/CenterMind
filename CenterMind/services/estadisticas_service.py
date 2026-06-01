@@ -311,18 +311,70 @@ def fetch_sucursales_disponibles(dist_id: int) -> list[str]:
     return names
 
 
+def _any_vendor_carta_visible(
+    dist_id: int,
+    all_raw: dict[str, dict],
+    vend_rows: list[dict],
+    hidden_vids: set[str],
+    sucursal: str | None = None,
+    suc_map: dict[str, str] | None = None,
+) -> bool:
+    """Misma elegibilidad que build_carta_resumen (sin armar radar/score)."""
+    suc_map = suc_map or {}
+    for v in vend_rows:
+        vid = str(v.get("id_vendedor") or "").strip()
+        nombre = (v.get("nombre_erp") or "").strip()
+        if not vid:
+            continue
+        if vid in hidden_vids:
+            continue
+        if is_exhibicion_qa_display_for_dist(dist_id, nombre):
+            continue
+        if is_vendedor_excluido_objetivos(nombre):
+            continue
+        if sucursal:
+            sid = str(v.get("id_sucursal") or "").strip()
+            suc_nombre = suc_map.get(sid, "")
+            if suc_nombre.lower() != sucursal.lower():
+                continue
+        raw = all_raw.get(vid)
+        if raw and raw.get("pdvs", 0) > 0 and _carta_tiene_actividad_comercial(raw):
+            return True
+    return False
+
+
+def _meses_con_cartas_visibles(dist_id: int, candidates: list[str]) -> list[str]:
+    """
+    Filtra candidatos a meses con al menos una carta vendedor visible.
+    Una sola lectura de fuentes para todo el rango; agrega KPIs por mes.
+    """
+    if not candidates:
+        return []
+    source = _fetch_carta_source_rows(dist_id, candidates)
+    vend_rows = source.get("vendedores") or []
+    visible: list[str] = []
+    for mes in sorted(candidates, reverse=True):
+        all_raw = _aggregate_kpis_from_rows(source, [mes])
+        all_raw.pop("__ventas_meta__", None)  # type: ignore[call-overload]
+        rolled, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
+        if _any_vendor_carta_visible(dist_id, rolled, vend_rows, hidden_vids):
+            visible.append(mes)
+    return visible
+
+
 def fetch_meses_disponibles(dist_id: int) -> list[str]:
     """
-    Meses YYYY-MM con actividad comercial para estadísticas (desc):
-    ventas no anuladas (sin recaudaciones) y/o exhibiciones.
-    No incluye altas de padrón ni meses futuros respecto al calendario AR.
+    Meses YYYY-MM con al menos una carta vendedor visible (desc).
+    Candidatos: ventas comerciales y/o exhibiciones; excluye padrón y meses futuros AR.
     """
     meses: set[str] = set()
     meses |= _collect_meses_ventas_comerciales(dist_id)
     meses |= _paginate_meses(dist_id, "exhibiciones", "timestamp_subida")
     cap = _mes_actual_ar()
-    meses = {m for m in meses if m <= cap}
-    return sorted(meses, reverse=True)
+    candidates = sorted((m for m in meses if m <= cap), reverse=True)
+    if not candidates:
+        return []
+    return _meses_con_cartas_visibles(dist_id, candidates)
 
 
 def _fetch_rutas_vendedor(dist_id: int, id_vendedor: str, select_cols: str = "id_ruta") -> list[dict]:

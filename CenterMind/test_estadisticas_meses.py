@@ -24,4 +24,26 @@ def test_fetch_meses_excluye_futuros(monkeypatch):
         "services.estadisticas_service._mes_actual_ar",
         lambda: "2026-06",
     )
+    monkeypatch.setattr(
+        "services.estadisticas_service._meses_con_cartas_visibles",
+        lambda _d, candidates: [m for m in candidates if m <= "2026-06"],
+    )
     assert fetch_meses_disponibles(1) == ["2026-06", "2026-05"]
+
+
+def test_any_vendor_carta_visible_requiere_actividad_comercial():
+    from services.estadisticas_service import _any_vendor_carta_visible
+
+    vend = [{"id_vendedor": 1, "nombre_erp": "Vendedor A", "id_sucursal": 1}]
+    assert _any_vendor_carta_visible(
+        1,
+        {"1": {"pdvs": 10, "compradores": 2, "bultos": 0, "exhibiciones": 0}},
+        vend,
+        set(),
+    )
+    assert not _any_vendor_carta_visible(
+        1,
+        {"1": {"pdvs": 10, "compradores": 0, "bultos": 0, "exhibiciones": 0}},
+        vend,
+        set(),
+    )

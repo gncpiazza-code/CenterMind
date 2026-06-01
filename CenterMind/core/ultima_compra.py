@@ -14,11 +14,32 @@ from datetime import date, timedelta
 from typing import Any, Iterable
 
 from db import sb
+from core.exhibicion_aggregate import erp_lookup_keys
 from core.objetivos_compradores import _norm_erp
 from core.tenant_tables import tenant_table_name
 from core.ventas_bultos_rules import classify_volumen, unidades_por_bulto, volumen_es_convertido
 
 PAGE = 1000
+
+
+def erp_query_variants(erp_id: str) -> list[str]:
+    """Variantes id_cliente_erp para ventas/padrón (Telegram vs Consolido)."""
+    raw = str(erp_id or "").strip()
+    if not raw:
+        return []
+    keys: list[str] = []
+    seen: set[str] = set()
+    for k in erp_lookup_keys(raw):
+        if k and k not in seen:
+            seen.add(k)
+            keys.append(k)
+    if raw.isdigit():
+        z6 = raw.zfill(6)
+        if z6 not in seen:
+            seen.add(z6)
+            keys.append(z6)
+    return keys
+
 
 _VENTAS_SELECT = (
     "id_cliente_erp,fecha_factura,tipo_documento,numero_documento,serie,"
@@ -144,13 +165,14 @@ def fetch_ultima_compra_por_erp(
     erp_raw: list[str] = []
     erp_norm_set: set[str] = set()
     for e in erp_ids:
-        s = str(e or "").strip()
-        if not s:
-            continue
-        erp_raw.append(s)
-        n = _norm_erp(s)
-        if n:
-            erp_norm_set.add(n)
+        for v in erp_query_variants(str(e or "")):
+            if not v:
+                continue
+            if v not in erp_raw:
+                erp_raw.append(v)
+            n = _norm_erp(v)
+            if n:
+                erp_norm_set.add(n)
     if not erp_norm_set:
         return {}
 
@@ -372,21 +394,19 @@ def _doc_key_row(row: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def fetch_ultima_compra_detalle_por_erp(
+def _fetch_ventas_docs_por_erps(
     dist_id: int,
-    erp_id: str,
+    erp_variants: list[str],
     *,
     ventana_dias: int = 450,
     fecha_hasta: date | None = None,
-) -> dict[str, Any] | None:
-    """
-    Última compra de un ERP con líneas por comprobante.
-    Si hay varios comprobantes el mismo día (última fecha), devuelve todos en `comprobantes`.
-    Retorna {fecha, comprobante, articulos, comprobantes, comprobantes_mismo_dia, articulos_resumen} o None.
-    """
-    raw = str(erp_id or "").strip()
-    if not raw:
-        return None
+    nombre_fantasia: str | None = None,
+    nombre_razon_social: str | None = None,
+    filtrar_nombre: bool = False,
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """Acumula comprobantes de ventas para una lista de variantes ERP."""
+    if not erp_variants:
+        return {}
 
     hasta = fecha_hasta or date.today()
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
@@ -394,60 +414,112 @@ def fetch_ultima_compra_detalle_por_erp(
     t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
 
     docs: dict[tuple[str, str, str], dict[str, Any]] = {}
-    offset = 0
-    while True:
-        batch = (
-            sb.table(t_ventas)
-            .select(_VENTAS_SELECT_DETALLE)
-            .eq("id_distribuidor", dist_id)
-            .eq("anulado", False)
-            .eq("id_cliente_erp", raw)
-            .gte("fecha_factura", desde)
-            .lte("fecha_factura", hasta_s)
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data or []
-        )
-        for row in batch:
-            if not _venta_cuenta_como_compra(row):
-                continue
-            key = _doc_key_row(row)
-            if not key[0] or not key[1]:
-                continue
-            doc = docs.get(key)
-            if doc is None:
-                doc = {
-                    "fecha": key[0],
-                    "comprobante": comprobante_from_venta_row(row),
-                    "importe_total": 0.0,
-                    "articulos_map": {},
-                }
-                docs[key] = doc
-            imp = float(row.get("importe_final") or 0)
-            doc["importe_total"] += imp
-            doc["comprobante"]["importe_final"] = doc["importe_total"]
-            desc = (row.get("descripcion_articulo") or "").strip()
-            cod = (row.get("cod_articulo") or "").strip()
-            agr = (row.get("agrupacion_art_2") or "").strip()
-            label = desc or cod or "Artículo"
-            prev = doc["articulos_map"].get(
-                label,
-                {
-                    "descripcion": label,
-                    "bultos_total": 0.0,
-                    "unidades_total": 0.0,
-                    "importe_final": 0.0,
-                },
+    chunk_size = 400
+    for i in range(0, len(erp_variants), chunk_size):
+        chunk = erp_variants[i : i + chunk_size]
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select(_VENTAS_SELECT_DETALLE)
+                .eq("id_distribuidor", dist_id)
+                .eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde)
+                .lte("fecha_factura", hasta_s)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
             )
-            b_line = float(row.get("bultos_total") or 0)
-            u_line = float(row.get("unidades_total") or 0)
-            prev["bultos_total"] += b_line
-            prev["unidades_total"] += _unidades_linea(desc, b_line, u_line, agr)
-            prev["importe_final"] += imp
-            doc["articulos_map"][label] = prev
-        if len(batch) < PAGE:
-            break
-        offset += PAGE
+            for row in batch:
+                if not _venta_cuenta_como_compra(row):
+                    continue
+                if filtrar_nombre and (nombre_fantasia or nombre_razon_social):
+                    from core.cliente_nombre_match import cliente_nombre_coincide_padron
+
+                    if not cliente_nombre_coincide_padron(
+                        row.get("nombre_cliente"),
+                        nombre_fantasia=nombre_fantasia,
+                        nombre_razon_social=nombre_razon_social,
+                    ):
+                        continue
+                key = _doc_key_row(row)
+                if not key[0] or not key[1]:
+                    continue
+                doc = docs.get(key)
+                if doc is None:
+                    doc = {
+                        "fecha": key[0],
+                        "comprobante": comprobante_from_venta_row(row),
+                        "importe_total": 0.0,
+                        "articulos_map": {},
+                    }
+                    docs[key] = doc
+                imp = float(row.get("importe_final") or 0)
+                doc["importe_total"] += imp
+                doc["comprobante"]["importe_final"] = doc["importe_total"]
+                desc = (row.get("descripcion_articulo") or "").strip()
+                cod = (row.get("cod_articulo") or "").strip()
+                agr = (row.get("agrupacion_art_2") or "").strip()
+                label = desc or cod or "Artículo"
+                prev = doc["articulos_map"].get(
+                    label,
+                    {
+                        "descripcion": label,
+                        "bultos_total": 0.0,
+                        "unidades_total": 0.0,
+                        "importe_final": 0.0,
+                    },
+                )
+                b_line = float(row.get("bultos_total") or 0)
+                u_line = float(row.get("unidades_total") or 0)
+                prev["bultos_total"] += b_line
+                prev["unidades_total"] += _unidades_linea(desc, b_line, u_line, agr)
+                prev["importe_final"] += imp
+                doc["articulos_map"][label] = prev
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+    return docs
+
+
+def fetch_ultima_compra_detalle_por_erp(
+    dist_id: int,
+    erp_id: str,
+    *,
+    ventana_dias: int = 450,
+    fecha_hasta: date | None = None,
+    nombre_fantasia: str | None = None,
+    nombre_razon_social: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Última compra de un ERP con líneas por comprobante.
+    Si hay varios comprobantes el mismo día (última fecha), devuelve todos en `comprobantes`.
+    Retorna {fecha, comprobante, articulos, comprobantes, comprobantes_mismo_dia, articulos_resumen} o None.
+    """
+    variants = erp_query_variants(erp_id)
+    if not variants:
+        return None
+
+    docs = _fetch_ventas_docs_por_erps(
+        dist_id,
+        variants,
+        ventana_dias=ventana_dias,
+        fecha_hasta=fecha_hasta,
+        nombre_fantasia=nombre_fantasia,
+        nombre_razon_social=nombre_razon_social,
+        filtrar_nombre=False,
+    )
+    if not docs and (nombre_fantasia or nombre_razon_social):
+        docs = _fetch_ventas_docs_por_erps(
+            dist_id,
+            variants,
+            ventana_dias=ventana_dias,
+            fecha_hasta=fecha_hasta,
+            nombre_fantasia=nombre_fantasia,
+            nombre_razon_social=nombre_razon_social,
+            filtrar_nombre=True,
+        )
 
     if not docs:
         return None

@@ -267,11 +267,12 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
 
         t_clientes = tenant_table_name("clientes_pdv_v2", id_distribuidor)
         pdv = None
+        pdv_erp_canonical: str | None = None
         for cand in candidates:
             res_pdv = (
                 sb.table(t_clientes)
                 .select(
-                    "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, "
+                    "id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, "
                     "telefono, celular, fecha_alta, id_ruta, estado, motivo_inactivo, fecha_ultima_compra"
                 )
                 .eq("id_distribuidor", id_distribuidor)
@@ -281,6 +282,7 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
             )
             if res_pdv.data:
                 pdv = res_pdv.data[0]
+                pdv_erp_canonical = str(pdv.get("id_cliente_erp") or cand).strip() or None
                 break
 
         if pdv:
@@ -335,17 +337,23 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
                                     ctx["sucursal_erp"] = suc_res.data[0].get("nombre_erp")
 
         # Última compra operativa (Informe Ventas); deuda CC sigue en RPC si aplica.
-        erp_ventas = None
-        for cand in candidates:
-            if cand:
-                erp_ventas = cand
-                break
+        erp_ventas = pdv_erp_canonical
+        if not erp_ventas:
+            for cand in candidates:
+                if cand:
+                    erp_ventas = cand
+                    break
         compra_ventas = False
         if erp_ventas:
             try:
                 from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
 
-                detalle = fetch_ultima_compra_detalle_por_erp(id_distribuidor, erp_ventas)
+                detalle = fetch_ultima_compra_detalle_por_erp(
+                    id_distribuidor,
+                    erp_ventas,
+                    nombre_fantasia=pdv.get("nombre_fantasia") if pdv else ctx.get("nombre_fantasia"),
+                    nombre_razon_social=pdv.get("nombre_razon_social") if pdv else ctx.get("razon_social"),
+                )
                 if detalle:
                     compra_ventas = True
                     ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}

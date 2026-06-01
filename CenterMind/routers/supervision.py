@@ -1155,6 +1155,17 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                 r["url_ultima_exhibicion"]     = exh_foto_map.get(r["id_cliente"])
                 r["total_exhibiciones"]        = exh_count_map.get(r["id_cliente"], 0)
                 r["tiene_exhibicion_reciente"] = bool(fecha_exh and fecha_exh >= threshold_date)
+
+            try:
+                from core.compras_fechas import enrich_supervision_fechas_compra
+
+                enrich_supervision_fechas_compra(dist_id, rows)
+            except Exception as e_fuc:
+                logger.warning(
+                    "[supervision_clientes] fechas compra operativas dist=%s: %s",
+                    dist_id,
+                    e_fuc,
+                )
         return rows
     except Exception as e:
         logger.error(f"Error en supervision_clientes: {e}")
@@ -2644,7 +2655,12 @@ def _enrich_cliente_info_ultima_compra(dist_id: int, rows: list[dict]) -> list[d
         erp = str(row.get("id_cliente_erp") or "").strip()
         try:
             if erp:
-                detalle = fetch_ultima_compra_detalle_por_erp(dist_id, erp)
+                detalle = fetch_ultima_compra_detalle_por_erp(
+                    dist_id,
+                    erp,
+                    nombre_fantasia=row.get("nombre_fantasia"),
+                    nombre_razon_social=row.get("nombre_razon_social"),
+                )
                 if detalle:
                     compra_ventas = True
                     ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
@@ -2679,9 +2695,19 @@ def supervision_cliente_info(
 
         if id_cliente_erp:
             t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
-            r = sb.table(t_clientes).select(fields).eq("id_distribuidor", dist_id).eq("id_cliente_erp", id_cliente_erp.strip()).limit(3).execute()
-            if r.data:
-                return _enrich_cliente_info_ultima_compra(dist_id, r.data)
+            from core.ultima_compra import erp_query_variants
+
+            for cand in erp_query_variants(id_cliente_erp.strip()):
+                r = (
+                    sb.table(t_clientes)
+                    .select(fields)
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_cliente_erp", cand)
+                    .limit(3)
+                    .execute()
+                )
+                if r.data:
+                    return _enrich_cliente_info_ultima_compra(dist_id, r.data)
 
         def _search(col: str, val: str, substring: bool = False) -> list:
             pattern = f"%{val}%" if substring else val

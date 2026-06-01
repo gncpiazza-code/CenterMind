@@ -41,7 +41,7 @@ PENDIENTES_ESTADOS_DB = (
 
 _EXH_PENDIENTES_SELECT = (
     "id_exhibicion,id_integrante,estado,timestamp_subida,url_foto_drive,"
-    "telegram_msg_id,id_cliente_pdv,id_cliente,cliente_sombra_codigo,id_objetivo"
+    "telegram_msg_id,id_cliente_pdv,id_cliente,cliente_sombra_codigo,id_objetivo,tipo_pdv"
 )
 
 
@@ -231,7 +231,7 @@ def _fetch_pendientes_exhibiciones(dist_id: int) -> list[dict]:
                 "id_objetivo": r.get("id_objetivo"),
                 "vendedor": ig_names.get(iid_i, "Vendedor S/N") if iid_i else "Vendedor S/N",
                 "nro_cliente": "0",
-                "tipo_pdv": "S/D",
+                "tipo_pdv": (r.get("tipo_pdv") or "").strip() or "S/D",
                 "fecha_hora": r.get("timestamp_subida") or "",
                 "drive_link": r.get("url_foto_drive") or "",
                 "telegram_msg_id": r.get("telegram_msg_id"),
@@ -504,10 +504,14 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
                 "vendedor": vendedor_display,
                 "sucursal": sucursal_resuelta,
                 "nro_cliente": _grupo_nro_cliente(d),
-                "tipo_pdv": d.get("tipo_pdv") or "S/D",
+                "tipo_pdv": (d.get("tipo_pdv") or "").strip() or "S/D",
                 "fecha_hora": d.get("fecha_hora") or "",
                 "fotos": [],
             }
+        elif (grupos[key].get("tipo_pdv") or "S/D") == "S/D":
+            tp = (d.get("tipo_pdv") or "").strip()
+            if tp and tp != "S/D":
+                grupos[key]["tipo_pdv"] = tp
         id_obj = obj_id_map.get(ex_id)
         grupos[key]["fotos"].append({
             "id_exhibicion": ex_id,

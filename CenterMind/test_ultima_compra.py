@@ -5,8 +5,15 @@ from core.ultima_compra import (
     comprobante_from_venta_row,
     comprobante_label,
     comprobantes_ultima_fecha_from_docs,
+    erp_query_variants,
     resolve_fecha_ultima_compra,
 )
+
+
+def test_erp_query_variants_zfill():
+    keys = erp_query_variants("21060")
+    assert "21060" in keys
+    assert "021060" in keys
 
 
 def test_comprobante_label():

@@ -311,17 +311,35 @@ export function VisorPageContent() {
   const ultimaCompraComprobantes =
     pdvInfo?.ultima_compra_comprobantes ?? erpContext?.ultima_compra_comprobantes;
 
+  const tieneComprobante = Boolean(
+    ultimoComprobante?.label ||
+      ultimoComprobante?.numero_documento ||
+      (ultimaCompraComprobantes?.length ?? 0) > 0,
+  );
+
   const diasUltCompra = daysSinceFechaAR(ultimaCompraFuente);
   const ventas30 = typeof erpContext?.total_30d === "number" && erpContext.total_30d > 0;
   const compraUltimos30 =
-    ventas30 || (diasUltCompra !== null && diasUltCompra <= 30 && !!ultimaCompraFuente);
-  const activoComercial =
-    pdvInfo?.activo_comercial ?? erpContext?.activo_comercial ?? compraUltimos30;
+    ventas30 ||
+    tieneComprobante ||
+    (diasUltCompra !== null && diasUltCompra <= 30 && !!ultimaCompraFuente);
   const conIngresoComercio =
-    !!erpContext?.encontrado &&
-    (ventas30 ||
-      (diasUltCompra !== null && diasUltCompra < 90) ||
-      (erpContext.cant_facturas != null && erpContext.cant_facturas > 0));
+    ventas30 ||
+    tieneComprobante ||
+    (diasUltCompra !== null && diasUltCompra < 90 && !!ultimaCompraFuente) ||
+    (erpContext?.cant_facturas != null && erpContext.cant_facturas > 0);
+  const activoComercial =
+    pdvInfo?.activo_comercial ??
+    erpContext?.activo_comercial ??
+    compraUltimos30;
+
+  const tipoPdvDisplay = useMemo(() => {
+    const t = (grupo?.tipo_pdv || "").trim();
+    if (t && t !== "S/D") return t;
+    if (conIngresoComercio) return "Comercio con Ingreso";
+    if (pdvInfo || ultimaCompraFuente || tieneComprobante) return "Comercio sin Ingreso";
+    return "—";
+  }, [grupo?.tipo_pdv, conIngresoComercio, pdvInfo, ultimaCompraFuente, tieneComprobante]);
 
   const vendedorExhibicion = useMemo(() => {
     const erp = erpContext?.vendedor_erp?.trim();
@@ -1147,7 +1165,7 @@ export function VisorPageContent() {
                                     : vendedorExhibicion
                                 }
                                 sucursal={sucursalExhibicion}
-                                tipoPdv={grupo.tipo_pdv || "—"}
+                                tipoPdv={tipoPdvDisplay}
                                 envio={formatFechaAR(grupo.fecha_hora)}
                               />
                             </VisorPanelFieldList>
@@ -1162,7 +1180,7 @@ export function VisorPageContent() {
                                     <Skeleton className="h-3.5 w-full rounded" />
                                     <Skeleton className="h-3.5 w-3/4 rounded" />
                                   </div>
-                                ) : erpContext?.encontrado ? (
+                                ) : erpContext?.encontrado || pdvInfo || tieneComprobante ? (
                                   <div className="flex flex-col gap-1">
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="text-[11px] text-slate-500 leading-tight">Tipo comercio</span>

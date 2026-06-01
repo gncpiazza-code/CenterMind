@@ -59,10 +59,29 @@ def _ideal_pct_targets(card: dict) -> tuple[float, float]:
     return ideal_cex, ideal_cob
 
 
+def _hydrate_carta_card(card: dict) -> dict:
+    """Promueve campos de raw_kpis a la raíz (snapshots legacy)."""
+    if not isinstance(card, dict):
+        return card
+    card = dict(card)
+    raw = card.get("raw_kpis")
+    if not isinstance(raw, dict):
+        return card
+    raw = dict(raw)
+    if not str(card.get("top_localidades") or "").strip():
+        top = str(raw.get("top_localidades") or "").strip()
+        if top:
+            card["top_localidades"] = top
+    card["raw_kpis"] = raw
+    return card
+
+
 def _normalize_carta_radar(card: dict) -> dict:
     """
-    Recompone CEX/COB del radar: cumplimiento % real vs % meta del ideal.
+    Recompone CEX/COB del radar desde raw_kpis.
+    CEX = % cartera exhibida (PDVs exhibidos ÷ PDVs), escala 0–100.
     """
+    card = _hydrate_carta_card(card)
     if not isinstance(card, dict):
         return card
     radar = card.get("radar")
@@ -72,14 +91,12 @@ def _normalize_carta_radar(card: dict) -> dict:
 
     cob_exh_real = _percent_from_raw(raw, "cobertura_pct", "pdvs_exhibidos")
     cob_compra_real = _percent_from_raw(raw, "cobertura_compra_pct", "compradores")
-    ideal_cex, ideal_cob = _ideal_pct_targets(card)
+    _, ideal_cob = _ideal_pct_targets(card)
 
     radar = dict(radar)
-    radar["pdvs_exhibidos"] = max(
-        0, min(100, round(cob_exh_real / ideal_cex * 100)),
-    )
+    radar["pdvs_exhibidos"] = max(0, min(100, round(cob_exh_real)))
     radar["cobertura"] = max(
-        0, min(100, round(cob_compra_real / ideal_cob * 100)),
+        0, min(100, round(cob_compra_real / ideal_cob * 100 if ideal_cob > 0 else cob_compra_real)),
     )
     card = dict(card)
     card["radar"] = radar

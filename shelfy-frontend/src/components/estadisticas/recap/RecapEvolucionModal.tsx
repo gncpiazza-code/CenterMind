@@ -10,9 +10,15 @@ import { ESTADISTICAS_FIFA } from "@/lib/vendor-card-detalle-theme";
 import { formatMesLabel } from "@/lib/recap-utils";
 import { VendorCardFusion } from "../VendorCardFusion";
 import { scoreToTier, VENDOR_CARD_TIER_THEME } from "@/lib/vendor-card-tier";
+import { resolveTopLocalidades } from "@/lib/vendor-carta-display";
 import type { VendorCartaResumen } from "@/lib/api";
-import type { RecapEvolucionStep } from "@/lib/recap-types";
 import "../vendor-card-fusion.css";
+
+function withTopLocalidadesOnCarta(carta: VendorCartaResumen): VendorCartaResumen {
+  const top = resolveTopLocalidades(carta);
+  if (!top || carta.top_localidades?.trim()) return carta;
+  return { ...carta, top_localidades: top };
+}
 
 function scoreDelta(prev: number | null, curr: number | null): number | null {
   if (prev === null || curr === null) return null;
@@ -187,16 +193,19 @@ export function RecapEvolucionModal({
 
   const steps = useMemo(() => {
     const base = data?.steps ?? [];
-    if (!cartaReferencia) return base;
-    return base.map((step) =>
-      step.tipo === "C"
-        ? {
-            ...step,
-            carta: cartaReferencia,
-            available: true,
-          }
-        : step,
-    );
+    return base.map((step) => {
+      if (step.tipo === "C" && cartaReferencia) {
+        return {
+          ...step,
+          carta: withTopLocalidadesOnCarta(cartaReferencia),
+          available: true,
+        };
+      }
+      if (step.carta) {
+        return { ...step, carta: withTopLocalidadesOnCarta(step.carta) };
+      }
+      return step;
+    });
   }, [data?.steps, cartaReferencia]);
 
   const scores = steps.map((s) => (s.carta ? Math.round(s.carta.score) : null));

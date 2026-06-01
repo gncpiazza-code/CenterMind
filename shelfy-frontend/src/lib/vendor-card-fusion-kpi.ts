@@ -27,7 +27,7 @@ export const FUSION_RADAR_AXES: FusionRadarAxisMeta[] = [
   {
     key: "pdvs_exhibidos",
     tick: "CEX",
-    fullLabel: "% cartera exhibida",
+    fullLabel: "% cartera exhibida (PDVs exhibidos ÷ PDVs)",
     idealLabel: "% cartera exhibida",
     isPercent: true,
   },

@@ -74,6 +74,22 @@ export function effectiveRawKpisForRadar(
 }
 
 /**
+ * Valor del eje CEX en el radar: % de cartera con exhibición (PDVs exhibidos ÷ PDVs).
+ */
+export function cexRadarValue(
+  raw: VendorRawKpis,
+  radar: RadarKPI,
+  options?: { pdvsExhibidos?: number },
+): number {
+  const effective = effectiveRawKpisForRadar(raw, options);
+  const pct = exhibitionCoveragePct(effective);
+  if (pct > 0) return Math.round(pct);
+  const legacy = Number(radar.pdvs_exhibidos ?? 0);
+  if (legacy > 0 && legacy <= 100) return Math.round(legacy);
+  return 0;
+}
+
+/**
  * Alinea CEX/COB del radar con raw_kpis (snapshots legacy pueden traer 0 en el polígono).
  */
 export function mergeFusionRadarFromRaw(
@@ -84,14 +100,9 @@ export function mergeFusionRadarFromRaw(
   options?: { pdvsExhibidos?: number },
 ): RadarKPI {
   const effective = effectiveRawKpisForRadar(raw, options);
-  const idealCex = pickIdealPct(idealMetaDist, idealMetaCompania, "pdvs_exhibidos");
   const idealCob = pickIdealPct(idealMetaDist, idealMetaCompania, "cobertura");
-  const exhPct = exhibitionCoveragePct(effective);
   const compPct = purchaseCoveragePct(effective);
-  const cex =
-    exhPct > 0 || Number(effective.pdvs_exhibidos ?? 0) > 0
-      ? complianceVsIdealPct(exhPct, idealCex)
-      : Number(radar.pdvs_exhibidos ?? 0);
+  const cex = cexRadarValue(raw, radar, options);
   const cob =
     compPct > 0 || Number(effective.compradores ?? 0) > 0
       ? complianceVsIdealPct(compPct, idealCob)

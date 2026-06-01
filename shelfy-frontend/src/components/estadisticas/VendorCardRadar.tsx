@@ -177,7 +177,7 @@ function FusionRadarTooltipContent({
             whiteSpace: "normal",
           }}
         >
-          CEX: cumplimiento de cobertura de exhibición (PDVs exhibidos ÷ PDVs de cartera) vs. la meta % del ideal.
+          CEX: % de cartera con exhibición (PDVs exhibidos ÷ PDVs). El ideal en tooltip es la meta % del perfil.
         </p>
       )}
       {meta.key === "cobertura" && (

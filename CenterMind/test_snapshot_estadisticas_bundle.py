@@ -73,7 +73,7 @@ def test_percent_from_raw_recalculates_when_pct_zero():
 
 
 def test_normalize_cartas_syncs_percent_radar_vs_ideal():
-    """CEX/COB = % real del vendedor ÷ % meta del ideal (×100, tope 100)."""
+    """CEX = % cartera exhibida; COB = cumplimiento vs meta ideal."""
     raw = [
         {
             "id_vendedor": "V1",
@@ -90,8 +90,19 @@ def test_normalize_cartas_syncs_percent_radar_vs_ideal():
     ]
     out = _normalize_cartas_payload(raw)
     assert isinstance(out, list)
-    assert out[0]["radar"]["pdvs_exhibidos"] == 50
+    assert out[0]["radar"]["pdvs_exhibidos"] == 42
     assert out[0]["radar"]["cobertura"] == 91
+
+
+def test_hydrate_top_localidades_from_raw_kpis():
+    from services.snapshot_estadisticas_service import _hydrate_carta_card
+
+    card = {
+        "id_vendedor": "1",
+        "raw_kpis": {"top_localidades": "PARANA - DIAMANTE"},
+    }
+    out = _hydrate_carta_card(card)
+    assert out["top_localidades"] == "PARANA - DIAMANTE"
 
 
 def test_cartas_is_list():

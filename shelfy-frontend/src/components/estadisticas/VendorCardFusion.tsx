@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { effectiveRawKpisForRadar, mergeFusionRadarFromRaw } from "@/lib/vendor-radar-fusion";
+import { resolveTopLocalidades } from "@/lib/vendor-carta-display";
 import { VendorCardFusionStats } from "./VendorCardFusionStats";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
@@ -68,8 +69,7 @@ export function VendorCardFusion({
   const tier = scoreToTier(vendor.score);
   const theme = VENDOR_CARD_TIER_THEME[tier];
   const k = effectiveRawKpisForRadar(vendor.raw_kpis);
-  const topLocalidades =
-    vendor.top_localidades?.trim() || vendor.raw_kpis?.top_localidades?.trim() || "";
+  const topLocalidades = resolveTopLocalidades(vendor);
   const sucursalLabel = (vendor.sucursal || "—").toUpperCase();
   const distLabel = (nombreDistribuidora || "Distribuidora").toUpperCase();
 
@@ -260,13 +260,14 @@ export function VendorCardFusion({
           {topLocalidades ? (
             <p
               style={{
-                margin: "3px 0 0",
+                margin: "4px 0 0",
                 fontSize: 9,
-                fontWeight: 600,
-                color: "rgba(0,0,0,0.45)",
+                fontWeight: 700,
+                color: theme.text,
+                opacity: 0.72,
                 textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                lineHeight: 1.2,
+                letterSpacing: "0.05em",
+                lineHeight: 1.25,
               }}
             >
               {topLocalidades}

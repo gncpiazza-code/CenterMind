@@ -64,6 +64,8 @@ export function VendorCardFusion({
   const tier = scoreToTier(vendor.score);
   const theme = VENDOR_CARD_TIER_THEME[tier];
   const k = vendor.raw_kpis;
+  const topLocalidades =
+    vendor.top_localidades?.trim() || vendor.raw_kpis?.top_localidades?.trim() || "";
   const sucursalLabel = (vendor.sucursal || "—").toUpperCase();
   const distLabel = (nombreDistribuidora || "Distribuidora").toUpperCase();
 
@@ -245,7 +247,7 @@ export function VendorCardFusion({
           >
             {vendor.nombre}
           </p>
-          {vendor.top_localidades ? (
+          {topLocalidades ? (
             <p
               style={{
                 margin: "3px 0 0",
@@ -257,7 +259,7 @@ export function VendorCardFusion({
                 lineHeight: 1.2,
               }}
             >
-              {vendor.top_localidades}
+              {topLocalidades}
             </p>
           ) : null}
         </div>

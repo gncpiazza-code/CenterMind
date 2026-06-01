@@ -107,26 +107,35 @@ def merge_raw_kpis(parts: list[dict], leader_pdvs: int) -> dict:
             "pdvs": 0,
             "altas": 0,
             "exhibiciones": 0,
+            "pdvs_exhibidos": 0,
             "compradores": 0,
             "bultos": 0,
             "cobertura_pct": 0.0,
+            "cobertura_compra_pct": 0.0,
             "objetivos_pct": 0.0,
         }
 
     altas = sum(int(p.get("altas") or 0) for p in parts)
     exhibiciones = sum(int(p.get("exhibiciones") or 0) for p in parts)
+    pdvs_exhibidos = sum(int(p.get("pdvs_exhibidos") or 0) for p in parts)
     compradores = sum(int(p.get("compradores") or 0) for p in parts)
     bultos = sum(int(p.get("bultos") or 0) for p in parts)
 
     pdvs = leader_pdvs if leader_pdvs > 0 else max(int(p.get("pdvs") or 0) for p in parts)
 
     cob_vals = [float(p.get("cobertura_pct") or 0) for p in parts if p.get("pdvs")]
-    if pdvs > 0 and exhibiciones > 0:
+    if pdvs > 0 and pdvs_exhibidos > 0:
+        cobertura_pct = min(100.0, pdvs_exhibidos / pdvs * 100)
+    elif pdvs > 0 and exhibiciones > 0:
         cobertura_pct = min(100.0, exhibiciones / pdvs * 100)
     elif cob_vals:
         cobertura_pct = max(cob_vals)
     else:
         cobertura_pct = 0.0
+
+    cobertura_compra_pct = 0.0
+    if pdvs > 0 and compradores > 0:
+        cobertura_compra_pct = min(100.0, compradores / pdvs * 100)
 
     obj_pcts = [float(p.get("objetivos_pct") or 0) for p in parts]
     objetivos_pct = max(obj_pcts) if obj_pcts else 0.0
@@ -135,9 +144,11 @@ def merge_raw_kpis(parts: list[dict], leader_pdvs: int) -> dict:
         "pdvs": pdvs,
         "altas": altas,
         "exhibiciones": exhibiciones,
+        "pdvs_exhibidos": pdvs_exhibidos,
         "compradores": compradores,
         "bultos": bultos,
         "cobertura_pct": round(cobertura_pct, 1),
+        "cobertura_compra_pct": round(cobertura_compra_pct, 1),
         "objetivos_pct": round(objetivos_pct, 1),
     }
 

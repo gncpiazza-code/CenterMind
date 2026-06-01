@@ -15,7 +15,12 @@ from core.exhibicion_aggregate import (
     vendor_logic_key,
     resolve_client_key,
     aggregate_exhibicion_counts_vendor_scope,
+    build_client_key_to_erp_map,
+    count_exhibited_clientes_in_cartera,
+    map_exhibidos_erp,
+    resolve_exhibition_cliente_erp,
 )
+from core.crr_cartera import build_composicion_exhibicion_compradores, build_crr_cartera
 from core.objetivos_filters import objetivo_activo_para_vendedor
 from core.helpers import (
     is_exhibicion_qa_display_for_dist,
@@ -692,16 +697,18 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
 
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
     pdvs_unicos: set = set()
+    pdv_rows_map: list[dict] = []
     if ruta_ids:
         for i in range(0, len(ruta_ids), 50):
             batch_ids = ruta_ids[i:i+50]
             q = (sb.table(t_pdv)
-                 .select("id_cliente_erp")
+                 .select(_PDV_EXHIBICION_MAP_SELECT)
                  .eq("id_distribuidor", dist_id)
                  .in_("id_ruta", batch_ids)
                  .or_(_PADRON_VISIBLE_OR))
             rows = q.execute().data or []
             for r in rows:
+                pdv_rows_map.append(r)
                 eid = r.get("id_cliente_erp")
                 if eid:
                     pdvs_unicos.add(str(eid))
@@ -797,18 +804,17 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
                 compradores.add(str(ceid))
         bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
 
-    # Cobertura exhibición = unique PDVs con exhibicion / PDVs activos
-    ex_pdvs_unique: set = set()
-    for r in ex_rows:
-        ck = (r.get("id_cliente_pdv") or r.get("id_cliente") or r.get("cliente_sombra_codigo") or "")
-        if ck:
-            ex_pdvs_unique.add(str(ck))
+    # PDVs exhibidos = clientes de cartera con al menos 1 exhibición mapeable a ERP
+    compradores_count = _count_compradores_en_cartera(compradores, pdvs_unicos)
+    client_key_to_erp = build_client_key_to_erp_map(pdv_rows_map)
+    pdvs_exhibidos = count_exhibited_clientes_in_cartera(ex_rows, client_key_to_erp, pdvs_unicos)
+    cobertura_compra_pct = 0.0
+    if pdvs_activos > 0:
+        cobertura_compra_pct = min(100.0, compradores_count / pdvs_activos * 100)
 
     cobertura_pct = 0.0
     if pdvs_activos > 0:
-        cobertura_pct = min(100.0, len(ex_pdvs_unique) / pdvs_activos * 100)
-
-    # Objetivos cumplidos %
+        cobertura_pct = min(100.0, pdvs_exhibidos / pdvs_activos * 100)
     hoy = date.today()
     t_obj = "objetivos"  # global table
     obj_res = sb.table(t_obj).select("*").eq("id_distribuidor", dist_id).execute()
@@ -826,10 +832,12 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         "pdvs": pdvs_activos,
         "altas": altas,
         "exhibiciones": exhibiciones_logicas,
-        "compradores": _count_compradores_en_cartera(compradores, pdvs_unicos),
+        "pdvs_exhibidos": pdvs_exhibidos,
+        "compradores": compradores_count,
         "bultos": bultos_display_2dec(bultos_total),
         "unidades_cigarrillos": bultos_display_2dec(unidades_cig),
         "cobertura_pct": round(cobertura_pct, 1),
+        "cobertura_compra_pct": round(cobertura_compra_pct, 1),
         "objetivos_pct": round(objetivos_pct, 1),
     }
 
@@ -850,18 +858,20 @@ def aggregate_kpis_vendedor_bounds(
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
     pdvs_unicos: set = set()
     localidad_clients: dict[str, set[str]] = defaultdict(set)
+    pdv_rows_map: list[dict] = []
     if ruta_ids:
         for i in range(0, len(ruta_ids), 50):
             batch_ids = ruta_ids[i : i + 50]
             q = (
                 sb.table(t_pdv)
-                .select("id_cliente_erp,localidad")
+                .select(f"{_PDV_EXHIBICION_MAP_SELECT},localidad")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", batch_ids)
                 .or_(_PADRON_VISIBLE_OR)
             )
             rows = q.execute().data or []
             for r in rows:
+                pdv_rows_map.append(r)
                 eid = r.get("id_cliente_erp")
                 if eid:
                     eid_s = str(eid)
@@ -956,18 +966,16 @@ def aggregate_kpis_vendedor_bounds(
                 compradores.add(str(ceid))
         bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
 
-    ex_pdvs_unique: set = set()
-    for r in ex_rows:
-        ck = r.get("id_cliente_pdv") or r.get("id_cliente") or r.get("cliente_sombra_codigo") or ""
-        if ck:
-            ex_pdvs_unique.add(str(ck))
+    client_key_to_erp = build_client_key_to_erp_map(pdv_rows_map)
+    pdvs_exhibidos = count_exhibited_clientes_in_cartera(ex_rows, client_key_to_erp, pdvs_unicos)
+    compradores_count = _count_compradores_en_cartera(compradores, pdvs_unicos)
+    cobertura_compra_pct = 0.0
+    if pdvs_activos > 0:
+        cobertura_compra_pct = min(100.0, compradores_count / pdvs_activos * 100)
 
     cobertura_pct = 0.0
     if pdvs_activos > 0:
-        cobertura_pct = min(100.0, len(ex_pdvs_unique) / pdvs_activos * 100)
-
-    hoy = date.today()
-    obj_res = sb.table("objetivos").select("*").eq("id_distribuidor", dist_id).execute()
+        cobertura_pct = min(100.0, pdvs_exhibidos / pdvs_activos * 100)
     obj_rows = obj_res.data or []
     activos = [o for o in obj_rows if objetivo_activo_para_vendedor(o, hoy)]
     vendor_activos = [o for o in activos if str(o.get("id_vendedor", "")) == str(id_vendedor)]
@@ -978,11 +986,13 @@ def aggregate_kpis_vendedor_bounds(
         "pdvs": pdvs_activos,
         "altas": altas,
         "exhibiciones": exhibiciones_logicas,
-        "compradores": _count_compradores_en_cartera(compradores, pdvs_unicos),
+        "pdvs_exhibidos": pdvs_exhibidos,
+        "compradores": compradores_count,
         "bultos": bultos_display_2dec(bultos_total),
         "bultos_raw": bultos_total,
         "unidades_cigarrillos": bultos_display_2dec(unidades_cig),
         "cobertura_pct": round(cobertura_pct, 1),
+        "cobertura_compra_pct": round(cobertura_compra_pct, 1),
         "objetivos_pct": round(objetivos_pct, 1),
     }
     top_loc = _top_localidades_label(localidad_clients)
@@ -1094,6 +1104,7 @@ def _build_meta_kpis(ideal: dict | None, n_meses: int) -> dict:
         "pdvs": meta_periodo_kpi(ideal, "pdvs", n_meses),
         "altas": max(1.0, float(ideal.get("meta_pdvs_total", 0))),
         "exhibiciones": float(km.get("exhibiciones", 0)) * n,
+        "pdvs_exhibidos": float(km.get("cobertura_exhibicion_pct", 0)),
         "compradores": float(km.get("pdvs_compradores", 0)) * n,
         "bultos": float(km.get("bultos", 0)) * n,
         "cobertura": float(km.get("cobertura_pct", 0)),
@@ -1109,10 +1120,12 @@ def _exhibiciones_por_vendedor(
     ex_rows: list[dict],
     iid_to_erp: dict[int, str],
     erp_to_vid: dict[str, int],
+    client_key_to_erp: dict[str, str],
+    pdvs_by_vend: dict[int, set],
 ) -> tuple[dict[int, int], dict[int, int]]:
-    """Una pasada: lógicas vendor-scope + PDVs únicos exhibidos por id_vendedor."""
+    """Una pasada: lógicas vendor-scope + PDVs únicos exhibidos (ERP en cartera) por vendedor."""
     best: dict[tuple[int, str], dict] = {}
-    unique_pdvs: dict[int, set] = defaultdict(set)
+    unique_erp: dict[int, set] = defaultdict(set)
 
     for row in ex_rows:
         try:
@@ -1129,14 +1142,15 @@ def _exhibiciones_por_vendedor(
         score = exhibicion_score(estado)
         if key not in best or score > best[key]["score"]:
             best[key] = {"score": score}
-        ck = resolve_client_key(row)
-        if ck:
-            unique_pdvs[vid].add(ck)
+        cartera = pdvs_by_vend.get(vid) or set()
+        erp_cliente = resolve_exhibition_cliente_erp(row, client_key_to_erp, cartera)
+        if erp_cliente:
+            unique_erp[vid].add(erp_cliente)
 
     logicas: dict[int, int] = defaultdict(int)
     for vid, _lk in best:
         logicas[vid] += 1
-    return dict(logicas), {vid: len(s) for vid, s in unique_pdvs.items()}
+    return dict(logicas), {vid: len(s) for vid, s in unique_erp.items()}
 
 
 def _run_parallel(tasks: dict[str, Callable[[], object]]) -> dict[str, object]:
@@ -1154,13 +1168,18 @@ def _run_parallel(tasks: dict[str, Callable[[], object]]) -> dict[str, object]:
 
 def _batch_caps_from_raw(all_raw: dict[str, dict]) -> dict[str, float]:
     caps: dict[str, float] = {k: 0.0 for k in KPI_KEYS}
+    caps["pdvs_exhibidos"] = 0.0
     for raw in all_raw.values():
         caps["pdvs"] = max(caps["pdvs"], float(raw.get("pdvs", 0)))
         caps["altas"] = max(caps["altas"], float(raw.get("altas", 0)))
         caps["exhibiciones"] = max(caps["exhibiciones"], float(raw.get("exhibiciones", 0)))
+        caps["pdvs_exhibidos"] = max(caps["pdvs_exhibidos"], float(raw.get("cobertura_pct", 0)))
         caps["compradores"] = max(caps["compradores"], float(raw.get("compradores", 0)))
         caps["bultos"] = max(caps["bultos"], float(raw.get("bultos", 0)))
-        caps["cobertura"] = max(caps["cobertura"], float(raw.get("cobertura_pct", 0)))
+        caps["cobertura"] = max(
+            caps["cobertura"],
+            float(raw.get("cobertura_compra_pct", raw.get("cobertura_pct", 0))),
+        )
         caps["objetivos"] = max(caps["objetivos"], float(raw.get("objetivos_pct", 0)))
     return caps
 
@@ -1194,7 +1213,7 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
     def pdv_q(offset):
         return (
             sb.table(t_pdv)
-            .select("id_ruta,id_cliente_erp,fecha_alta,localidad")
+            .select(f"id_ruta,{_PDV_EXHIBICION_MAP_SELECT},fecha_alta,localidad")
             .eq("id_distribuidor", dist_id)
             .or_(_PADRON_VISIBLE_OR)
         )
@@ -1310,7 +1329,11 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         if _in_meses(r.get("timestamp_subida", ""), meses_set)
     ]
     ex_logicas_by_vend, ex_pdvs_unique_by_vend = _exhibiciones_por_vendedor(
-        ex_rows, iid_to_erp, erp_to_vid
+        ex_rows,
+        iid_to_erp,
+        erp_to_vid,
+        build_client_key_to_erp_map(parallel.get("pdv") or []),
+        pdvs_by_vend,
     )
 
     bultos_by_vend: dict[int, float] = defaultdict(float)
@@ -1359,20 +1382,24 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         cumplidos = sum(1 for o in objs if o.get("cumplido"))
         obj_pct = (cumplidos / len(objs) * 100) if objs else 0.0
         ex_u = ex_pdvs_unique_by_vend.get(vid, 0)
+        compradores_n = _count_compradores_en_cartera(
+            compradores_by_vend.get(vid) or set(),
+            pdv_set,
+        )
         cob = min(100.0, ex_u / pdvs * 100) if pdvs else 0.0
+        cob_compra = min(100.0, compradores_n / pdvs * 100) if pdvs else 0.0
         bultos_raw = bultos_by_vend.get(vid, 0.0)
         raw_entry: dict = {
             "pdvs": pdvs,
             "altas": altas_by_vend.get(vid, 0),
             "exhibiciones": ex_logicas_by_vend.get(vid, 0),
-            "compradores": _count_compradores_en_cartera(
-                compradores_by_vend.get(vid) or set(),
-                pdv_set,
-            ),
+            "pdvs_exhibidos": ex_u,
+            "compradores": compradores_n,
             "bultos": bultos_display_2dec(bultos_raw),
             "bultos_raw": bultos_raw,
             "unidades_cigarrillos": bultos_display_2dec(unidades_cig_by_vend.get(vid, 0)),
             "cobertura_pct": round(cob, 1),
+            "cobertura_compra_pct": round(cob_compra, 1),
             "objetivos_pct": round(obj_pct, 1),
         }
         top_loc = _top_localidades_label(localidad_clients_by_vend.get(vid))
@@ -1552,6 +1579,32 @@ def _top_localidades_label(
     return " - ".join(names)
 
 
+_PDV_EXHIBICION_MAP_SELECT = "id_cliente_erp,id_cliente"
+
+
+_PDV_DETALLE_SELECT = (
+    "id_cliente,id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,"
+    "telefono,celular,domicilio,localidad,fecha_alta,fecha_ultima_compra,fecha_compra_anterior"
+)
+
+
+def _build_ultima_exhibicion_por_erp(
+    ex_rows: list[dict],
+    client_key_to_erp: dict[str, str],
+) -> dict[str, str]:
+    from core.exhibicion_aggregate import resolve_day_key
+
+    ultima: dict[str, str] = {}
+    for row in ex_rows:
+        erp = resolve_exhibition_cliente_erp(row, client_key_to_erp)
+        if not erp:
+            continue
+        day = resolve_day_key(row)
+        if day and (erp not in ultima or day > ultima[erp]):
+            ultima[erp] = day
+    return ultima
+
+
 def _pdv_detalle_row(row: dict) -> dict:
     tel = str(row.get("telefono") or "").strip()
     cel = str(row.get("celular") or "").strip()
@@ -1590,20 +1643,19 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     ruta_ids = [r["id_ruta"] for r in rutas_base if r.get("id_ruta")]
 
     pdvs_by_ruta: dict[int, list] = defaultdict(list)
+    pdv_raw_rows: list[dict] = []
     if ruta_ids:
         for i in range(0, len(ruta_ids), 50):
             batch_ids = ruta_ids[i : i + 50]
             q = (
                 sb.table(t_pdv)
-                .select(
-                    "id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,"
-                    "telefono,celular,domicilio,localidad,fecha_alta"
-                )
+                .select(_PDV_DETALLE_SELECT)
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", batch_ids)
                 .or_(_PADRON_VISIBLE_OR)
             )
             rows = q.execute().data or []
+            pdv_raw_rows.extend(rows)
             for row in rows:
                 rid = row.get("id_ruta")
                 if rid is None:
@@ -1690,6 +1742,57 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
             comp_map[eid] = r.get("nombre_cliente") or eid
 
     compradores = [{"id_cliente_erp": k, "razon_social": v} for k, v in comp_map.items()]
+    compradores_erp_all = set(comp_map.keys())
+    pdv_erp_cartera = {
+        str(r.get("id_cliente_erp") or "").strip()
+        for r in pdv_raw_rows
+        if str(r.get("id_cliente_erp") or "").strip()
+    }
+    compradores_erp = compradores_erp_all & pdv_erp_cartera
+    compradores = [
+        {"id_cliente_erp": k, "razon_social": comp_map[k]}
+        for k in sorted(compradores_erp)
+    ]
+
+    client_key_to_erp = build_client_key_to_erp_map(pdv_raw_rows)
+    exhibidos_erp = map_exhibidos_erp(ex_rows, client_key_to_erp, pdv_erp_cartera)
+    ultima_exhibicion_por_erp = _build_ultima_exhibicion_por_erp(ex_rows, client_key_to_erp)
+    altas_erp = {a["id_cliente_erp"] for a in altas if a.get("id_cliente_erp")}
+
+    ruta_meta_by_id = {
+        int(r["id_ruta"]): {"nombre": r["nombre"], "dia": r["dia"]}
+        for r in rutas_base
+        if r.get("id_ruta") is not None
+    }
+
+    composicion = build_composicion_exhibicion_compradores(exhibidos_erp, compradores_erp)
+    crr = build_crr_cartera(
+        pdv_raw_rows,
+        compradores_erp=compradores_erp,
+        altas_erp=altas_erp,
+        exhibidos_erp=exhibidos_erp,
+        ultima_exhibicion_por_erp=ultima_exhibicion_por_erp,
+        ruta_meta_by_id=ruta_meta_by_id,
+        desde=fecha_desde,
+        hasta=fecha_hasta,
+    )
+
+    pdv_nombre: dict[str, str] = {}
+    for row in pdv_raw_rows:
+        erp = str(row.get("id_cliente_erp") or "").strip()
+        if erp:
+            pdv_nombre[erp] = (
+                row.get("nombre_razon_social") or row.get("nombre_fantasia") or erp
+            )
+
+    exhibidos_list = [
+        {
+            "id_cliente_erp": erp,
+            "razon_social": pdv_nombre.get(erp, erp),
+            "es_comprador": erp in compradores_erp,
+        }
+        for erp in sorted(exhibidos_erp)
+    ]
 
     return {
         "id_vendedor": id_vendedor,
@@ -1700,6 +1803,11 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
         "bultos_desglose_total": bultos_display_2dec(bultos_desglose_raw),
         "bultos_desglose_count": len(bultos_top),
         "compradores": compradores[:200],
+        "cartera": {
+            "exhibidos": exhibidos_list[:200],
+            "composicion": composicion,
+            "crr": crr,
+        },
     }
 
 
@@ -1748,7 +1856,23 @@ def upsert_ideal(dist_id: int | None, origen: str, data: dict, user_payload: dic
             "diff": delta,
         }).execute()
 
+    _invalidate_cartas_after_ideal_change(dist_id, origen)
     return updated
+
+
+def _invalidate_cartas_after_ideal_change(dist_id: int | None, origen: str) -> None:
+    """Cartas/snapshots embedean metas del ideal — recomputar tras guardar config."""
+    with _CARTA_CACHE_LOCK:
+        _CARTA_CACHE.clear()
+    from services.snapshot_estadisticas_service import (
+        mark_all_estadisticas_stale,
+        mark_estadisticas_stale,
+    )
+
+    if origen == "compania":
+        mark_all_estadisticas_stale()
+    elif dist_id is not None:
+        mark_estadisticas_stale(dist_id)
 
 
 def get_historial(config_id: str) -> list[dict]:

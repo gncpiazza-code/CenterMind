@@ -61,7 +61,7 @@ export const ESTADISTICAS_KPI_HELP: EstadisticasKpiHelpItem[] = [
 ];
 
 export const VENDEDOR_IDEAL_HELP =
-  "El vendedor ideal es el perfil de referencia contra el que se compara cada vendedor. Define metas (PDVs en cartera, exhibiciones, bultos, etc.) y cuánto pesa cada KPI en el score OVR. Puede configurarse a nivel compañía y/o distribuidora.";
+  "Define el perfil de referencia del radar expandido (6 KPIs) y los pesos del score OVR en la tarjeta FIFA. Podés configurarlo a nivel compañía y/o distribuidora.";
 
 export const OVERLAY_IDEAL_HELP =
   "El overlay dibuja en el radar la forma objetivo (100% en cada eje). Comparalo con el polígono del vendedor para ver en qué KPIs está por encima o por debajo del ideal.";

@@ -24,6 +24,12 @@ import type {
 } from "@/lib/api";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import {
+  IDEAL_OVR_PESO_LABELS,
+  IDEAL_RADAR_META_BOTTOM,
+  IDEAL_RADAR_META_TOP,
+  type IdealRadarMetaField,
+} from "@/lib/ideal-radar-config";
+import {
   ChevronDown,
   Loader2,
   Save,
@@ -46,26 +52,30 @@ interface IdealConfigModalProps {
 const PESO_KEYS: (keyof PesosIdeal)[] = [
   "pdvs", "altas", "exhibiciones", "compradores", "bultos", "cobertura", "objetivos",
 ];
-const PESO_LABELS: Record<keyof PesosIdeal, string> = {
-  pdvs: "PDVs", altas: "Altas", exhibiciones: "Exhibiciones",
-  compradores: "Compradores", bultos: "Bultos", cobertura: "Cobertura %", objetivos: "Objetivos %",
-};
-const KPI_KEYS: (keyof KpisMensualesIdeal)[] = [
-  "exhibiciones", "pdvs_compradores", "bultos", "cobertura_pct", "objetivos_pct",
-];
-const KPI_LABELS: Record<keyof KpisMensualesIdeal, string> = {
-  exhibiciones: "Exhibiciones / mes",
-  pdvs_compradores: "PDVs compradores / mes",
-  bultos: "Bultos / mes",
-  cobertura_pct: "Cobertura % meta",
-  objetivos_pct: "Objetivos % meta",
-};
 
 const EMPTY_IDEAL_INPUT: VendorIdealInput = {
   meta_pdvs_total: 0,
-  kpis_mensuales: { exhibiciones: 0, pdvs_compradores: 0, bultos: 0, cobertura_pct: 0, objetivos_pct: 0 },
+  kpis_mensuales: {
+    exhibiciones: 0,
+    pdvs_compradores: 0,
+    bultos: 0,
+    cobertura_exhibicion_pct: 0,
+    cobertura_pct: 0,
+    objetivos_pct: 0,
+  },
   pesos: { pdvs: 14, altas: 14, exhibiciones: 15, compradores: 14, bultos: 14, cobertura: 15, objetivos: 14 },
 };
+
+function normalizeKpisMensuales(km: KpisMensualesIdeal | undefined): KpisMensualesIdeal {
+  return {
+    exhibiciones: km?.exhibiciones ?? 0,
+    pdvs_compradores: km?.pdvs_compradores ?? 0,
+    bultos: km?.bultos ?? 0,
+    cobertura_exhibicion_pct: km?.cobertura_exhibicion_pct ?? 0,
+    cobertura_pct: km?.cobertura_pct ?? 0,
+    objetivos_pct: km?.objetivos_pct ?? 0,
+  };
+}
 
 function canEditSection(section: SectionKey, rol: UserRol): boolean {
   const r = rol?.toLowerCase?.() ?? "";
@@ -75,10 +85,10 @@ function canEditSection(section: SectionKey, rol: UserRol): boolean {
 }
 
 function idealToInput(ideal: VendorIdeal | null): VendorIdealInput {
-  if (!ideal) return { ...EMPTY_IDEAL_INPUT };
+  if (!ideal) return { ...EMPTY_IDEAL_INPUT, kpis_mensuales: { ...EMPTY_IDEAL_INPUT.kpis_mensuales }, pesos: { ...EMPTY_IDEAL_INPUT.pesos } };
   return {
     meta_pdvs_total: ideal.meta_pdvs_total,
-    kpis_mensuales: { ...ideal.kpis_mensuales },
+    kpis_mensuales: normalizeKpisMensuales(ideal.kpis_mensuales),
     pesos: { ...ideal.pesos },
   };
 }
@@ -150,6 +160,7 @@ export function IdealConfigModal({
       updateEstadisticasIdeal(scope, body),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["ideal"] });
+      qc.invalidateQueries({ queryKey: ["bundle", "estadisticas"] });
       if (data.origen === "compania") setFormComp(idealToInput(data));
       else setFormDist(idealToInput(data));
       setSaved(true);
@@ -174,7 +185,7 @@ export function IdealConfigModal({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         style={{
-          maxWidth: 640,
+          maxWidth: 720,
           borderRadius: 18,
           border: "1px solid rgba(168,85,247,0.18)",
           overflow: "hidden",
@@ -252,47 +263,50 @@ export function IdealConfigModal({
                 </div>
               )}
 
-              {/* Meta PDVs */}
-              <FormSection title="Meta PDVs">
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <label style={labelStyle}>PDVs totales objetivo</label>
-                  <input
-                    type="number"
-                    value={form.meta_pdvs_total}
+              {/* Metas radar expandido (6 KPIs) */}
+              <FormSection
+                title="Metas del radar expandido"
+                subtitle="Mismos 6 KPIs del sidebar: fila superior (PDVs · Exhibiciones · % exhibida) y fila inferior (Compradores · Cobertura compra · Bultos)."
+              >
+                <RadarMetaGrid
+                  title="Fila superior"
+                  fields={IDEAL_RADAR_META_TOP}
+                  form={form}
+                  setForm={setForm}
+                  canEdit={canEdit}
+                />
+                <RadarMetaGrid
+                  title="Fila inferior"
+                  fields={IDEAL_RADAR_META_BOTTOM}
+                  form={form}
+                  setForm={setForm}
+                  canEdit={canEdit}
+                  style={{ marginTop: 14 }}
+                />
+              </FormSection>
+
+              {/* Score OVR */}
+              <FormSection
+                title="Score OVR (tarjeta FIFA)"
+                subtitle="Metas y pesos adicionales del puntaje global. Altas se calculan como faltante hacia la meta de PDVs."
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                  <label style={labelStyle}>Objetivos cumplidos %</label>
+                  <PercentInput
+                    value={form.kpis_mensuales.objetivos_pct}
                     disabled={!canEdit}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, meta_pdvs_total: Number(e.target.value) }))
+                    onChange={(v) =>
+                      setForm((f) => ({
+                        ...f,
+                        kpis_mensuales: { ...f.kpis_mensuales, objetivos_pct: v },
+                      }))
                     }
-                    style={inputStyle(!canEdit)}
                   />
                 </div>
               </FormSection>
 
-              {/* KPIs Mensuales */}
-              <FormSection title="KPIs Mensuales">
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {KPI_KEYS.map((k) => (
-                    <div key={k} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <label style={labelStyle}>{KPI_LABELS[k]}</label>
-                      <input
-                        type="number"
-                        value={form.kpis_mensuales[k]}
-                        disabled={!canEdit}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            kpis_mensuales: { ...f.kpis_mensuales, [k]: Number(e.target.value) },
-                          }))
-                        }
-                        style={inputStyle(!canEdit)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </FormSection>
-
-              {/* Pesos */}
-              <FormSection title="Pesos de puntuación">
+              {/* Pesos OVR */}
+              <FormSection title="Pesos del score OVR">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <span
                     style={{
@@ -323,7 +337,7 @@ export function IdealConfigModal({
                   {PESO_KEYS.map((k) => (
                     <div key={k} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
-                        <label style={labelStyle}>{PESO_LABELS[k]}</label>
+                        <label style={labelStyle}>{IDEAL_OVR_PESO_LABELS[k] ?? k}</label>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#7C3AED", minWidth: 28, textAlign: "right" }}>
                             {form.pesos[k]}
@@ -471,18 +485,147 @@ export function IdealConfigModal({
   );
 }
 
-function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+function FormSection({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <p
         style={{
           fontSize: 10, fontWeight: 700, color: "var(--shelfy-muted)",
-          textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px",
+          textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 4px",
         }}
       >
         {title}
       </p>
+      {subtitle && (
+        <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "0 0 12px", lineHeight: 1.45 }}>
+          {subtitle}
+        </p>
+      )}
+      {!subtitle && <div style={{ marginBottom: 12 }} />}
       {children}
+    </div>
+  );
+}
+
+function RadarMetaGrid({
+  title,
+  fields,
+  form,
+  setForm,
+  canEdit,
+  style,
+}: {
+  title: string;
+  fields: IdealRadarMetaField[];
+  form: VendorIdealInput;
+  setForm: React.Dispatch<React.SetStateAction<VendorIdealInput>>;
+  canEdit: boolean;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div style={style}>
+      <p style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED", margin: "0 0 8px" }}>{title}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+        {fields.map((field) => (
+          <RadarMetaCell key={field.key} field={field} form={form} setForm={setForm} canEdit={canEdit} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RadarMetaCell({
+  field,
+  form,
+  setForm,
+  canEdit,
+}: {
+  field: IdealRadarMetaField;
+  form: VendorIdealInput;
+  setForm: React.Dispatch<React.SetStateAction<VendorIdealInput>>;
+  canEdit: boolean;
+}) {
+  const value = field.root
+    ? form.meta_pdvs_total
+    : form.kpis_mensuales[field.key as keyof KpisMensualesIdeal];
+
+  const onChange = (n: number) => {
+    if (field.root) {
+      setForm((f) => ({ ...f, meta_pdvs_total: n }));
+      return;
+    }
+    const k = field.key as keyof KpisMensualesIdeal;
+    setForm((f) => ({
+      ...f,
+      kpis_mensuales: { ...f.kpis_mensuales, [k]: n },
+    }));
+  };
+
+  return (
+    <div
+      title={field.hint}
+      style={{
+        padding: "10px 10px",
+        borderRadius: 10,
+        border: "1px solid rgba(168,85,247,0.15)",
+        background: "rgba(168,85,247,0.04)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        minWidth: 0,
+      }}
+    >
+      <label style={{ ...labelStyle, minWidth: 0, fontSize: 10, lineHeight: 1.3 }}>
+        {field.label}
+      </label>
+      {field.isPercent ? (
+        <PercentInput value={Number(value)} disabled={!canEdit} onChange={onChange} />
+      ) : (
+        <input
+          type="number"
+          min={0}
+          value={Number(value)}
+          disabled={!canEdit}
+          onChange={(e) => onChange(Number(e.target.value))}
+          style={{ ...inputStyle(!canEdit), width: "100%" }}
+        />
+      )}
+      {field.monthly && (
+        <span style={{ fontSize: 9, color: "var(--shelfy-muted)" }}>× meses del período</span>
+      )}
+    </div>
+  );
+}
+
+function PercentInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: number;
+  disabled: boolean;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Math.min(100, Math.max(0, Number(e.target.value))))}
+        style={{ ...inputStyle(disabled), width: "100%", flex: 1 }}
+      />
+      <span style={{ fontSize: 12, fontWeight: 700, color: "#7C3AED" }}>%</span>
     </div>
   );
 }

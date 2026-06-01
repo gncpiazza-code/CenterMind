@@ -51,6 +51,85 @@ def resolve_client_key(row: dict) -> str:
     return str(raw).strip() if raw is not None else ""
 
 
+def erp_lookup_keys(val: object) -> list[str]:
+    """Variantes de clave para matchear id_cliente_erp / sombra (incl. ceros a la izquierda)."""
+    if val is None:
+        return []
+    s = str(val).strip()
+    if not s:
+        return []
+    keys: list[str] = [s]
+    stripped = s.lstrip("0")
+    if stripped and stripped not in keys:
+        keys.append(stripped)
+    try:
+        n = str(int(float(s))) if "." in s else str(int(s))
+        if n not in keys:
+            keys.append(n)
+    except (TypeError, ValueError):
+        pass
+    return keys
+
+
+def build_client_key_to_erp_map(pdv_rows: list[dict]) -> dict[str, str]:
+    """Mapea claves de exhibición → id_cliente_erp del padrón (con variantes numéricas)."""
+    out: dict[str, str] = {}
+    for row in pdv_rows:
+        erp = str(row.get("id_cliente_erp") or "").strip()
+        if not erp:
+            continue
+        for k in erp_lookup_keys(erp):
+            out[k] = erp
+        for field in ("id_cliente",):
+            for k in erp_lookup_keys(row.get(field)):
+                out[k] = erp
+    return out
+
+
+def resolve_exhibition_cliente_erp(
+    row: dict,
+    key_to_erp: dict[str, str],
+    cartera_erp: set[str] | None = None,
+) -> str | None:
+    """
+    Resuelve id_cliente_erp de una fila de exhibición probando todos los campos
+    (id_cliente_pdv, id_cliente, cliente_sombra_codigo) con normalización AR.
+    """
+    tried: set[str] = set()
+    for field in ("id_cliente_pdv", "id_cliente", "cliente_sombra_codigo"):
+        for k in erp_lookup_keys(row.get(field)):
+            if k in tried:
+                continue
+            tried.add(k)
+            erp = key_to_erp.get(k)
+            if erp and (cartera_erp is None or erp in cartera_erp):
+                return erp
+            if cartera_erp and k in cartera_erp:
+                return k
+    return None
+
+
+def map_exhibidos_erp(
+    ex_rows: list[dict],
+    key_to_erp: dict[str, str],
+    cartera_erp: set[str] | None = None,
+) -> set[str]:
+    exhibidos: set[str] = set()
+    for row in ex_rows:
+        erp = resolve_exhibition_cliente_erp(row, key_to_erp, cartera_erp)
+        if erp:
+            exhibidos.add(erp)
+    return exhibidos
+
+
+def count_exhibited_clientes_in_cartera(
+    ex_rows: list[dict],
+    key_to_erp: dict[str, str],
+    cartera_erp: set[str],
+) -> int:
+    return len(map_exhibidos_erp(ex_rows, key_to_erp, cartera_erp))
+
+
 def resolve_day_key(row: dict) -> str:
     """Día del evento (primeros 10 chars de timestamp_subida)."""
     ts = (row.get("timestamp_subida") or "").strip()

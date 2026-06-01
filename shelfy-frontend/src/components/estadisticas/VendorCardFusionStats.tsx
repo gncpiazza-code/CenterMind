@@ -7,7 +7,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ESTADISTICAS_KPI_HELP } from "@/lib/estadisticas-kpi-help";
 import { fmtBultos } from "@/lib/estadisticas-format";
 import type { VendorRawKpis } from "@/lib/api";
 import type { VendorCardTierTheme } from "@/lib/vendor-card-tier";
@@ -15,6 +14,11 @@ import {
   statLeaderTooltip,
   type VendorStatLeaderKey,
 } from "@/lib/vendor-card-fusion-kpi";
+import {
+  VENDOR_DETALLE_SIDEBAR_KPIS,
+  formatVendorDetalleSidebarKpiValue,
+  type VendorDetalleSidebarKpiKey,
+} from "@/lib/vendor-detalle-sidebar-kpis";
 
 interface VendorCardFusionStatsProps {
   kpis: VendorRawKpis;
@@ -22,50 +26,18 @@ interface VendorCardFusionStatsProps {
   statLeaders?: VendorStatLeaderKey[];
 }
 
-function fmtKpi(n: number) {
+function fmtCount(n: number) {
   if (n >= 1000) return `${(n / 1000).toFixed(2)}k`;
   return String(Math.round(n));
 }
 
-const CELLS: {
-  helpKey: keyof VendorRawKpis | "cobertura_pct";
-  leaderKey: VendorStatLeaderKey;
-  label: string;
-  getValue: (k: VendorRawKpis) => string;
-}[] = [
-  {
-    helpKey: "exhibiciones",
-    leaderKey: "exhibiciones",
-    label: "Exhibiciones",
-    getValue: (k) => fmtKpi(k.exhibiciones),
-  },
-  {
-    helpKey: "compradores",
-    leaderKey: "compradores",
-    label: "Compradores",
-    getValue: (k) => fmtKpi(k.compradores),
-  },
-  {
-    helpKey: "bultos",
-    leaderKey: "bultos",
-    label: "Bultos",
-    getValue: (k) => fmtBultos(k.bultos),
-  },
-  { helpKey: "pdvs", leaderKey: "pdvs", label: "PDVs", getValue: (k) => fmtKpi(k.pdvs) },
-  {
-    helpKey: "cobertura_pct",
-    leaderKey: "cobertura_pct",
-    label: "Cobertura",
-    getValue: (k) => `${Math.round(k.cobertura_pct)}%`,
-  },
-  { helpKey: "altas", leaderKey: "altas", label: "Altas", getValue: (k) => fmtKpi(k.altas) },
-];
-
-const helpByKey = Object.fromEntries(ESTADISTICAS_KPI_HELP.map((h) => [h.key, h]));
-
-function helpFor(key: string) {
-  if (key === "cobertura_pct") return helpByKey.cobertura;
-  return helpByKey[key];
+function formatFusionStatValue(key: VendorDetalleSidebarKpiKey, raw: VendorRawKpis): string {
+  if (key === "bultos") return fmtBultos(raw.bultos);
+  if (key === "cobertura_compra" || key === "pdvs_exhibidos") {
+    return formatVendorDetalleSidebarKpiValue(key, raw);
+  }
+  const n = Number(raw[key as keyof VendorRawKpis] ?? 0);
+  return fmtCount(n);
 }
 
 export function VendorCardFusionStats({
@@ -86,13 +58,12 @@ export function VendorCardFusionStats({
           flexShrink: 0,
         }}
       >
-        {CELLS.map(({ helpKey, leaderKey, label, getValue }) => {
-          const help = helpFor(String(helpKey));
-          const isLeader = leaderSet.has(leaderKey);
-          const value = getValue(kpis);
+        {VENDOR_DETALLE_SIDEBAR_KPIS.map(({ key, label, description }) => {
+          const isLeader = leaderSet.has(key);
+          const value = formatFusionStatValue(key, kpis);
 
           return (
-            <Tooltip key={leaderKey}>
+            <Tooltip key={key}>
               <TooltipTrigger asChild>
                 <div
                   onClick={(e) => e.stopPropagation()}
@@ -109,7 +80,7 @@ export function VendorCardFusionStats({
                   {isLeader && (
                     <Crown
                       size={10}
-                      aria-label={statLeaderTooltip(leaderKey)}
+                      aria-label={statLeaderTooltip(key)}
                       style={{
                         position: "absolute",
                         top: 2,
@@ -149,15 +120,15 @@ export function VendorCardFusionStats({
                 align="center"
                 className="max-w-[260px] text-xs leading-relaxed"
               >
-                <p className="font-semibold">{help?.label ?? label}</p>
-                <p className="text-muted-foreground mt-0.5 whitespace-normal">{help?.description}</p>
-                {leaderKey === "bultos" && (kpis.unidades_cigarrillos ?? 0) > 0 && (
+                <p className="font-semibold">{label}</p>
+                <p className="text-muted-foreground mt-0.5 whitespace-normal">{description}</p>
+                {key === "bultos" && (kpis.unidades_cigarrillos ?? 0) > 0 && (
                   <p className="text-muted-foreground mt-1 text-[10px]">
-                    Unidades (cig. convertidos): {fmtKpi(kpis.unidades_cigarrillos ?? 0)}
+                    Unidades (cig. convertidos): {fmtCount(kpis.unidades_cigarrillos ?? 0)}
                   </p>
                 )}
                 {isLeader && (
-                  <p className="text-amber-600 mt-1 text-[10px]">{statLeaderTooltip(leaderKey)}</p>
+                  <p className="text-amber-600 mt-1 text-[10px]">{statLeaderTooltip(key)}</p>
                 )}
               </TooltipContent>
             </Tooltip>

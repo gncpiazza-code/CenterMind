@@ -25,6 +25,7 @@ class KpisMensualesInput(BaseModel):
     exhibiciones: float = 0
     pdvs_compradores: float = 0
     bultos: float = 0
+    cobertura_exhibicion_pct: float = 0
     cobertura_pct: float = 0
     objetivos_pct: float = 0
 

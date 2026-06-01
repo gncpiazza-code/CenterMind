@@ -26,7 +26,9 @@ interface VendorCardRadarProps {
   /** Valores meta del ideal (absolutos), para tooltips fusion. */
   idealMetaCompania?: RadarKPI;
   idealMetaDist?: RadarKPI;
-  size?: "sm" | "fusion" | "md" | "lg";
+  size?: "sm" | "fusion" | "md" | "lg" | "detalle";
+  /** Alto explícito (px) — p.ej. modal expandido. */
+  chartHeight?: number;
   onDarkPanel?: boolean;
   axesMode?: "full" | "fusion";
   showOverlayCompania?: boolean;
@@ -48,6 +50,7 @@ const SIZE_MAP = {
   fusion: { height: 162, outerRadius: "78%", fontSize: 8, dotR: 3.5, stroke: 1.8 },
   md: { height: 168, outerRadius: "64%", fontSize: 9, dotR: 3.5, stroke: 1.8 },
   lg: { height: 210, outerRadius: "66%", fontSize: 10, dotR: 4.5, stroke: 2 },
+  detalle: { height: 320, outerRadius: "88%", fontSize: 11, dotR: 4.5, stroke: 2.2 },
 };
 
 type ChartRow = {
@@ -71,11 +74,11 @@ function buildData(
   return axes.map(({ key, label }) => ({
     axis: label,
     axisKey: key,
-    vendedor: Math.min(100, Math.max(0, radar[key] ?? 0)),
+    vendedor: Math.min(100, Math.max(0, Number(radar[key] ?? 0))),
     compania: radarCompania
-      ? Math.min(100, Math.max(0, radarCompania[key] ?? 0))
+      ? Math.min(100, Math.max(0, Number(radarCompania[key] ?? 0)))
       : undefined,
-    dist: radarDist ? Math.min(100, Math.max(0, radarDist[key] ?? 0)) : undefined,
+    dist: radarDist ? Math.min(100, Math.max(0, Number(radarDist[key] ?? 0))) : undefined,
     idealCompania: idealMetaCompania?.[key],
     idealDist: idealMetaDist?.[key],
   }));
@@ -161,6 +164,34 @@ function FusionRadarTooltipContent({
         {idealName} ideal Distribuidora:{" "}
         {formatFusionIdealValue(meta, row.idealDist)}
       </p>
+      {meta.key === "pdvs_exhibidos" && (
+        <p
+          style={{
+            margin: "6px 0 0",
+            color: "#94a3b8",
+            fontSize: 9,
+            fontWeight: 500,
+            lineHeight: 1.35,
+            whiteSpace: "normal",
+          }}
+        >
+          % de PDVs de la cartera con al menos una exhibición lógica en el período.
+        </p>
+      )}
+      {meta.key === "cobertura" && (
+        <p
+          style={{
+            margin: "6px 0 0",
+            color: "#94a3b8",
+            fontSize: 9,
+            fontWeight: 500,
+            lineHeight: 1.35,
+            whiteSpace: "normal",
+          }}
+        >
+          % de PDVs compradores sobre el total de la cartera.
+        </p>
+      )}
       {meta.key === "altas" && (
         <p
           style={{
@@ -212,13 +243,16 @@ export function VendorCardRadar({
   idealMetaCompania,
   idealMetaDist,
   size = "md",
+  chartHeight,
   onDarkPanel = false,
   axesMode = "full",
   showOverlayCompania = false,
   showOverlayDist = false,
 }: VendorCardRadarProps) {
   const chartAnchorRef = useRef<HTMLDivElement>(null);
-  const { height, outerRadius, fontSize, dotR, stroke } = SIZE_MAP[size];
+  const sizeCfg = SIZE_MAP[size as keyof typeof SIZE_MAP] ?? SIZE_MAP.md;
+  const height = chartHeight ?? sizeCfg.height;
+  const { outerRadius, fontSize, dotR, stroke } = sizeCfg;
   const axes =
     axesMode === "fusion"
       ? FUSION_RADAR_AXES.map((a) => ({ key: a.key, label: a.tick }))
@@ -256,7 +290,7 @@ export function VendorCardRadar({
           cy="50%"
           outerRadius={outerRadius}
           margin={
-            size === "fusion"
+            size === "fusion" || size === "detalle"
               ? { top: 4, right: 8, bottom: 4, left: 8 }
               : { top: 14, right: 22, bottom: 14, left: 22 }
           }

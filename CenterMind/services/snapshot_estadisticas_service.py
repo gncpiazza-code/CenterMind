@@ -93,10 +93,17 @@ def get_or_refresh_estadisticas(
     dist_id: int,
     meses: list[str],
     sucursal: str | None,
+    *,
+    force_refresh: bool = False,
 ) -> dict:
     from services.estadisticas_service import _cartas_comercial_ventas_plausible
 
     meses_hash = _hash_meses(meses)
+    if force_refresh:
+        return run_single_flight(
+            f"force:estadisticas:{dist_id}:{meses_hash}:{sucursal}",
+            lambda: _cold_compute_estadisticas(dist_id, meses, sucursal, meses_hash),
+        )
     snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
     if snap is not None:
         gen = snap["generated_at"]
@@ -186,6 +193,33 @@ def mark_estadisticas_stale(dist_id: int) -> None:
         )
     except Exception as e:
         logger.warning(f"[snap_estadisticas] mark_stale dist={dist_id}: {e}")
+
+
+def mark_all_estadisticas_stale() -> None:
+    """Ideal compañía afecta cartas de todos los tenants."""
+    PAGE = 1000
+    offset = 0
+    while True:
+        try:
+            batch = (
+                sb.table("distribuidores")
+                .select("id_distribuidor")
+                .eq("estado", "activo")
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as e:
+            logger.warning(f"[snap_estadisticas] mark_all_stale list dists: {e}")
+            break
+        for row in batch:
+            did = row.get("id_distribuidor")
+            if did is not None:
+                mark_estadisticas_stale(int(did))
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
 
 
 # ── Snapshot read/write ───────────────────────────────────────────────────────

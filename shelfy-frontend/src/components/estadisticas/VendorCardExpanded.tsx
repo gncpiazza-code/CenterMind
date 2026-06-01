@@ -1,10 +1,14 @@
 "use client";
 
+import "./vendor-card-fusion.css";
+import "./vendor-detalle-sidebar.css";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
+  useMemo,
 } from "react";
 import {
   motion,
@@ -23,13 +27,7 @@ import {
   MapPin,
   ShoppingBag,
   Star,
-  Users,
   Package,
-  Target,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Search,
   Loader2,
 } from "lucide-react";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
@@ -47,24 +45,46 @@ import {
 } from "@/lib/vendor-card-detalle-theme";
 import { KpiHelpTip } from "./KpiHelpTip";
 import {
-  ESTADISTICAS_KPI_HELP,
   VENDEDOR_IDEAL_HELP,
   OVERLAY_IDEAL_HELP,
   OVERLAY_MODE_HELP,
 } from "@/lib/estadisticas-kpi-help";
+import {
+  VENDOR_DETALLE_SIDEBAR_KPIS,
+  formatVendorDetalleSidebarKpiValue,
+} from "@/lib/vendor-detalle-sidebar-kpis";
 import { groupRutasByDia, formatFechaAR } from "@/lib/estadisticas-utils";
 import { RecapEvolucionButton } from "./recap/RecapEvolucionModal";
 import { mesForRecapEvolucion } from "@/lib/recap-utils";
+import { TabCarteraEstado } from "./TabCarteraEstado";
+import {
+  VendorDetalleLayoutTuner,
+  VendorDetalleLayoutTunerFab,
+  useVendorDetalleLayoutTuning,
+} from "./VendorDetalleLayoutTuner";
+import { tuningToCssVars } from "@/lib/vendor-detalle-layout-tuning";
 
-type TabKey = "pdvs" | "altas" | "exhibiciones" | "bultos" | "compradores";
+type TabKey = "pdvs" | "cartera" | "bultos";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-  { key: "pdvs",          label: "PDVs",         icon: <MapPin size={13} /> },
-  { key: "altas",         label: "Altas",        icon: <Star size={13} /> },
-  { key: "exhibiciones",  label: "Exhibiciones", icon: <ShoppingBag size={13} /> },
-  { key: "bultos",        label: "Bultos",       icon: <Package size={13} /> },
-  { key: "compradores",   label: "Compradores",  icon: <Users size={13} /> },
+  { key: "pdvs",    label: "PDVs",    icon: <MapPin size={13} /> },
+  { key: "cartera", label: "Cartera", icon: <ShoppingBag size={13} /> },
+  { key: "bultos",  label: "Bultos",  icon: <Package size={13} /> },
 ];
+
+function buildAltaMaps(detalle: VendorDetalle) {
+  const altaIds = new Set<string>();
+  const altasByRuta = new Map<number, number>();
+  const altaMeta = new Map<string, { fecha_alta: string }>();
+
+  for (const alta of detalle.altas) {
+    altaIds.add(alta.id_cliente_erp);
+    altasByRuta.set(alta.id_ruta, (altasByRuta.get(alta.id_ruta) ?? 0) + 1);
+    altaMeta.set(alta.id_cliente_erp, { fecha_alta: alta.fecha_alta });
+  }
+
+  return { altaIds, altasByRuta, altaMeta };
+}
 
 const containerVariants: Variants = {
   hidden: {},
@@ -91,6 +111,71 @@ function CountUp({ target, duration = 1.2 }: { target: number; duration?: number
   return <span>{val}</span>;
 }
 
+function useElementHeight(fallback = 260) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(fallback);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setHeight(Math.max(220, el.clientHeight));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return { ref, height };
+}
+
+function SidebarKpiRow({
+  items,
+  className,
+}: {
+  items: { key: string; label: string; description: string; value: string }[];
+  className?: string;
+}) {
+  return (
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className={`vendor-detalle-kpi-row ${className ?? ""}`.trim()}
+    >
+      {items.map(({ key, label, description, value }) => (
+        <motion.div key={key} variants={itemVariants} className="vendor-detalle-kpi-cell">
+          <span className="vendor-detalle-kpi-cell__label">
+            {label}
+            <KpiHelpTip text={description} side="top" size={10} />
+          </span>
+          <span className="vendor-detalle-kpi-cell__value">{value}</span>
+        </motion.div>
+      ))}
+    </motion.div>
+  );
+}
+
+function useSidebarKpis(vendor: VendorCartaResumen, pdvsExhibidosOverride?: number) {
+  const raw = vendor.raw_kpis;
+  return useMemo(() => {
+    const pdvsExhibidos =
+      pdvsExhibidosOverride != null && pdvsExhibidosOverride > 0
+        ? pdvsExhibidosOverride
+        : raw.pdvs_exhibidos;
+    const rawEffective = { ...raw, pdvs_exhibidos: pdvsExhibidos };
+    const items = VENDOR_DETALLE_SIDEBAR_KPIS.map(({ key, label, description }) => ({
+      key,
+      label,
+      description,
+      value: formatVendorDetalleSidebarKpiValue(key, rawEffective),
+    }));
+    return {
+      top: items.slice(0, 3),
+      bottom: items.slice(3, 6),
+    };
+  }, [raw, pdvsExhibidosOverride]);
+}
+
 interface VendorCardExpandedProps {
   vendor: VendorCartaResumen;
   vendors: VendorCartaResumen[];
@@ -109,11 +194,13 @@ export function VendorCardExpanded({
   const { overlayMode, setActiveVendorId } = useEstadisticasStore();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabKey>("pdvs");
-  const [searchCompradores, setSearchCompradores] = useState("");
   const backdropRef = useRef<HTMLDivElement>(null);
 
   const tierTheme = detalleThemeForScore(vendor.score);
   const F = ESTADISTICAS_FIFA;
+  const { tuning, setTuning, tunerOpen, setTunerOpen } = useVendorDetalleLayoutTuning();
+  const layoutVars = tuningToCssVars(tuning);
+  const { ref: radarWrapRef, height: radarHeight } = useElementHeight(tuning.radarMinHeight);
 
   const vendorIdx = vendors.findIndex((v) => v.id_vendedor === vendor.id_vendedor);
   const prevVendor = vendors[vendorIdx - 1] ?? null;
@@ -129,10 +216,23 @@ export function VendorCardExpanded({
     detalleQueryOptions(distId, vendor.id_vendedor, meses),
   );
 
+  const sidebarKpis = useSidebarKpis(
+    vendor,
+    detalle?.cartera?.composicion?.total_exhibidos,
+  );
+
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => { if (e.target === backdropRef.current) onClose(); },
     [onClose]
   );
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -144,19 +244,17 @@ export function VendorCardExpanded({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose, prevVendor, nextVendor, setActiveVendorId]);
 
-  const filteredCompradores =
-    detalle?.compradores.filter(
-      (c) =>
-        !searchCompradores ||
-        c.razon_social.toLowerCase().includes(searchCompradores.toLowerCase()) ||
-        c.id_cliente_erp.toLowerCase().includes(searchCompradores.toLowerCase())
-    ) ?? [];
-
   return (
     <>
+      {tunerOpen ? (
+        <VendorDetalleLayoutTuner tuning={tuning} onChange={setTuning} onClose={() => setTunerOpen(false)} />
+      ) : (
+        <VendorDetalleLayoutTunerFab visible onOpen={() => setTunerOpen(true)} />
+      )}
       {/* Backdrop */}
       <motion.div
         ref={backdropRef}
+        className="vendor-detalle-backdrop"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -187,16 +285,16 @@ export function VendorCardExpanded({
             ...VENDOR_CARD_LAYOUT_TRANSITION,
           }}
           style={{
-            width: "min(90vw, 860px)",
-            maxHeight: "88vh",
-            borderRadius: 20,
             overflow: "hidden",
             background: "var(--est-modal-bg, #fffef8)",
             boxShadow: F.shadow,
             display: "flex",
             flexDirection: "column",
             zIndex: 201,
-          }}
+            borderRadius: tuning.shellRadius,
+            isolation: "isolate",
+            ...layoutVars,
+          } as React.CSSProperties}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top gradient bar */}
@@ -208,161 +306,120 @@ export function VendorCardExpanded({
             }}
           />
 
-          {/* Vendedor ideal — fuera del panel lateral */}
-          <div
-            className="vendor-detalle-ideal-banner"
-            style={{
-              flexShrink: 0,
-              padding: "8px 20px",
-              borderBottom: `1px solid ${F.idealBannerBorder}`,
-              background: F.idealBannerBg,
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-            }}
-          >
-            <KpiHelpTip text={VENDEDOR_IDEAL_HELP} side="bottom" size={14} />
-            <p style={{ margin: 0, fontSize: 11, lineHeight: 1.45, color: "var(--shelfy-muted)" }}>
-              <span style={{ fontWeight: 700, color: F.accentDark }}>Vendedor ideal: </span>
-              {VENDEDOR_IDEAL_HELP}
-            </p>
-          </div>
-
-          {/* Main layout */}
-          <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
-            {/* Left column */}
+          <div className="vendor-detalle-layout">
+            {/* Sidebar — perfil + radar + KPIs */}
             <div
               className="vendor-detalle-sidebar"
-              style={{
-                width: 260,
-                flexShrink: 0,
-                padding: "20px 16px 20px 20px",
-                borderRight: `1px solid ${F.panelBorderLight}`,
-                background: tierTheme.nameBar,
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                overflowY: "auto",
-              }}
+              style={{ background: tierTheme.nameBar }}
             >
-              {/* Score */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: "50%",
-                    background: tierTheme.faceGradient,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    boxShadow: tierTheme.shadow,
-                    flexShrink: 0,
-                  }}
-                >
-                  <span style={{ fontSize: 20, fontWeight: 900, color: tierTheme.text }}>
-                    <CountUp target={Math.round(vendor.score)} />
-                  </span>
+              <div className="vendor-detalle-sidebar-head">
+                <div className="vendor-detalle-sidebar-profile">
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div
+                      style={{
+                        width: tuning.scoreSize,
+                        height: tuning.scoreSize,
+                        borderRadius: "50%",
+                        background: tierTheme.faceGradient,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: tierTheme.shadow,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ fontSize: tuning.scoreFontSize, fontWeight: 900, color: tierTheme.text }}>
+                        <CountUp target={Math.round(vendor.score)} />
+                      </span>
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Score</p>
+                      <p style={{ fontSize: tuning.nameFontSize, fontWeight: 800, color: F.textOnLight, margin: 0, lineHeight: 1.2, wordBreak: "break-word" }}>
+                        {vendor.nombre}
+                      </p>
+                      {vendor.sucursal && (
+                        <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "3px 0 0", fontWeight: 500 }}>
+                          {vendor.sucursal}
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Score</p>
-                  <p style={{ fontSize: 18, fontWeight: 800, color: F.textOnLight, margin: 0, lineHeight: 1.2 }}>
-                    {vendor.nombre}
-                  </p>
-                  {vendor.sucursal && (
-                    <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "2px 0 0", fontWeight: 500 }}>
-                      {vendor.sucursal}
+
+                <div className="vendor-detalle-sidebar-overlay">
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
+                      Overlay ideal
                     </p>
-                  )}
+                    <KpiHelpTip text={OVERLAY_IDEAL_HELP} side="top" size={12} />
+                  </div>
+                  <OverlayToggle />
                 </div>
               </div>
 
-              {/* Overlay toggles — arriba del radar */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-                    Overlay ideal
-                  </p>
-                  <KpiHelpTip text={OVERLAY_IDEAL_HELP} side="top" size={12} />
-                </div>
-                <OverlayToggle />
-              </div>
+              {tuning.showKpisBlock && (
+                <SidebarKpiRow items={sidebarKpis.top} className="vendor-detalle-kpi-row--top" />
+              )}
 
-              {/* Radar */}
-              <div style={{ flexShrink: 0, width: "100%", minHeight: 210 }}>
-                <VendorCardRadar
-                  radar={vendor.radar}
-                  radarCompania={vendor.radar_ideal_compania}
-                  radarDist={vendor.radar_ideal_dist}
-                  idealMetaCompania={vendor.ideal_meta_compania}
-                  idealMetaDist={vendor.ideal_meta_dist}
-                  size="fusion"
-                  axesMode="fusion"
-                  showOverlayCompania={overlayMode === "compania" || overlayMode === "ambos"}
-                  showOverlayDist={overlayMode === "distribuidor" || overlayMode === "ambos"}
-                />
-              </div>
-
-              {/* Raw KPIs */}
-              <motion.div
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-                style={{ display: "flex", flexDirection: "column", gap: 8 }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
-                    KPIs
-                  </p>
-                  <KpiHelpTip
-                    text="Valores reales del vendedor en el período. Pasá el cursor sobre cada ícono para ver qué mide."
-                    side="top"
-                    size={12}
+              <div className="vendor-detalle-sidebar-radar">
+                <div ref={radarWrapRef} className="vendor-detalle-sidebar-radar-chart">
+                  <VendorCardRadar
+                    radar={vendor.radar}
+                    radarCompania={vendor.radar_ideal_compania}
+                    radarDist={vendor.radar_ideal_dist}
+                    idealMetaCompania={vendor.ideal_meta_compania}
+                    idealMetaDist={vendor.ideal_meta_dist}
+                    size="detalle"
+                    chartHeight={radarHeight}
+                    axesMode="fusion"
+                    showOverlayCompania={overlayMode === "compania" || overlayMode === "ambos"}
+                    showOverlayDist={overlayMode === "distribuidor" || overlayMode === "ambos"}
                   />
                 </div>
-                {ESTADISTICAS_KPI_HELP.map(({ key, label, description }) => {
-                  const raw = vendor.raw_kpis;
-                  const value =
-                    key === "cobertura"
-                      ? `${raw.cobertura_pct.toFixed(1)}%`
-                      : key === "objetivos"
-                        ? `${raw.objetivos_pct.toFixed(1)}%`
-                        : raw[key];
-                  return (
-                    <motion.div
-                      key={key}
-                      variants={itemVariants}
-                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          fontSize: 11,
-                          color: "var(--shelfy-muted)",
-                        }}
-                      >
-                        {label}
-                        <KpiHelpTip text={description} side="right" size={11} />
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--shelfy-text)" }}>{value}</span>
-                    </motion.div>
-                  );
-                })}
-              </motion.div>
+              </div>
 
-              <RecapEvolucionButton
-                distId={distId}
-                vendedorId={vendor.id_vendedor}
-                mes={mesForRecapEvolucion(meses)}
-                vendorName={vendor.nombre}
-                variant="panel"
-              />
+              {tuning.showKpisBlock && (
+                <SidebarKpiRow items={sidebarKpis.bottom} className="vendor-detalle-kpi-row--bottom" />
+              )}
+
+              <div className="vendor-detalle-sidebar-foot">
+                {tuning.showEvolucionBtn && (
+                  <div className="vendor-detalle-sidebar-evolucion">
+                    <RecapEvolucionButton
+                      distId={distId}
+                      vendedorId={vendor.id_vendedor}
+                      mes={mesForRecapEvolucion(meses)}
+                      vendorName={vendor.nombre}
+                      variant="panel"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Right column */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+            {/* Panel principal — banner, tabs, contenido, footer */}
+            <div className="vendor-detalle-main">
+              {tuning.showIdealBanner && (
+              <div
+                className="vendor-detalle-ideal-banner"
+                style={{
+                  flexShrink: 0,
+                  padding: "8px 20px",
+                  borderBottom: `1px solid ${F.idealBannerBorder}`,
+                  background: F.idealBannerBg,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 8,
+                }}
+              >
+                <KpiHelpTip text={VENDEDOR_IDEAL_HELP} side="bottom" size={14} />
+                <p style={{ margin: 0, fontSize: 11, lineHeight: 1.45, color: "var(--shelfy-muted)" }}>
+                  <span style={{ fontWeight: 700, color: F.accentDark }}>Vendedor ideal: </span>
+                  {VENDEDOR_IDEAL_HELP}
+                </p>
+              </div>
+              )}
+
               {/* Tab bar */}
               <div
                 className="vendor-detalle-tabs"
@@ -411,7 +468,7 @@ export function VendorCardExpanded({
               </div>
 
               {/* Tab content */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+              <div className="vendor-detalle-main-scroll">
                 {isLoading && !detalle ? (
                   <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 200 }}>
                     <Loader2 size={28} className="animate-spin" style={{ color: F.accent }} />
@@ -450,80 +507,69 @@ export function VendorCardExpanded({
                       {activeTab === "pdvs" && detalle && (
                         <TabPDVs detalle={detalle} />
                       )}
-                      {activeTab === "altas" && detalle && (
-                        <TabAltas detalle={detalle} />
-                      )}
-                      {activeTab === "exhibiciones" && detalle && (
-                        <TabExhibiciones detalle={detalle} />
+                      {activeTab === "cartera" && detalle && (
+                        <TabCarteraEstado detalle={detalle} />
                       )}
                       {activeTab === "bultos" && detalle && (
                         <TabBultos detalle={detalle} />
-                      )}
-                      {activeTab === "compradores" && detalle && (
-                        <TabCompradores
-                          detalle={detalle}
-                          search={searchCompradores}
-                          setSearch={setSearchCompradores}
-                          filtered={filteredCompradores}
-                        />
                       )}
                     </motion.div>
                   </AnimatePresence>
                 )}
               </div>
-            </div>
-          </div>
 
-          {/* Footer nav */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "10px 20px",
-              borderTop: `1px solid ${F.panelBorderLight}`,
-              background: F.footerBg,
-              flexShrink: 0,
-            }}
-          >
-            <button
-              onClick={() => prevVendor && setActiveVendorId(prevVendor.id_vendedor)}
-              disabled={!prevVendor}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
-                color: prevVendor ? F.accent : "var(--shelfy-muted)",
-                background: "none", border: "none", cursor: prevVendor ? "pointer" : "default",
-                opacity: prevVendor ? 1 : 0.4,
-              }}
-            >
-              <ChevronLeft size={16} />
-              {prevVendor?.nombre ?? "Anterior"}
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                display: "flex", alignItems: "center", gap: 5,
-                padding: "6px 14px", borderRadius: 8,
-                background: F.panelBg, border: `1px solid ${F.panelBorder}`,
-                fontSize: 12, fontWeight: 600, color: F.accentDark, cursor: "pointer",
-              }}
-            >
-              <X size={14} />
-              Cerrar
-            </button>
-            <button
-              onClick={() => nextVendor && setActiveVendorId(nextVendor.id_vendedor)}
-              disabled={!nextVendor}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
-                color: nextVendor ? F.accent : "var(--shelfy-muted)",
-                background: "none", border: "none", cursor: nextVendor ? "pointer" : "default",
-                opacity: nextVendor ? 1 : 0.4,
-              }}
-            >
-              {nextVendor?.nombre ?? "Siguiente"}
-              <ChevronRight size={16} />
-            </button>
+              {/* Footer nav */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "10px 20px",
+                  borderTop: `1px solid ${F.panelBorderLight}`,
+                  background: F.footerBg,
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  onClick={() => prevVendor && setActiveVendorId(prevVendor.id_vendedor)}
+                  disabled={!prevVendor}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
+                    color: prevVendor ? F.accent : "var(--shelfy-muted)",
+                    background: "none", border: "none", cursor: prevVendor ? "pointer" : "default",
+                    opacity: prevVendor ? 1 : 0.4,
+                  }}
+                >
+                  <ChevronLeft size={16} />
+                  {prevVendor?.nombre ?? "Anterior"}
+                </button>
+                <button
+                  onClick={onClose}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "6px 14px", borderRadius: 8,
+                    background: F.panelBg, border: `1px solid ${F.panelBorder}`,
+                    fontSize: 12, fontWeight: 600, color: F.accentDark, cursor: "pointer",
+                  }}
+                >
+                  <X size={14} />
+                  Cerrar
+                </button>
+                <button
+                  onClick={() => nextVendor && setActiveVendorId(nextVendor.id_vendedor)}
+                  disabled={!nextVendor}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
+                    color: nextVendor ? F.accent : "var(--shelfy-muted)",
+                    background: "none", border: "none", cursor: nextVendor ? "pointer" : "default",
+                    opacity: nextVendor ? 1 : 0.4,
+                  }}
+                >
+                  {nextVendor?.nombre ?? "Siguiente"}
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
           </div>
         </motion.div>
       </motion.div>
@@ -573,6 +619,7 @@ function OverlayToggle() {
 
 function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
   const [openRutaId, setOpenRutaId] = useState<number | null>(null);
+  const { altaIds, altasByRuta, altaMeta } = useMemo(() => buildAltaMaps(detalle), [detalle]);
 
   if (!detalle.rutas.length) {
     return (
@@ -584,11 +631,20 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
 
   const grupos = groupRutasByDia(detalle.rutas);
   const totalPdvs = detalle.rutas.reduce((n, r) => n + (r.total_pdvs ?? r.pdvs?.length ?? 0), 0);
+  const totalAltas = detalle.altas.length;
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
         {detalle.rutas.length} ruta{detalle.rutas.length !== 1 ? "s" : ""} · {totalPdvs} PDVs
+        {totalAltas > 0 && (
+          <>
+            {" · "}
+            <span style={{ color: "#b45309", fontWeight: 700 }}>
+              {totalAltas} alta{totalAltas !== 1 ? "s" : ""} en el período
+            </span>
+          </>
+        )}
       </p>
 
       {grupos.map(({ dia, rutas, totalPdvs: pdvsDia }) => (
@@ -613,6 +669,7 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
           {rutas.map((r) => {
             const pdvs = r.pdvs ?? [];
             const isOpen = openRutaId === r.id_ruta;
+            const altasEnRuta = altasByRuta.get(r.id_ruta) ?? 0;
             return (
               <motion.div
                 key={r.id_ruta}
@@ -646,8 +703,16 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--shelfy-text)" }}>
                         Ruta {r.nombre}
                       </div>
-                      <div style={{ fontSize: 10, color: "var(--shelfy-muted)", marginTop: 2 }}>
-                        {pdvs.length} PDV{pdvs.length !== 1 ? "s" : ""}
+                      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+                        <span style={{ fontSize: 10, color: "var(--shelfy-muted)" }}>
+                          {pdvs.length} PDV{pdvs.length !== 1 ? "s" : ""}
+                        </span>
+                        {altasEnRuta > 0 && (
+                          <span className="vendor-detalle-ruta-alta-badge">
+                            <Star size={10} />
+                            {altasEnRuta} alta{altasEnRuta !== 1 ? "s" : ""}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -688,9 +753,12 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                           pdvs.map((pdv) => {
                             const nombre = pdv.razon_social || pdv.nombre_fantasia || "Sin nombre";
                             const tel = [pdv.telefono, pdv.celular].filter(Boolean).join(" · ");
+                            const isAlta = altaIds.has(pdv.id_cliente_erp);
+                            const altaFecha = altaMeta.get(pdv.id_cliente_erp)?.fecha_alta ?? pdv.fecha_alta;
                             return (
                               <div
                                 key={pdv.id_cliente_erp || nombre}
+                                className={isAlta ? "vendor-detalle-pdv-alta" : undefined}
                                 style={{
                                   padding: "10px 12px",
                                   borderRadius: 8,
@@ -700,8 +768,18 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                                   lineHeight: 1.45,
                                 }}
                               >
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                  <span style={{ fontWeight: 700, color: "var(--shelfy-text)" }}>{nombre}</span>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
+                                    <span style={{ fontWeight: 700, color: isAlta ? "#b45309" : "var(--shelfy-text)" }}>
+                                      {nombre}
+                                    </span>
+                                    {isAlta && (
+                                      <span className="vendor-detalle-pdv-alta-badge">
+                                        <Star size={9} />
+                                        Alta
+                                      </span>
+                                    )}
+                                  </div>
                                   <span style={{ fontFamily: "monospace", color: "var(--shelfy-muted)", fontSize: 10 }}>
                                     ERP {pdv.id_cliente_erp || "—"}
                                   </span>
@@ -719,9 +797,9 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                                     Dir: {pdv.direccion || pdv.domicilio}
                                   </div>
                                 )}
-                                {pdv.fecha_alta && (
-                                  <div style={{ color: "var(--shelfy-muted)", marginTop: 4 }}>
-                                    Alta: {formatFechaAR(pdv.fecha_alta)}
+                                {isAlta && altaFecha && (
+                                  <div style={{ color: "#b45309", marginTop: 4, fontWeight: 600 }}>
+                                    Alta del período: {formatFechaAR(altaFecha)}
                                   </div>
                                 )}
                               </div>
@@ -737,112 +815,6 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
           })}
         </div>
       ))}
-    </motion.div>
-  );
-}
-
-function TabAltas({ detalle }: { detalle: VendorDetalle }) {
-  if (!detalle.altas.length) {
-    return (
-      <p style={{ color: "var(--shelfy-muted)", fontSize: 13, textAlign: "center", marginTop: 32 }}>
-        Sin altas en el período
-      </p>
-    );
-  }
-  return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show">
-      <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "0 0 12px" }}>
-        {detalle.altas.length} alta{detalle.altas.length !== 1 ? "s" : ""}
-      </p>
-      <div
-        style={{
-          overflowX: "auto",
-          borderRadius: 10,
-          border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
-        }}
-      >
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: ESTADISTICAS_FIFA.panelBg }}>
-              {["Fecha", "Razón Social", "ID ERP", "Localidad"].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: "8px 12px", textAlign: "left",
-                    fontWeight: 700, color: "var(--shelfy-muted)",
-                    fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {detalle.altas.map((a, i) => (
-              <motion.tr
-                key={i}
-                variants={itemVariants}
-                style={{
-                  borderTop: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
-                }}
-              >
-                <td style={{ padding: "7px 12px", color: "var(--shelfy-muted)", whiteSpace: "nowrap" }}>
-                  {formatFechaAR(a.fecha_alta)}
-                </td>
-                <td style={{ padding: "7px 12px", fontWeight: 600, color: "var(--shelfy-text)" }}>
-                  {a.razon_social || a.nombre_fantasia || "-"}
-                </td>
-                <td style={{ padding: "7px 12px", color: "var(--shelfy-muted)", fontFamily: "monospace", fontSize: 11 }}>
-                  {a.id_cliente_erp}
-                </td>
-                <td style={{ padding: "7px 12px", color: "var(--shelfy-muted)" }}>
-                  {a.localidad ?? "-"}
-                </td>
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </motion.div>
-  );
-}
-
-function TabExhibiciones({ detalle }: { detalle: VendorDetalle }) {
-  const r = detalle.exhibiciones_resumen;
-  const stats = [
-    { label: "Total Lógicas", value: r.total_logicas, icon: <Target size={16} />, color: ESTADISTICAS_FIFA.accent, bg: ESTADISTICAS_FIFA.panelBg },
-    { label: "Destacadas",    value: r.destacadas,    icon: <Star size={16} />,   color: "#F59E0B", bg: "rgba(245,158,11,0.1)" },
-    { label: "Aprobadas",     value: r.aprobadas,     icon: <CheckCircle2 size={16} />, color: "#10B981", bg: "rgba(16,185,129,0.1)" },
-    { label: "Pendientes",    value: r.pendientes,    icon: <Clock size={16} />,  color: "#64748B", bg: "rgba(100,116,139,0.1)" },
-    { label: "Rechazadas",    value: r.rechazadas,    icon: <XCircle size={16} />, color: "#EF4444", bg: "rgba(239,68,68,0.1)" },
-    { label: "Puntos",        value: r.puntos,        icon: <Star size={16} />,   color: ESTADISTICAS_FIFA.accentDark, bg: ESTADISTICAS_FIFA.panelBgHover },
-  ];
-
-  return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-        {stats.map(({ label, value, icon, color, bg }) => (
-          <motion.div
-            key={label}
-            variants={itemVariants}
-            style={{
-              borderRadius: 12, padding: "12px 14px",
-              background: bg, border: `1px solid ${color}22`,
-              display: "flex", flexDirection: "column", gap: 6,
-            }}
-          >
-            <div style={{ color, opacity: 0.85 }}>{icon}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color }}>
-              <CountUp target={value} />
-            </div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              {label}
-            </div>
-          </motion.div>
-        ))}
-      </div>
     </motion.div>
   );
 }
@@ -964,74 +936,6 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
           </motion.div>
         ))}
       </div>
-    </motion.div>
-  );
-}
-
-function TabCompradores({
-  detalle,
-  search,
-  setSearch,
-  filtered,
-}: {
-  detalle: VendorDetalle;
-  search: string;
-  setSearch: (v: string) => void;
-  filtered: { id_cliente_erp: string; razon_social: string }[];
-}) {
-  return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div
-          style={{
-            display: "flex", alignItems: "center", gap: 6, flex: 1,
-            border: `1px solid ${ESTADISTICAS_FIFA.panelBorder}`, borderRadius: 8,
-            padding: "6px 10px", background: ESTADISTICAS_FIFA.panelBg,
-          }}
-        >
-          <Search size={13} color="var(--shelfy-muted)" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar comprador…"
-            style={{
-              border: "none", background: "none", outline: "none", fontSize: 12,
-              color: "var(--shelfy-text)", width: "100%",
-            }}
-          />
-        </div>
-        <span style={{ fontSize: 11, color: "var(--shelfy-muted)", whiteSpace: "nowrap" }}>
-          {filtered.length} de {detalle.compradores.length}
-        </span>
-      </div>
-
-      {filtered.length === 0 ? (
-        <p style={{ color: "var(--shelfy-muted)", fontSize: 13, textAlign: "center", marginTop: 24 }}>
-          {search ? "Sin resultados" : "Sin compradores"}
-        </p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {filtered.map((c) => (
-            <motion.div
-              key={c.id_cliente_erp}
-              variants={itemVariants}
-              style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "7px 12px", borderRadius: 8,
-                background: ESTADISTICAS_FIFA.panelBg,
-                border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
-              }}
-            >
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--shelfy-text)" }}>
-                {c.razon_social || "-"}
-              </span>
-              <span style={{ fontSize: 10, color: "var(--shelfy-muted)", fontFamily: "monospace" }}>
-                {c.id_cliente_erp}
-              </span>
-            </motion.div>
-          ))}
-        </div>
-      )}
     </motion.div>
   );
 }

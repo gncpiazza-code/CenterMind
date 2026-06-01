@@ -172,3 +172,222 @@
     opacity: 0.35;
   }
 }
+
+/* ── Modal expandido: sidebar + panel principal (vars tunables en dev) ── */
+
+.vendor-detalle-backdrop {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.vendor-detalle-shell {
+  width: min(calc(94vw * var(--vd-ui-scale, 1)), var(--vd-shell-max-w, 980px));
+  height: var(--vd-shell-max-h, 88vh);
+  max-height: var(--vd-shell-max-h, 88vh);
+  min-height: var(--vd-shell-max-h, 88vh);
+  border-radius: var(--vd-shell-radius, 18px);
+  overflow: hidden;
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(white, black);
+  font-size: calc(12px * var(--vd-ui-scale, 1));
+}
+
+.vendor-detalle-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+}
+
+.vendor-detalle-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.vendor-detalle-main-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--vd-content-pad, 16px) calc(var(--vd-content-pad, 16px) + 4px);
+  min-height: 0;
+}
+
+/* Layout tuner — solo dev */
+.vendor-detalle-layout-tuner {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9999;
+  width: min(92vw, 320px);
+  max-height: min(72vh, 640px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: #e2e8f0;
+  backdrop-filter: blur(10px);
+}
+
+.vendor-detalle-layout-tuner__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vendor-detalle-layout-tuner__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vendor-detalle-layout-tuner__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vendor-detalle-layout-tuner__actions button {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(51, 65, 85, 0.8);
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.vendor-detalle-layout-tuner__body {
+  overflow-y: auto;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vendor-detalle-layout-tuner__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vendor-detalle-layout-tuner__label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.vendor-detalle-layout-tuner__label em {
+  font-style: normal;
+  color: #fde68a;
+  font-weight: 800;
+}
+
+.vendor-detalle-layout-tuner__row input[type="range"] {
+  width: 100%;
+  accent-color: #c6a600;
+}
+
+.vendor-detalle-layout-tuner__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vendor-detalle-layout-tuner__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.vendor-detalle-layout-tuner-fab {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 9998;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(198, 166, 0, 0.45);
+  background: rgba(15, 23, 42, 0.92);
+  color: #fde68a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.vendor-detalle-ruta-alta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.vendor-detalle-pdv-alta {
+  background: rgba(245, 158, 11, 0.08) !important;
+  border-color: rgba(245, 158, 11, 0.38) !important;
+}
+
+.vendor-detalle-pdv-alta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.estadisticas-page--dark .vendor-detalle-ruta-alta-badge {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.estadisticas-page--dark .vendor-detalle-pdv-alta {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(251, 191, 36, 0.35) !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-pdv-alta-badge {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.22);
+}

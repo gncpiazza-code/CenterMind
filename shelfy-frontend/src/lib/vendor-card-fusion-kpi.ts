@@ -1,14 +1,14 @@
 import type { VendorCartaResumen, VendorRawKpis } from "@/lib/api";
 import type { RadarKPI } from "@/lib/api";
 
-/** KPIs de la grilla 2×3 donde puede mostrarse corona de liderazgo */
+/** KPIs de la grilla 2×3 donde puede mostrarse corona de liderazgo (alineado al sidebar expandido). */
 export type VendorStatLeaderKey =
-  | "exhibiciones"
-  | "compradores"
-  | "bultos"
   | "pdvs"
-  | "cobertura_pct"
-  | "altas";
+  | "exhibiciones"
+  | "pdvs_exhibidos"
+  | "compradores"
+  | "cobertura_compra"
+  | "bultos";
 
 export interface FusionRadarAxisMeta {
   key: keyof RadarKPI;
@@ -22,31 +22,44 @@ export interface FusionRadarAxisMeta {
 }
 
 export const FUSION_RADAR_AXES: FusionRadarAxisMeta[] = [
-  { key: "pdvs", tick: "PDV", fullLabel: "PDVs en padrón", isPercent: false },
-  {
-    key: "altas",
-    tick: "ALT",
-    fullLabel: "Altas",
-    idealLabel: "Altas por día",
-    isPercent: false,
-  },
+  { key: "pdvs", tick: "PDV", fullLabel: "PDVs en cartera", isPercent: false },
   { key: "exhibiciones", tick: "EXH", fullLabel: "Exhibiciones", isPercent: false },
+  {
+    key: "pdvs_exhibidos",
+    tick: "CEX",
+    fullLabel: "% cartera exhibida",
+    idealLabel: "% cartera exhibida",
+    isPercent: true,
+  },
   { key: "compradores", tick: "CMP", fullLabel: "Compradores", isPercent: false },
+  {
+    key: "cobertura",
+    tick: "COB",
+    fullLabel: "Cobertura compra",
+    idealLabel: "Cobertura compra %",
+    isPercent: true,
+  },
   { key: "bultos", tick: "BLT", fullLabel: "Bultos", isPercent: false },
-  { key: "cobertura", tick: "COB", fullLabel: "Cobertura", isPercent: true },
 ];
+
+function coberturaCompraPct(k: VendorRawKpis): number {
+  return (
+    k.cobertura_compra_pct ??
+    (k.pdvs > 0 ? (k.compradores / k.pdvs) * 100 : 0)
+  );
+}
 
 const STAT_LEADER_GETTERS: {
   key: VendorStatLeaderKey;
   get: (k: VendorRawKpis) => number;
   label: string;
 }[] = [
-  { key: "exhibiciones", get: (k) => k.exhibiciones, label: "Exhibiciones" },
-  { key: "compradores", get: (k) => k.compradores, label: "Compradores" },
-  { key: "bultos", get: (k) => k.bultos, label: "Bultos" },
   { key: "pdvs", get: (k) => k.pdvs, label: "PDVs" },
-  { key: "cobertura_pct", get: (k) => k.cobertura_pct, label: "Cobertura" },
-  { key: "altas", get: (k) => k.altas, label: "Altas" },
+  { key: "exhibiciones", get: (k) => k.exhibiciones, label: "Exhibiciones" },
+  { key: "pdvs_exhibidos", get: (k) => k.pdvs_exhibidos ?? 0, label: "PDVs exhibidos" },
+  { key: "compradores", get: (k) => k.compradores, label: "Compradores" },
+  { key: "cobertura_compra", get: coberturaCompraPct, label: "Cobertura compra" },
+  { key: "bultos", get: (k) => k.bultos, label: "Bultos" },
 ];
 
 export function fusionAxisMeta(axisKey: keyof RadarKPI): FusionRadarAxisMeta {

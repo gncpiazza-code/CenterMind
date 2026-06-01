@@ -47,14 +47,13 @@ const AXES_FULL: { key: keyof RadarKPI; label: string }[] = [
 
 const SIZE_MAP = {
   sm: { height: 148, outerRadius: "62%", fontSize: 8, dotR: 3, stroke: 1.8 },
-  // Márgenes amplios: CEX (abajo-derecha) no debe quedar fuera del clip de la carta FIFA.
-  fusion: { height: 162, outerRadius: "64%", fontSize: 8, dotR: 3.5, stroke: 1.8 },
+  fusion: { height: 162, outerRadius: "76%", fontSize: 8, dotR: 3.5, stroke: 1.8 },
   md: { height: 168, outerRadius: "64%", fontSize: 9, dotR: 3.5, stroke: 1.8 },
   lg: { height: 210, outerRadius: "66%", fontSize: 10, dotR: 4.5, stroke: 2 },
   detalle: { height: 320, outerRadius: "88%", fontSize: 11, dotR: 4.5, stroke: 2.2 },
 };
 
-const FUSION_CHART_MARGIN = { top: 18, right: 26, bottom: 18, left: 26 };
+const FUSION_CHART_MARGIN = { top: 10, right: 16, bottom: 12, left: 16 };
 
 type ChartRow = {
   axis: string;

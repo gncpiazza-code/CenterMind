@@ -33,6 +33,7 @@ import {
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
 import { fmtBultos, fmtBultosUnidadesDesglose } from "@/lib/estadisticas-format";
 import { VendorCardRadar } from "./VendorCardRadar";
+import { mergeFusionRadarFromRaw } from "@/lib/vendor-radar-fusion";
 import { VENDOR_CARD_LAYOUT_TRANSITION } from "./VendorCardFusion";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import {
@@ -364,7 +365,12 @@ export function VendorCardExpanded({
               <div className="vendor-detalle-sidebar-radar">
                 <div ref={radarWrapRef} className="vendor-detalle-sidebar-radar-chart">
                   <VendorCardRadar
-                    radar={vendor.radar}
+                    radar={mergeFusionRadarFromRaw(
+                      vendor.radar,
+                      vendor.raw_kpis,
+                      vendor.ideal_meta_dist,
+                      vendor.ideal_meta_compania,
+                    )}
                     radarCompania={vendor.radar_ideal_compania}
                     radarDist={vendor.radar_ideal_dist}
                     idealMetaCompania={vendor.ideal_meta_compania}

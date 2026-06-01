@@ -4,6 +4,7 @@ import "./vendor-card-fusion.css";
 import { AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import { VendorCardRadar } from "./VendorCardRadar";
+import { mergeFusionRadarFromRaw } from "@/lib/vendor-radar-fusion";
 import { VendorCardFusionStats } from "./VendorCardFusionStats";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
@@ -203,7 +204,12 @@ export function VendorCardFusion({
           }}
         >
           <VendorCardRadar
-            radar={vendor.radar}
+            radar={mergeFusionRadarFromRaw(
+              vendor.radar,
+              vendor.raw_kpis,
+              vendor.ideal_meta_dist,
+              vendor.ideal_meta_compania,
+            )}
             radarCompania={vendor.radar_ideal_compania}
             radarDist={vendor.radar_ideal_dist}
             idealMetaCompania={vendor.ideal_meta_compania}

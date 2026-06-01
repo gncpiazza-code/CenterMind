@@ -28,15 +28,16 @@ ESTADISTICAS_SERVE_STALE_SECONDS = 86400  # 24 h
 
 
 def _percent_from_raw(raw: dict, pct_key: str, fallback_num: str) -> float:
-    """% 0–100 desde raw_kpis; fallback calculado si el campo viene en 0."""
-    pct = float(raw.get(pct_key) or 0)
-    if pct > 0:
-        return min(100.0, pct)
+    """% 0–100 desde raw_kpis; si el % guardado es 0 pero hay conteo, recalcula."""
     pdvs = float(raw.get("pdvs") or 0)
-    if pdvs <= 0:
-        return 0.0
     num = float(raw.get(fallback_num) or 0)
-    return min(100.0, num / pdvs * 100)
+    if pdvs > 0 and num > 0:
+        from_counts = min(100.0, num / pdvs * 100)
+        pct = float(raw.get(pct_key) or 0)
+        if pct <= 0:
+            return from_counts
+        return min(100.0, pct)
+    return min(100.0, float(raw.get(pct_key) or 0))
 
 
 def _ideal_pct_targets(card: dict) -> tuple[float, float]:

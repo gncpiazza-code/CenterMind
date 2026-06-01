@@ -64,6 +64,14 @@ def test_normalize_cartas_dict_to_list():
     assert len(out) == 2
 
 
+def test_percent_from_raw_recalculates_when_pct_zero():
+    from services.snapshot_estadisticas_service import _percent_from_raw
+
+    raw = {"pdvs": 255, "pdvs_exhibidos": 63, "cobertura_pct": 0}
+    pct = _percent_from_raw(raw, "cobertura_pct", "pdvs_exhibidos")
+    assert 24 <= pct <= 25
+
+
 def test_normalize_cartas_syncs_percent_radar_vs_ideal():
     """CEX/COB = % real del vendedor ÷ % meta del ideal (×100, tope 100)."""
     raw = [

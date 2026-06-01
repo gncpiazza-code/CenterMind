@@ -118,7 +118,13 @@ def _pendientes_payload_valid(pendientes: list) -> bool:
     """Snapshots legacy guardaban filas planas de fn_pendientes sin fotos[]."""
     if not pendientes:
         return False
-    return isinstance(pendientes[0].get("fotos"), list)
+    if not isinstance(pendientes[0].get("fotos"), list):
+        return False
+    # Bug legacy: nro_cliente hardcodeado a "0" → visor sin PDV/comprobante.
+    for g in pendientes[: min(8, len(pendientes))]:
+        if str(g.get("nro_cliente") or "").strip() == "0":
+            return False
+    return True
 
 
 def _compute_visor(dist_id: int, hide_qa: bool = False) -> dict:

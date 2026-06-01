@@ -43,6 +43,51 @@ export function ccVendorCodeTokens(vendedorNombre: string): string[] {
   return out;
 }
 
+/** Relaciona códigos CHESS con id_vendedor_erp (alineado con backend helpers.py). */
+export function erpCodesMatchCcVendor(
+  ccVendedorNombre: string,
+  idVendedorErp: string | null | undefined,
+): boolean {
+  if (!idVendedorErp) return false;
+  const erp = String(idVendedorErp).trim();
+  const erpNorm = erp.replace(/^0+/, "") || "0";
+  return ccVendorCodeTokens(ccVendedorNombre).some((tok) => {
+    if (tok === erp || tok === erpNorm) return true;
+    if (tok.length >= 2 && (erp.endsWith(tok) || erpNorm.endsWith(tok))) return true;
+    return false;
+  });
+}
+
+/** Prioridad del match CC ↔ padrón (mayor = más confiable). */
+export function ccVendedorMatchScore(
+  ccVendedor: string,
+  ccIdVendedor: number | null | undefined,
+  nombreErp: string,
+  idVendedor?: number | null,
+  idVendedorErp?: string | null,
+): number {
+  const vn = (ccVendedor || "").trim();
+  if (!vn || !nombreErp) return -1;
+  if (
+    idVendedor != null &&
+    ccIdVendedor != null &&
+    Number(ccIdVendedor) === Number(idVendedor)
+  ) {
+    return 100;
+  }
+  if (normVendorName(extractCCVendedorName(vn)) === normVendorName(nombreErp)) {
+    return 80;
+  }
+  if (!idVendedorErp) return -1;
+  const erp = String(idVendedorErp).trim();
+  const erpNorm = erp.replace(/^0+/, "") || "0";
+  for (const tok of ccVendorCodeTokens(vn)) {
+    if (tok === erp || tok === erpNorm) return 60;
+    if (tok.length >= 2 && (erp.endsWith(tok) || erpNorm.endsWith(tok))) return 40;
+  }
+  return -1;
+}
+
 /** True si la fila CC corresponde al vendedor del padrón (nombre o código ERP). */
 export function ccRowMatchesVendedor(
   ccVendedor: string,
@@ -51,24 +96,44 @@ export function ccRowMatchesVendedor(
   idVendedor?: number | null,
   idVendedorErp?: string | null,
 ): boolean {
-  const vn = (ccVendedor || "").trim();
-  if (!vn || !nombreErp) return false;
-  if (
-    idVendedor != null &&
-    ccIdVendedor != null &&
-    Number(ccIdVendedor) === Number(idVendedor)
-  ) {
-    return true;
+  return ccVendedorMatchScore(ccVendedor, ccIdVendedor, nombreErp, idVendedor, idVendedorErp) >= 0;
+}
+
+export interface CuentasVendedorRow {
+  vendedor: string;
+  id_vendedor?: number | null;
+  clientes?: Array<{ id_cliente_erp?: string | null; cliente?: string | null }> | null;
+}
+
+/** Clientes del vendedor seleccionado: un solo bucket CC (mejor score), sin duplicados. */
+export function resolveClientesCCForVendedor<
+  T extends { id_cliente_erp?: string | null; cliente?: string | null },
+>(rows: CuentasVendedorRow[], nombreErp: string, idVendedor?: number | null, idVendedorErp?: string | null): T[] {
+  if (!nombreErp) return [];
+  let bestScore = -1;
+  const bestRows: CuentasVendedorRow[] = [];
+  for (const row of rows) {
+    const score = ccVendedorMatchScore(row.vendedor, row.id_vendedor, nombreErp, idVendedor, idVendedorErp);
+    if (score < 0) continue;
+    if (score > bestScore) {
+      bestScore = score;
+      bestRows.length = 0;
+      bestRows.push(row);
+    } else if (score === bestScore) {
+      bestRows.push(row);
+    }
   }
-  if (normVendorName(extractCCVendedorName(vn)) === normVendorName(nombreErp)) {
-    return true;
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of bestRows) {
+    for (const c of row.clientes ?? []) {
+      const key = (c.id_cliente_erp ?? c.cliente ?? "").trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(c as T);
+    }
   }
-  if (!idVendedorErp) return false;
-  const erp = String(idVendedorErp).trim();
-  const erpNorm = erp.replace(/^0+/, "") || "0";
-  return ccVendorCodeTokens(vn).some(
-    (tok) => tok === erp || tok === erpNorm || erp.endsWith(tok) || erpNorm.endsWith(tok),
-  );
+  return out;
 }
 
 /** Normaliza nombres para matching (sin acentos, puntuación). */

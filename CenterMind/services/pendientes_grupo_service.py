@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import logging
 
+from core.exhibicion_aggregate import (
+    build_client_key_to_erp_map,
+    erp_lookup_keys,
+    resolve_exhibition_cliente_erp,
+)
 from core.helpers import (
     _get_erp_name_map,
     build_integrante_to_erp_name,
@@ -36,8 +41,123 @@ PENDIENTES_ESTADOS_DB = (
 
 _EXH_PENDIENTES_SELECT = (
     "id_exhibicion,id_integrante,estado,timestamp_subida,url_foto_drive,"
-    "telegram_msg_id,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+    "telegram_msg_id,id_cliente_pdv,id_cliente,cliente_sombra_codigo,id_objetivo"
 )
+
+
+def _padron_lookup_keys(code: str) -> list[str]:
+    """Variantes para matchear código Telegram ↔ id_cliente_erp del padrón."""
+    keys = list(erp_lookup_keys(code))
+    s = str(code or "").strip()
+    if s.isdigit():
+        z6 = s.zfill(6)
+        if z6 not in keys:
+            keys.append(z6)
+    return keys
+
+
+def _valid_nro_cliente(value) -> str | None:
+    s = str(value or "").strip()
+    if not s or s in {"0", "S/C", "—"}:
+        return None
+    return s
+
+
+def _grupo_nro_cliente(row: dict) -> str:
+    return (
+        _valid_nro_cliente(row.get("nro_cliente"))
+        or _valid_nro_cliente(row.get("cliente_sombra_codigo"))
+        or "S/C"
+    )
+
+
+def _enrich_pendientes_nro_cliente(dist_id: int, rows: list[dict]) -> None:
+    """
+    Código ERP del visor: lo que cargó el vendedor en Telegram (cliente_sombra_codigo)
+    matcheado contra clientes_pdv_v2.id_cliente_erp (padrón), con variantes numéricas AR.
+    """
+    if not rows:
+        return
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+
+    id_cliente_pks: set[int] = set()
+    erp_candidates: set[str] = set()
+    for r in rows:
+        shadow = _valid_nro_cliente(r.get("cliente_sombra_codigo"))
+        if shadow:
+            for k in _padron_lookup_keys(shadow):
+                erp_candidates.add(k)
+        for field in ("id_cliente", "id_cliente_pdv"):
+            v = r.get(field)
+            if v is None:
+                continue
+            try:
+                id_cliente_pks.add(int(v))
+            except (TypeError, ValueError):
+                continue
+
+    pdv_rows: list[dict] = []
+    seen_pk: set[int] = set()
+
+    def _append_pdv(batch: list[dict]) -> None:
+        for row in batch:
+            cid = row.get("id_cliente")
+            if cid is None:
+                continue
+            try:
+                pk = int(cid)
+            except (TypeError, ValueError):
+                continue
+            if pk in seen_pk:
+                continue
+            seen_pk.add(pk)
+            pdv_rows.append(row)
+
+    pk_list = list(id_cliente_pks)
+    for i in range(0, len(pk_list), 200):
+        chunk = pk_list[i : i + 200]
+        try:
+            res = (
+                sb.table(t_clientes)
+                .select("id_cliente, id_cliente_erp, cliente_sombra_codigo")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente", chunk)
+                .execute()
+            )
+            _append_pdv(res.data or [])
+        except Exception as e:
+            logger.warning(f"[pendientes] enrich padron por id_cliente: {e}")
+
+    erp_list = list(erp_candidates)
+    for i in range(0, len(erp_list), 200):
+        chunk = erp_list[i : i + 200]
+        try:
+            res = (
+                sb.table(t_clientes)
+                .select("id_cliente, id_cliente_erp, cliente_sombra_codigo")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_erp", chunk)
+                .execute()
+            )
+            _append_pdv(res.data or [])
+        except Exception as e:
+            logger.warning(f"[pendientes] enrich padron por id_cliente_erp: {e}")
+
+    key_to_erp = build_client_key_to_erp_map(pdv_rows)
+
+    for r in rows:
+        ex_row = {
+            "cliente_sombra_codigo": r.get("cliente_sombra_codigo"),
+            "id_cliente": r.get("id_cliente"),
+            "id_cliente_pdv": r.get("id_cliente_pdv"),
+        }
+        erp = resolve_exhibition_cliente_erp(ex_row, key_to_erp)
+        if erp:
+            r["nro_cliente"] = erp
+            continue
+        shadow = _valid_nro_cliente(r.get("cliente_sombra_codigo"))
+        if shadow:
+            r["nro_cliente"] = shadow
 
 
 def _fetch_pendientes_exhibiciones(dist_id: int) -> list[dict]:
@@ -107,6 +227,8 @@ def _fetch_pendientes_exhibiciones(dist_id: int) -> list[dict]:
         rows.append(
             {
                 "id_exhibicion": ex_id,
+                "id_integrante": iid_i,
+                "id_objetivo": r.get("id_objetivo"),
                 "vendedor": ig_names.get(iid_i, "Vendedor S/N") if iid_i else "Vendedor S/N",
                 "nro_cliente": "0",
                 "tipo_pdv": "S/D",
@@ -115,6 +237,8 @@ def _fetch_pendientes_exhibiciones(dist_id: int) -> list[dict]:
                 "telegram_msg_id": r.get("telegram_msg_id"),
                 "estado": r.get("estado"),
                 "cliente_sombra_codigo": r.get("cliente_sombra_codigo"),
+                "id_cliente": r.get("id_cliente"),
+                "id_cliente_pdv": r.get("id_cliente_pdv"),
             }
         )
     return rows
@@ -138,22 +262,11 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
     integrante_to_erp = build_integrante_to_erp_name(dist_id)
     ex_to_int: dict[int, int | None] = {}
     if rows:
-        ex_ids = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion")]
-        if ex_ids:
-            try:
-                ex_map_res = (
-                    sb.table("exhibiciones")
-                    .select("id_exhibicion, id_integrante")
-                    .eq("id_distribuidor", dist_id)
-                    .in_("id_exhibicion", ex_ids)
-                    .execute()
-                )
-                ex_to_int = {
-                    r["id_exhibicion"]: r.get("id_integrante")
-                    for r in (ex_map_res.data or [])
-                }
-            except Exception as _e_map:
-                logger.warning(f"[pendientes] map id_integrante: {_e_map}")
+        for r in rows:
+            ex_id = r.get("id_exhibicion")
+            if ex_id is None:
+                continue
+            ex_to_int[ex_id] = r.get("id_integrante")
 
         def _row_is_qa_exhibicion(row: dict) -> bool:
             ex_id = row.get("id_exhibicion")
@@ -180,43 +293,7 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
 
         rows = [r for r in rows if not _row_is_qa_exhibicion(r)]
 
-    pendientes_sin_nro = [
-        r.get("id_exhibicion")
-        for r in rows
-        if r.get("id_exhibicion") and (not r.get("nro_cliente") or r.get("nro_cliente") == "0")
-    ]
-    if pendientes_sin_nro:
-        try:
-            extra_res = (
-                sb.table("exhibiciones")
-                .select("id_exhibicion, id_cliente_pdv")
-                .eq("id_distribuidor", dist_id)
-                .in_("id_exhibicion", pendientes_sin_nro)
-                .execute()
-            )
-            exh_cliente = {
-                r["id_exhibicion"]: r.get("id_cliente_pdv")
-                for r in (extra_res.data or [])
-                if r.get("id_cliente_pdv")
-            }
-            nro_map = {}
-            if exh_cliente:
-                pdv_res = (
-                    sb.table(t_clientes)
-                    .select("id_cliente, id_cliente_erp")
-                    .eq("id_distribuidor", dist_id)
-                    .in_("id_cliente", list(set(exh_cliente.values())))
-                    .execute()
-                )
-                pdv_erp = {r["id_cliente"]: r["id_cliente_erp"] for r in (pdv_res.data or [])}
-                nro_map = {ex_id: pdv_erp[cid] for ex_id, cid in exh_cliente.items() if cid in pdv_erp}
-            for r in rows:
-                if not r.get("nro_cliente") or r.get("nro_cliente") == "0":
-                    ex_id = r.get("id_exhibicion")
-                    if ex_id in nro_map:
-                        r["nro_cliente"] = nro_map[ex_id]
-        except Exception as enrich_err:
-            logger.error(f"Error en enriquecimiento nro_cliente: {enrich_err}")
+    _enrich_pendientes_nro_cliente(dist_id, rows)
 
     vendedor_sucursal_map: dict[str, str] = {}
     inactive_vendor_names: set[str] = set()
@@ -269,7 +346,7 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
     if all_ex_ids:
         try:
             ex_nro_map = {
-                int(d.get("id_exhibicion")): str(d.get("nro_cliente") or "").strip()
+                int(d.get("id_exhibicion")): (_valid_nro_cliente(d.get("nro_cliente")) or "")
                 for d in rows
                 if d.get("id_exhibicion")
             }
@@ -293,17 +370,10 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
                         continue
                     nro_to_ruta[nro] = r.get("id_ruta")
 
-            ex_cli_res = (
-                sb.table("exhibiciones")
-                .select("id_exhibicion, id_cliente_pdv")
-                .eq("id_distribuidor", dist_id)
-                .in_("id_exhibicion", all_ex_ids)
-                .execute()
-            )
             ex_to_cli = {
-                r["id_exhibicion"]: r.get("id_cliente_pdv")
-                for r in (ex_cli_res.data or [])
-                if r.get("id_exhibicion") and r.get("id_cliente_pdv")
+                int(d["id_exhibicion"]): d.get("id_cliente_pdv")
+                for d in rows
+                if d.get("id_exhibicion") and d.get("id_cliente_pdv")
             }
             cli_ids = list({cid for cid in ex_to_cli.values() if cid is not None})
             if cli_ids:
@@ -378,22 +448,11 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
         except Exception as e_suc:
             logger.warning(f"[pendientes] enrich sucursal fallback: {e_suc}")
 
-    obj_id_map: dict[int, str | None] = {}
-    if all_ex_ids:
-        try:
-            obj_res = (
-                sb.table("exhibiciones")
-                .select("id_exhibicion, id_objetivo")
-                .eq("id_distribuidor", dist_id)
-                .in_("id_exhibicion", all_ex_ids)
-                .execute()
-            )
-            obj_id_map = {
-                r["id_exhibicion"]: r.get("id_objetivo")
-                for r in (obj_res.data or [])
-            }
-        except Exception as e_obj:
-            logger.warning(f"[pendientes] Error fetching id_objetivo: {e_obj}")
+    obj_id_map: dict[int, str | None] = {
+        int(d["id_exhibicion"]): d.get("id_objetivo")
+        for d in rows
+        if d.get("id_exhibicion")
+    }
 
     for d in rows:
         ex_id = d.get("id_exhibicion")
@@ -415,7 +474,9 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
             continue
 
         ts = (d.get("fecha_hora") or "")[:10]
-        cli = str(d.get("nro_cliente") or d.get("cliente_sombra_codigo") or "0").strip()
+        cli = _grupo_nro_cliente(d)
+        if cli == "S/C":
+            cli = "0"
 
         if ts and cli and cli != "0" and cli != "S/C":
             key = f"{cli}_{ts}_{vendedor_display}"
@@ -442,7 +503,7 @@ def build_pendientes_grupos(dist_id: int, hide_qa: bool = False) -> list[dict]:
             grupos[key] = {
                 "vendedor": vendedor_display,
                 "sucursal": sucursal_resuelta,
-                "nro_cliente": d.get("nro_cliente") or "S/C",
+                "nro_cliente": _grupo_nro_cliente(d),
                 "tipo_pdv": d.get("tipo_pdv") or "S/D",
                 "fecha_hora": d.get("fecha_hora") or "",
                 "fotos": [],

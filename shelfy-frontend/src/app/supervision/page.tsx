@@ -10,10 +10,10 @@ import { useAuth } from "@/hooks/useAuth";
 import type { VendedorCuentas } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
-  ccRowMatchesVendedor,
   computeDeudaPorAntiguedad,
   formatRangoBadgeLabel,
   rangoBadgeClass,
+  resolveClientesCCForVendedor,
   sortClientesCC,
 } from "@/lib/cuentasCorrientes";
 import { formatCcKpiTrendDisplay, hasCcKpiTrends, shouldShowCcKpiTrend } from "@/lib/supervision-cc-trend";
@@ -222,11 +222,7 @@ export default function SupervisionPage() {
     const nombre = selectedVendedorNombre || "";
     const idV = selectedVendedorObj?.id_vendedor;
     const erp = selectedVendedorObj?.id_vendedor_erp;
-    const clientes = cuentasFiltradas.flatMap((v) =>
-      ccRowMatchesVendedor(v.vendedor, v.id_vendedor, nombre, idV, erp)
-        ? (v.clientes ?? [])
-        : [],
-    );
+    const clientes = resolveClientesCCForVendedor(cuentasFiltradas, nombre, idV, erp);
     return sortClientesCC(clientes, ccSort, ccSortDir);
   }, [cuentasFiltradas, selectedVendedorNombre, selectedVendedorObj, ccSort, ccSortDir]);
 
@@ -557,7 +553,10 @@ export default function SupervisionPage() {
                             Sin datos de CC disponibles
                           </p>
                         ) : (
-                          <div className={SUPERVISION_PANEL_BODY_SCROLL_CLASS}>
+                          <div
+                            key={selectedVendedorId ?? selectedVendedorNombre ?? "none"}
+                            className={SUPERVISION_PANEL_BODY_SCROLL_CLASS}
+                          >
                             <Table>
                               <TableHeader>
                                 <TableRow className="text-[10px]">
@@ -596,7 +595,7 @@ export default function SupervisionPage() {
                                   const isSelected = !!erp && erp === selectedClienteErp;
                                   return (
                                     <TableRow
-                                      key={`${c.cliente ?? "x"}-${idx}`}
+                                      key={`${selectedVendedorId ?? "v"}-${c.id_cliente_erp ?? c.cliente ?? idx}`}
                                       className={cn(
                                         "text-xs cursor-pointer transition-colors",
                                         isSelected

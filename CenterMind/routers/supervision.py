@@ -589,7 +589,9 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             "evaluated_at": datetime.utcnow().isoformat(),
             "evaluado_por_id": user_payload.get("id_usuario"),
             "synced_telegram": 0,
-        }).in_("id_exhibicion", req.ids_exhibicion).eq("estado", "Pendiente").execute()
+        }).in_("id_exhibicion", req.ids_exhibicion).in_(
+            "estado", ["Pendiente", "VALIDACION"]
+        ).execute()
         affected = len(r.data) if r.data else 0
 
         # Reparar id_objetivo / id_cliente_pdv si el bot no alcanzó a persistirlos (ítems con

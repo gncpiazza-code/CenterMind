@@ -25,6 +25,9 @@ logger = logging.getLogger("snapshot_dashboard_service")
 DASHBOARD_MAX_STALE_SECONDS = 300  # 5 min fresh TTL
 DASHBOARD_SERVE_STALE_SECONDS = 86400  # 24 h — SWR serve window
 
+# Períodos cortos: computo síncrono en cache miss (el partial dejaba 0 + sin imágenes).
+_SYNC_COMPUTE_PERIODOS = frozenset({"hoy", "semana"})
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -41,6 +44,13 @@ def _refresh_dashboard_background(
         stale=False,
         revalidating=False,
     )
+    if payload.get("meta", {}).get("compute_error"):
+        logger.warning(
+            "[snap_dashboard] skip persist dist=%s periodo=%s (compute_error)",
+            dist_id,
+            periodo,
+        )
+        return
     _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
 
 
@@ -94,14 +104,20 @@ def get_or_refresh_dashboard(
             )
             return payload
 
-    # Sin snapshot: respuesta rápida (<3s) con RPCs livianos; KPIs/ranking en background.
-    key = f"dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}"
+    p = (periodo or "mes").strip()
+
+    # Hoy / semana: ventana chica → computo síncrono (evita KPIs en 0 y hero sin fotos).
+    if p in _SYNC_COMPUTE_PERIODOS:
+        return _cold_compute_dashboard(dist_id, p, sucursal_id, hide_qa)
+
+    # Mes / mes histórico: SWR con últimas evaluadas mientras recomputa en background.
+    key = f"dashboard:{dist_id}:{p}:{sucursal_id}:{hide_qa}"
     trigger_background_refresh(
         key,
-        lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
+        lambda: _refresh_dashboard_background(dist_id, p, sucursal_id, hide_qa),
     )
     partial = _partial_dashboard_payload(
-        dist_id, periodo, sucursal_id, hide_qa, fast_rpcs=True
+        dist_id, p, sucursal_id, hide_qa, fast_rpcs=False
     )
     apply_meta_flags(
         partial.setdefault("meta", {}),
@@ -135,7 +151,8 @@ def _cold_compute_dashboard(
         stale=False,
         revalidating=False,
     )
-    _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
+    if not payload.get("meta", {}).get("compute_error"):
+        _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
     return payload
 
 

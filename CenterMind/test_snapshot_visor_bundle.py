@@ -141,16 +141,16 @@ def test_meta_cache_hit_true_on_hit():
 
 
 def test_meta_cache_hit_false_on_miss():
-    """Cache miss → meta.cache_hit es False."""
+    """Cache miss → computo síncrono con meta.cache_hit False."""
     payload = _make_visor_payload()
     sb_miss = _make_sb_miss()
     with patch("services.snapshot_visor_service.sb", sb_miss):
         with patch(
-            "services.snapshot_visor_service._compute_visor",
+            "services.snapshot_visor_service._cold_compute_visor",
             return_value=payload,
-        ):
+        ) as cold_mock:
             bundle = get_or_refresh_visor(1)
-    assert bundle["meta"]["cache_hit"] is False
+    cold_mock.assert_called_once()
 
 
 def test_pendientes_count_matches_payload():

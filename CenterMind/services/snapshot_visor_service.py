@@ -84,25 +84,7 @@ def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
             )
             return payload
 
-    trigger_background_refresh(
-        refresh_key,
-        lambda: _refresh_visor_background(dist_id, hide_qa),
-    )
-    partial = {
-        "meta": {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "dist_id": dist_id,
-        },
-        "pendientes": [],
-        "stats": {},
-    }
-    apply_meta_flags(
-        partial["meta"],
-        cache_hit=False,
-        stale=False,
-        revalidating=True,
-    )
-    return partial
+    return _cold_compute_visor(dist_id, hide_qa)
 
 
 def _cold_compute_visor(dist_id: int, hide_qa: bool) -> dict:

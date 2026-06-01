@@ -81,3 +81,30 @@ def test_dashboard_bundle_cache_miss_flag():
     assert out["meta"]["revalidating"] is True
     assert isinstance(out["ranking"], list)
     mock_bg.assert_called_once()
+
+
+def test_dashboard_bundle_hoy_cache_miss_sync_compute():
+    computed = _payload([{"vendedor": "A", "puntos": 3, "aprobadas": 2, "destacadas": 1, "rechazadas": 0}])
+    computed["kpis"]["total"] = 3
+    computed["meta"] = {
+        "generated_at": _fresh_generated_at(),
+        "cache_hit": False,
+        "stale": False,
+        "revalidating": False,
+    }
+    sb = MagicMock()
+    miss = MagicMock()
+    miss.execute.return_value.data = []
+    miss.is_.return_value = miss
+    miss.limit.return_value = miss
+    sb.table.return_value.select.return_value.eq.return_value.eq.return_value = miss
+    with patch("services.snapshot_dashboard_service.sb", sb), patch(
+        "services.snapshot_dashboard_service._cold_compute_dashboard", return_value=computed
+    ) as mock_cold, patch(
+        "services.snapshot_dashboard_service.trigger_background_refresh"
+    ) as mock_bg:
+        out = get_or_refresh_dashboard(1, "hoy", None)
+    mock_cold.assert_called_once_with(1, "hoy", None, False)
+    mock_bg.assert_not_called()
+    assert out["kpis"]["total"] == 3
+    assert out["meta"]["revalidating"] is False

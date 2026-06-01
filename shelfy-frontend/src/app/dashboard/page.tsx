@@ -5,7 +5,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -54,6 +54,7 @@ const sectionVariants = {
 export default function DashboardPage() {
   const { user, effectiveDistribuidorId } = useAuth();
   const queryClient = useQueryClient();
+  const lastWsInvalidateAtRef = useRef(0);
 
   // Período
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("mes");
@@ -119,7 +120,7 @@ export default function DashboardPage() {
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
     refetchInterval: (query) =>
-      query.state.data?.meta?.revalidating ? 2_000 : 300_000,
+      query.state.data?.meta?.revalidating ? 30_000 : 300_000,
   });
 
   // Desestructurar para mantener compatibilidad con el JSX existente
@@ -146,6 +147,9 @@ export default function DashboardPage() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "new_exhibition" || data.type === "evaluation_updated") {
+            const now = Date.now();
+            if (now - lastWsInvalidateAtRef.current < 5000) return;
+            lastWsInvalidateAtRef.current = now;
             queryClient.invalidateQueries({ queryKey: ['bundle', 'dashboard'] });
           }
         } catch {}

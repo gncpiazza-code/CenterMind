@@ -14,6 +14,7 @@ from core.estadisticas_ideal import (
     score_vendedor,
     build_radar_normalized,
     build_radar_scoring_normalized,
+    cobertura_exhibicion_pct_from_raw,
     ideal_meta_display_values,
     meta_periodo_kpi,
     normalize_kpi,
@@ -172,6 +173,42 @@ def test_build_radar_normalized_meta_cero_usa_fallback_visual():
     radar = build_radar_normalized(real, meta)
     assert all(v > 0 for v in radar.values())
     assert all(v <= 100 for v in radar.values())
+
+
+def test_cobertura_exhibicion_pct_from_raw_fallback_conteo():
+    real = {
+        "pdvs": 255,
+        "pdvs_exhibidos": 63,
+        "cobertura_pct": 0,
+    }
+    pct = cobertura_exhibicion_pct_from_raw(real)
+    assert pct == pytest.approx(24.7, abs=0.1)
+
+
+def test_build_radar_normalized_pdvs_exhibidos_fallback_cobertura_cero():
+    real = {
+        "pdvs": 255,
+        "altas": 0,
+        "exhibiciones": 101,
+        "pdvs_exhibidos": 63,
+        "compradores": 241,
+        "bultos": 0,
+        "cobertura_pct": 0,
+        "cobertura_compra_pct": 94.5,
+        "objetivos_pct": 0,
+    }
+    meta = {
+        "pdvs": 1,
+        "altas": 1,
+        "exhibiciones": 1,
+        "compradores": 1,
+        "bultos": 1,
+        "cobertura": 100,
+        "objetivos": 1,
+        "pdvs_exhibidos": 80,
+    }
+    radar = build_radar_normalized(real, meta)
+    assert radar["pdvs_exhibidos"] == 31
 
 
 def test_build_radar_normalized_pdvs_exhibidos_vs_meta_ideal_pct():

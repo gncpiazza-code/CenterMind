@@ -33,7 +33,10 @@ import {
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
 import { fmtBultos, fmtBultosUnidadesDesglose } from "@/lib/estadisticas-format";
 import { VendorCardRadar } from "./VendorCardRadar";
-import { mergeFusionRadarFromRaw } from "@/lib/vendor-radar-fusion";
+import {
+  effectiveRawKpisForRadar,
+  mergeFusionRadarFromRaw,
+} from "@/lib/vendor-radar-fusion";
 import { VENDOR_CARD_LAYOUT_TRANSITION } from "./VendorCardFusion";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import {
@@ -159,11 +162,9 @@ function SidebarKpiRow({
 function useSidebarKpis(vendor: VendorCartaResumen, pdvsExhibidosOverride?: number) {
   const raw = vendor.raw_kpis;
   return useMemo(() => {
-    const pdvsExhibidos =
-      pdvsExhibidosOverride != null && pdvsExhibidosOverride > 0
-        ? pdvsExhibidosOverride
-        : raw.pdvs_exhibidos;
-    const rawEffective = { ...raw, pdvs_exhibidos: pdvsExhibidos };
+    const rawEffective = effectiveRawKpisForRadar(raw, {
+      pdvsExhibidos: pdvsExhibidosOverride,
+    });
     const items = VENDOR_DETALLE_SIDEBAR_KPIS.map(({ key, label, description }) => ({
       key,
       label,
@@ -370,6 +371,10 @@ export function VendorCardExpanded({
                       vendor.raw_kpis,
                       vendor.ideal_meta_dist,
                       vendor.ideal_meta_compania,
+                      {
+                        pdvsExhibidos:
+                          detalle?.cartera?.composicion?.total_exhibidos,
+                      },
                     )}
                     radarCompania={vendor.radar_ideal_compania}
                     radarDist={vendor.radar_ideal_dist}

@@ -61,6 +61,18 @@ def normalize_kpi(real: float, meta: float) -> int:
     return min(100, round(real / meta * 100))
 
 
+def cobertura_exhibicion_pct_from_raw(real_kpis: dict) -> float:
+    """% cartera exhibida: cobertura_pct o fallback pdvs_exhibidos ÷ pdvs."""
+    direct = float(real_kpis.get("cobertura_pct") or 0)
+    if direct > 0:
+        return min(100.0, direct)
+    pdvs = float(real_kpis.get("pdvs") or 0)
+    exh = float(real_kpis.get("pdvs_exhibidos") or 0)
+    if pdvs > 0 and exh > 0:
+        return min(100.0, exh / pdvs * 100)
+    return 0.0
+
+
 def score_vendedor(radar: dict, pesos: dict) -> int:
     """
     Weighted score from radar (0-100 values) and pesos (sum=100).
@@ -151,7 +163,7 @@ def build_radar_scoring_normalized(
     if pdvs_exhibidos_meta <= 0:
         pdvs_exhibidos_meta = 100.0
 
-    real_cobertura_exhibicion = float(real_kpis.get("cobertura_pct", 0))
+    real_cobertura_exhibicion = cobertura_exhibicion_pct_from_raw(real_kpis)
 
     return {
         "pdvs": normalize_kpi(real_kpis.get("pdvs", 0), dm.get("pdvs", 0)),

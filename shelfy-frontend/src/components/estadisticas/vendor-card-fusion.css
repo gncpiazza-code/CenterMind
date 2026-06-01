@@ -219,6 +219,25 @@
   min-height: 0;
 }
 
+@media (max-width: 767px) {
+  .vendor-detalle-shell {
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    height: 92dvh;
+    max-height: 92dvh;
+    min-height: 92dvh;
+    border-radius: 14px;
+  }
+
+  .vendor-detalle-layout {
+    flex-direction: column;
+  }
+
+  .vendor-detalle-main-scroll {
+    padding: 12px;
+  }
+}
+
 /* Layout tuner — solo dev */
 .vendor-detalle-layout-tuner {
   position: fixed;

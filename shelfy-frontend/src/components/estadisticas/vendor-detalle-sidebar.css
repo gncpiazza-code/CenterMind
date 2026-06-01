@@ -130,3 +130,19 @@
   background: rgba(15, 23, 42, 0.45);
   border-color: rgba(148, 163, 184, 0.18);
 }
+
+@media (max-width: 767px) {
+  .vendor-detalle-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(93, 84, 38, 0.12);
+  }
+
+  .vendor-detalle-kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .vendor-detalle-sidebar-radar {
+    min-height: 220px;
+  }
+}

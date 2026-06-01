@@ -152,6 +152,10 @@ body {
   animation: slideUp 0.4s ease-out forwards;
 }
 
+.pb-safe-nav {
+  padding-bottom: max(5.25rem, calc(4.5rem + env(safe-area-inset-bottom)));
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

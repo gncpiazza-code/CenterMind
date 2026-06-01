@@ -152,7 +152,7 @@ export function VisorPageContent() {
   const { user: authUser } = useAuth();
   const user = publicDemo ? VISOR_DEMO_USER : authUser;
   const queryClient = useQueryClient();
-  const lastEvalIds = useRef<number[]>([]);
+  const [lastEvalIds, setLastEvalIds] = useState<number[]>([]);
   const desktopFotoViewerRef = useRef<FotoViewerHandle>(null);
   const mobileFotoViewerRef = useRef<FotoViewerHandle>(null);
   const [photoZoom, setPhotoZoom] = useState(1);
@@ -444,9 +444,20 @@ export function VisorPageContent() {
 
   const mutationRevertir = useMutation({
     mutationFn: (ids: number[]) => revertir(ids),
-    onSuccess: () => {
+    onSuccess: (data: { affected?: number } | undefined) => {
+      setLastEvalIds([]);
+      if ((data?.affected ?? 0) === 0) {
+        setFlash({ msg: "No se pudo revertir", type: "err" });
+        setTimeout(() => setFlash(null), 2000);
+        return;
+      }
       setFlash({ msg: "Revertido", type: "ok" });
-      queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
+      setTimeout(() => setFlash(null), 2000);
+      queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
+    },
+    onError: () => {
+      setFlash({ msg: "Error al revertir", type: "err" });
+      setTimeout(() => setFlash(null), 2000);
     },
   });
 
@@ -581,7 +592,7 @@ export function VisorPageContent() {
           isSubmittingRef.current = true;
           {
             const ids = fotosGrupo.map((f) => f.id_exhibicion);
-            lastEvalIds.current = ids;
+            setLastEvalIds(ids);
             mutationEvaluar.mutate({ ids, estado: "Aprobado", comentario });
           }
           break;
@@ -594,7 +605,7 @@ export function VisorPageContent() {
           isSubmittingRef.current = true;
           {
             const ids = fotosGrupo.map((f) => f.id_exhibicion);
-            lastEvalIds.current = ids;
+            setLastEvalIds(ids);
             mutationEvaluar.mutate({ ids, estado: "Rechazado", comentario });
           }
           break;
@@ -607,7 +618,7 @@ export function VisorPageContent() {
           isSubmittingRef.current = true;
           {
             const ids = fotosGrupo.map((f) => f.id_exhibicion);
-            lastEvalIds.current = ids;
+            setLastEvalIds(ids);
             mutationEvaluar.mutate({ ids, estado: "Destacado", comentario });
           }
           break;
@@ -616,9 +627,8 @@ export function VisorPageContent() {
         case "Z":
           if (!withMod) return;
           e.preventDefault();
-          if (!lastEvalIds.current.length || mutationRevertir.isPending) return;
-          mutationRevertir.mutate(lastEvalIds.current);
-          lastEvalIds.current = [];
+          if (!lastEvalIds.length || mutationRevertir.isPending) return;
+          mutationRevertir.mutate(lastEvalIds);
           break;
 
         case "ArrowRight":
@@ -674,7 +684,7 @@ export function VisorPageContent() {
     };
   }, [
     grupo, fotosGrupo, todasVistas, isValidacion, comentario,
-    mutationEvaluar, mutationRevertir,
+    mutationEvaluar, mutationRevertir, lastEvalIds,
     currentIndex, currentFotoIdx, totalFotos, totalGrupos,
     setCurrentIndex, setCurrentFotoIdx, resetGroupState,
     navigateToFoto,
@@ -707,7 +717,7 @@ export function VisorPageContent() {
     if (!grupo || !user || mutationEvaluar.isPending || !todasVistas || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
     const ids = fotosGrupo.map((f) => f.id_exhibicion);
-    lastEvalIds.current = ids;
+    setLastEvalIds(ids);
     mutationEvaluar.mutate({ ids, estado, comentario });
   }
 
@@ -718,10 +728,9 @@ export function VisorPageContent() {
     navigateToFoto(currentFotoIdx - 1);
   }
 
-  async function handleRevertir() {
-    if (!lastEvalIds.current.length || mutationRevertir.isPending) return;
-    mutationRevertir.mutate(lastEvalIds.current);
-    lastEvalIds.current = [];
+  function handleRevertir() {
+    if (!lastEvalIds.length || mutationRevertir.isPending) return;
+    mutationRevertir.mutate(lastEvalIds);
   }
 
   // ── Loading state ─────────────────────────────────────────────────────────────
@@ -821,7 +830,7 @@ export function VisorPageContent() {
       <p className="text-2xl font-black text-slate-800 mb-2 tracking-tight">¡Todo al día!</p>
       <p className="text-slate-500 font-medium mb-8">No hay exhibiciones pendientes de evaluación</p>
       <button
-        onClick={() => queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] })}
+        onClick={() => queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) })}
         className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold shadow-sm hover:bg-slate-50 transition-all active:scale-95"
       >
         <RefreshCw size={16} /> Buscar nuevas
@@ -1366,8 +1375,8 @@ export function VisorPageContent() {
                           onRechazado={() => handleEvaluar("Rechazado")}
                           onDestacado={() => handleEvaluar("Destacado")}
                           onAprobado={() => handleEvaluar("Aprobado")}
-                          onRefresh={() => queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] })}
-                          canRevertir={lastEvalIds.current.length > 0}
+                          onRefresh={() => queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) })}
+                          canRevertir={lastEvalIds.length > 0}
                           revertirPending={mutationRevertir.isPending}
                           evaluarPending={mutationEvaluar.isPending}
                           evaluarDisabled={publicDemo || !todasVistas || isValidacion}
@@ -1559,7 +1568,7 @@ export function VisorPageContent() {
                         <div className="flex items-center gap-1.5 shrink-0 justify-center">
                           <button
                             onClick={handleRevertir}
-                            disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
+                            disabled={!lastEvalIds.length || mutationRevertir.isPending}
                             className="size-9 flex items-center justify-center rounded-full bg-white/10 text-white/50 disabled:opacity-30 transition-all active:scale-90 border border-white/10"
                           >
                             <RotateCcw size={14} strokeWidth={2.5} />
@@ -1586,7 +1595,7 @@ export function VisorPageContent() {
                             <Check size={20} strokeWidth={3.5} />
                           </button>
                           <button
-                            onClick={() => queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] })}
+                            onClick={() => queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) })}
                             className="size-9 flex items-center justify-center rounded-full bg-amber-400/80 text-white transition-all active:scale-90"
                           >
                             <RefreshCw size={14} strokeWidth={2.5} />

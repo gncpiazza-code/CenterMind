@@ -765,7 +765,7 @@ export async function evaluar(ids: number[], estado: string, supervisor: string,
 }
 
 export async function revertir(ids: number[]) {
-  return apiFetch("/api/revertir", {
+  return apiFetch<{ affected?: number }>("/api/revertir", {
     method: "POST",
     body: JSON.stringify({ ids_exhibicion: ids }),
   });

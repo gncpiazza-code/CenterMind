@@ -750,6 +750,12 @@ def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
             affected += len(r.data) if r.data else 0
         if affected > 0:
             try:
+                from services.snapshot_refresh_service import handle_ingestion_event
+
+                handle_ingestion_event("evaluacion", dist_id)
+            except Exception as _e:
+                logger.debug(f"[revertir] snapshot invalidate: {_e}")
+            try:
                 broadcast_sync(dist_id, {
                     "type": "evaluation_updated",
                     "payload": {

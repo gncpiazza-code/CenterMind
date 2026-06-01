@@ -16,6 +16,7 @@ import { IdealConfigModal } from "@/components/estadisticas/IdealConfigModal";
 import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
+import { warmPortalBundles } from "@/lib/api";
 import {
   useEstadisticasCartasBundle,
   useEstadisticasMeses,
@@ -107,6 +108,11 @@ export default function EstadisticasPage() {
     }
   }, [loadingMeses, mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
 
+  useEffect(() => {
+    if (distId <= 0 || mesesParaQuery.length === 0) return;
+    void warmPortalBundles(distId, ["estadisticas"], mesesParaQuery.join(",")).catch(() => {});
+  }, [distId, mesesParaQuery.join(",")]);
+
   const {
     data: cartasBundle,
     isLoading: loadingCards,
@@ -116,29 +122,11 @@ export default function EstadisticasPage() {
 
   const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
 
-  // Período persistido sin cartas (p. ej. mes con datos crudos pero sin KPIs) → mes más reciente con cartas
-  useEffect(() => {
-    if (loadingMeses || loadingCards || cartasError) return;
-    if (vendors.length > 0 || mesesDisponibles.length === 0) return;
-    if (mesesParaQuery.length === 0) return;
-    const best = mesesDisponibles[0];
-    if (!best) return;
-    const same =
-      mesesSeleccionados.length === 1 && mesesSeleccionados[0] === best;
-    if (!same) setMesesSeleccionados([best]);
-  }, [
-    loadingMeses,
-    loadingCards,
-    cartasError,
-    vendors.length,
-    mesesDisponibles,
-    mesesParaQuery.length,
-    mesesSeleccionados,
-    setMesesSeleccionados,
-  ]);
-
   const showLoadingStrip =
-    mesesParaQuery.length > 0 && loadingCards && vendors.length === 0 && !cartasError;
+    mesesParaQuery.length > 0 &&
+    (loadingCards || cartasBundle?.meta?.revalidating) &&
+    vendors.length === 0 &&
+    !cartasError;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);

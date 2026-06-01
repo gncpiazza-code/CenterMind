@@ -15,6 +15,7 @@ from db import sb
 from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
+    is_invalidated,
     is_serveable_stale,
     trigger_background_refresh,
 )
@@ -52,6 +53,21 @@ def get_or_refresh_dashboard(
     snap = _read_dashboard_snapshot(dist_id, periodo, sucursal_id)
     if snap is not None:
         gen = snap["generated_at"]
+        if is_invalidated(gen):
+            payload = _normalize_dashboard_payload(snap["payload"], dist_id)
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+                generated_at=gen,
+            )
+            key = f"dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}"
+            trigger_background_refresh(
+                key,
+                lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
+            )
+            return payload
         if is_fresh(gen, DASHBOARD_MAX_STALE_SECONDS):
             payload = _normalize_dashboard_payload(snap["payload"], dist_id)
             apply_meta_flags(

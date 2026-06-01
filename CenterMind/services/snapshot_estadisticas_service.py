@@ -16,6 +16,7 @@ from db import sb
 from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
+    is_invalidated,
     is_serveable_stale,
     trigger_background_refresh,
 )
@@ -174,6 +175,25 @@ def get_or_refresh_estadisticas(
         gen = snap["generated_at"]
         payload = _normalize_cartas_payload(snap["payload"])
         plausible = _cartas_comercial_ventas_plausible(payload)
+        refresh_key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
+
+        # mark_estadisticas_stale usa epoch: servir cartas existentes mientras recomputa.
+        if is_invalidated(gen) and payload:
+            trigger_background_refresh(
+                refresh_key,
+                lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
+            )
+            return _build_estadisticas_response(
+                payload,
+                dist_id,
+                meses,
+                sucursal,
+                gen,
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+            )
+
         if is_fresh(gen, ESTADISTICAS_MAX_STALE_SECONDS) and plausible:
             return _build_estadisticas_response(
                 payload,
@@ -186,9 +206,8 @@ def get_or_refresh_estadisticas(
                 revalidating=False,
             )
         if is_serveable_stale(gen, ESTADISTICAS_SERVE_STALE_SECONDS) and plausible:
-            key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
             trigger_background_refresh(
-                key,
+                refresh_key,
                 lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
             )
             return _build_estadisticas_response(

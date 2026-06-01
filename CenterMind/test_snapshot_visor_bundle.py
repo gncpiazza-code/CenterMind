@@ -92,7 +92,16 @@ def test_stats_shape():
         "destacados": 2,
         "total": 15,
     }
-    payload = _make_visor_payload(stats=stats)
+    pendientes = [
+        {
+            "vendedor": "V1",
+            "nro_cliente": "123",
+            "tipo_pdv": "S/D",
+            "fecha_hora": "2026-05-30T10:00:00",
+            "fotos": [{"id_exhibicion": 1, "drive_link": "x", "estado": "Pendiente"}],
+        },
+    ]
+    payload = _make_visor_payload(pendientes=pendientes, stats=stats)
     sb_mock = _make_sb_hit(payload)
     with patch("services.snapshot_visor_service.sb", sb_mock):
         bundle = get_or_refresh_visor(1)
@@ -163,6 +172,44 @@ def test_pendientes_count_matches_payload():
     assert len(bundle["pendientes"][0]["fotos"]) == 5
 
 
+def test_invalidated_snapshot_recomputes_sync():
+    """Tras evaluar (mark_stale → epoch) el bundle no debe devolver pendientes=[]."""
+    pendientes = [
+        {
+            "vendedor": "V1",
+            "nro_cliente": "123",
+            "tipo_pdv": "S/D",
+            "fecha_hora": "2026-05-30T10:00:00",
+            "fotos": [{"id_exhibicion": 1, "drive_link": "x", "estado": "Pendiente"}],
+        },
+    ]
+    stale_payload = _make_visor_payload(pendientes=pendientes)
+    fresh_payload = _make_visor_payload(
+        pendientes=[],
+        stats={"pendientes": 0, "aprobados": 1, "destacados": 0, "total": 1},
+    )
+    sb = MagicMock()
+    chain = MagicMock()
+    chain.execute.return_value.data = [
+        {
+            "payload": stale_payload,
+            "generated_at": "1970-01-01T00:00:00+00:00",
+        }
+    ]
+    sb.table.return_value.select.return_value.eq.return_value.limit.return_value = chain
+    sb.table.return_value.delete.return_value.eq.return_value.execute.return_value = MagicMock()
+    sb.table.return_value.insert.return_value.execute.return_value = MagicMock()
+    with patch("services.snapshot_visor_service.sb", sb):
+        with patch(
+            "services.snapshot_visor_service._cold_compute_visor",
+            return_value=fresh_payload,
+        ) as cold_mock:
+            bundle = get_or_refresh_visor(1)
+    cold_mock.assert_called_once()
+    assert bundle["pendientes"] == []
+    assert bundle["stats"]["aprobados"] == 1
+
+
 def test_legacy_flat_pendientes_cache_is_recomputed():
     """Snapshots legacy (filas planas sin fotos[]) deben recomputarse."""
     legacy = [{"id_exhibicion": 1, "vendedor": "V1", "estado": "Pendiente"}]
@@ -180,9 +227,9 @@ def test_legacy_flat_pendientes_cache_is_recomputed():
     sb_mock = _make_sb_hit(payload)
     with patch("services.snapshot_visor_service.sb", sb_mock):
         with patch(
-            "services.snapshot_visor_service._compute_visor",
+            "services.snapshot_visor_service._cold_compute_visor",
             return_value=fresh_payload,
-        ) as compute_mock:
+        ) as cold_mock:
             bundle = get_or_refresh_visor(1)
-    compute_mock.assert_called_once()
+    cold_mock.assert_called_once()
     assert isinstance(bundle["pendientes"][0].get("fotos"), list)

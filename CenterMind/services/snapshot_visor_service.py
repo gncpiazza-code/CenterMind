@@ -14,6 +14,7 @@ from db import sb
 from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
+    is_invalidated,
     is_serveable_stale,
     trigger_background_refresh,
 )
@@ -46,9 +47,15 @@ def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
     refresh_key = f"visor:{dist_id}:{hide_qa}"
     if snap is not None:
         gen = snap["generated_at"]
+        # Tras evaluar se marca epoch; is_serveable_stale=False dejaba pendientes=[] al refetch.
+        if is_invalidated(gen):
+            return _cold_compute_visor(dist_id, hide_qa)
+
         payload = dict(snap["payload"])
         pendientes = payload.get("pendientes") or []
         pendientes_ok = _pendientes_payload_valid(pendientes)
+        if pendientes and not pendientes_ok:
+            return _cold_compute_visor(dist_id, hide_qa)
         has_pendientes = bool(pendientes)
         if (
             is_fresh(gen, VISOR_MAX_STALE_SECONDS)

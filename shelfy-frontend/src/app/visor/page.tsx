@@ -420,19 +420,25 @@ export function VisorPageContent() {
 
       return { previousBundle };
     },
-    onSuccess: (data: { affected?: number } | undefined) => {
+    onSuccess: (data: { affected?: number } | undefined, _vars, context) => {
       if (data?.affected === 0) {
         setFlash({ msg: "Ya evaluado por otro usuario", type: "err" });
         setTimeout(() => setFlash(null), 2000);
-        queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
+        if (context?.previousBundle) {
+          queryClient.setQueryData(bundleKeys.visor(distId), context.previousBundle);
+        }
+        queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
         return;
       }
-      queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
+      queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
     },
-    onError: (err) => {
+    onError: (err, _vars, context) => {
       setFlash({ msg: "Error al evaluar", type: "err" });
       console.error(err);
-      queryClient.invalidateQueries({ queryKey: ['bundle', 'visor'] });
+      if (context?.previousBundle) {
+        queryClient.setQueryData(bundleKeys.visor(distId), context.previousBundle);
+      }
+      queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
     },
   });
 

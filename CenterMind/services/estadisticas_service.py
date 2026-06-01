@@ -44,6 +44,7 @@ from core.estadisticas_tabaco_rollup import (
     TABACO_DIST_ID,
     apply_tabaco_rollups,
     build_integrante_to_erp_name_estadisticas,
+    resolve_tabaco_rollup_groups,
     tabaco_rollup_integrante_ids,
     _is_ivan_wutrich,
     _is_matias_wutrich,
@@ -1238,7 +1239,7 @@ def _exhibiciones_por_vendedor(
 ) -> tuple[dict[int, int], dict[int, int]]:
     """Una pasada: lógicas vendor-scope + PDVs únicos exhibidos (ERP en cartera) por vendedor."""
     best: dict[tuple[int, str], dict] = {}
-    unique_erp: dict[int, set] = defaultdict(set)
+    ex_by_vid: dict[int, list[dict]] = defaultdict(list)
 
     for row in ex_rows:
         try:
@@ -1255,15 +1256,19 @@ def _exhibiciones_por_vendedor(
         score = exhibicion_score(estado)
         if key not in best or score > best[key]["score"]:
             best[key] = {"score": score}
-        cartera = pdvs_by_vend.get(vid) or set()
-        erp_cliente = resolve_exhibition_cliente_erp(row, client_key_to_erp, cartera)
-        if erp_cliente:
-            unique_erp[vid].add(erp_cliente)
+        ex_by_vid[vid].append(row)
 
     logicas: dict[int, int] = defaultdict(int)
     for vid, _lk in best:
         logicas[vid] += 1
-    return dict(logicas), {vid: len(s) for vid, s in unique_erp.items()}
+
+    unique_counts: dict[int, int] = {}
+    for vid, rows_v in ex_by_vid.items():
+        cartera = pdvs_by_vend.get(vid) or set()
+        unique_counts[vid] = count_exhibited_clientes_in_cartera(
+            rows_v, client_key_to_erp, cartera
+        )
+    return dict(logicas), unique_counts
 
 
 def _run_parallel(tasks: dict[str, Callable[[], object]]) -> dict[str, object]:
@@ -1424,7 +1429,7 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         if eid:
             eid_s = str(eid)
             pdvs_by_vend[vid].add(eid_s)
-            loc = _normalize_localidad_label(row.get("localidad"))
+            loc = _pdv_localidad_label(row)
             if loc:
                 localidad_clients_by_vend[vid][loc].add(eid_s)
         if _in_meses(row.get("fecha_alta", ""), meses_set):
@@ -1525,13 +1530,44 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         "ventas_unmatched": ventas_unmatched,
         "ventas_unmatched_pct": unmatched_pct,
     }
-    return out
+    return out, dict(localidad_clients_by_vend)
+
+
+def _refresh_top_localidades_on_raw(
+    dist_id: int,
+    all_raw: dict[str, dict],
+    vend_rows: list[dict],
+    localidad_by_vend: dict[int, dict[str, set[str]]],
+) -> None:
+    """Reaplica top_localidades tras rollups Tabaco (merge_raw_kpis no las conserva)."""
+    updated: set[str] = set()
+    if dist_id == TABACO_DIST_ID:
+        for group in resolve_tabaco_rollup_groups(vend_rows):
+            leader_key = str(group.leader_vid)
+            if leader_key not in all_raw:
+                continue
+            all_vids = [group.leader_vid, *group.member_vids]
+            top_loc = _merge_localidad_clients_for_vendors(all_vids, localidad_by_vend)
+            if top_loc:
+                all_raw[leader_key]["top_localidades"] = top_loc
+            updated.add(leader_key)
+    for vid_str, raw in all_raw.items():
+        if vid_str in updated or vid_str.startswith("__"):
+            continue
+        try:
+            vid = int(vid_str)
+        except ValueError:
+            continue
+        top_loc = _top_localidades_label(localidad_by_vend.get(vid))
+        if top_loc:
+            raw["top_localidades"] = top_loc
 
 
 def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dict]:
     """Compat: fetch + aggregate (usado por tests/scripts)."""
     rows = _fetch_carta_source_rows(dist_id, meses)
-    return _aggregate_kpis_from_rows(rows, meses)
+    out, _loc = _aggregate_kpis_from_rows(rows, meses)
+    return out
 
 
 _ERP_SYNC_VENTAS_UMBRAL = 100   # filas mínimas en dist para disparar alerta
@@ -1541,10 +1577,11 @@ _ERP_SYNC_UNMATCHED_UMBRAL = 50.0  # % de ventas sin match para flagear
 def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | None) -> list[dict]:
     n_meses = len(meses)
     source = _fetch_carta_source_rows(dist_id, meses)
-    all_raw = _aggregate_kpis_from_rows(source, meses)
+    all_raw, localidad_by_vend = _aggregate_kpis_from_rows(source, meses)
     ventas_meta: dict = all_raw.pop("__ventas_meta__", {})  # type: ignore[call-overload]
     vend_rows = source.get("vendedores") or []
     all_raw, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
+    _refresh_top_localidades_on_raw(dist_id, all_raw, vend_rows, localidad_by_vend)
     ventas_total_dist: int = ventas_meta.get("ventas_total", 0)
     ventas_unmatched_pct: float = ventas_meta.get("ventas_unmatched_pct", 0.0)
 
@@ -1676,6 +1713,26 @@ def _normalize_localidad_label(loc: object) -> str:
     return s.upper() if s else ""
 
 
+def _pdv_localidad_label(row: dict) -> str:
+    """Localidad del PDV; prueba columnas habituales del padrón."""
+    for field in ("localidad", "ciudad", "provincia"):
+        loc = _normalize_localidad_label(row.get(field))
+        if loc:
+            return loc
+    return ""
+
+
+def _merge_localidad_clients_for_vendors(
+    vids: list[int],
+    localidad_clients_by_vend: dict[int, dict[str, set[str]]],
+) -> str:
+    combined: dict[str, set[str]] = defaultdict(set)
+    for vid in vids:
+        for loc, erps in (localidad_clients_by_vend.get(vid) or {}).items():
+            combined[loc].update(erps)
+    return _top_localidades_label(combined)
+
+
 def _top_localidades_label(
     localidad_clients: dict[str, set[str]] | None,
     *,
@@ -1692,7 +1749,7 @@ def _top_localidades_label(
     return " - ".join(names)
 
 
-_PDV_EXHIBICION_MAP_SELECT = "id_cliente_erp,id_cliente"
+_PDV_EXHIBICION_MAP_SELECT = "id_cliente_erp,id_cliente,id_cliente_pdv,cliente_sombra_codigo"
 
 
 _PDV_DETALLE_SELECT = (

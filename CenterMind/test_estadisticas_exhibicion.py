@@ -324,3 +324,45 @@ def test_count_pdvs_exhibidos_fallback_campo_si_id_cliente_pdv_stale():
         }
     ]
     assert count_exhibited_clientes_in_cartera(ex_rows, key_map, {"11413"}) == 1
+
+
+def test_exhibiciones_por_vendedor_cuenta_pdvs_exhibidos_con_id_cliente_pdv():
+    from core.exhibicion_aggregate import build_client_key_to_erp_map
+    from services.estadisticas_service import _exhibiciones_por_vendedor
+
+    pdv_rows = [{"id_cliente_erp": "11413", "id_cliente": 55201, "id_cliente_pdv": 55201}]
+    key_map = build_client_key_to_erp_map(pdv_rows)
+    iid_to_erp = {1: "IVAN SOTO"}
+    erp_to_vid = {"IVAN SOTO": 10}
+    pdvs_by_vend = {10: {"11413"}}
+    ex_rows = [
+        {
+            "id_exhibicion": "ex1",
+            "id_integrante": 1,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-05-10T10:00:00",
+            "id_cliente_pdv": 55201,
+            "id_cliente": None,
+            "cliente_sombra_codigo": None,
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        },
+        {
+            "id_exhibicion": "ex2",
+            "id_integrante": 1,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-05-11T10:00:00",
+            "id_cliente_pdv": 55201,
+            "id_cliente": None,
+            "cliente_sombra_codigo": None,
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        },
+    ]
+    logicas, unique = _exhibiciones_por_vendedor(
+        ex_rows, iid_to_erp, erp_to_vid, key_map, pdvs_by_vend
+    )
+    assert logicas[10] == 2
+    assert unique[10] == 1

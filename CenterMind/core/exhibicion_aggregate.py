@@ -80,10 +80,22 @@ def build_client_key_to_erp_map(pdv_rows: list[dict]) -> dict[str, str]:
             continue
         for k in erp_lookup_keys(erp):
             out[k] = erp
-        for field in ("id_cliente",):
+        for field in ("id_cliente", "id_cliente_pdv", "cliente_sombra_codigo"):
             for k in erp_lookup_keys(row.get(field)):
                 out[k] = erp
     return out
+
+
+def _erp_in_cartera(erp: str, cartera_erp: set[str]) -> bool:
+    """True si el ERP (o variante numérica) está en la cartera del vendedor."""
+    if not erp or not cartera_erp:
+        return False
+    if erp in cartera_erp:
+        return True
+    for k in erp_lookup_keys(erp):
+        if k in cartera_erp:
+            return True
+    return False
 
 
 def resolve_exhibition_cliente_erp(
@@ -102,9 +114,9 @@ def resolve_exhibition_cliente_erp(
                 continue
             tried.add(k)
             erp = key_to_erp.get(k)
-            if erp and (cartera_erp is None or erp in cartera_erp):
+            if erp and (cartera_erp is None or _erp_in_cartera(erp, cartera_erp)):
                 return erp
-            if cartera_erp and k in cartera_erp:
+            if cartera_erp and _erp_in_cartera(k, cartera_erp):
                 return k
     return None
 

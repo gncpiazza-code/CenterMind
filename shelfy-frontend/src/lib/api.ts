@@ -666,9 +666,11 @@ export async function fetchEstadisticasBundle(
   distId: number,
   meses: string[],
   sucursal: string | null = null,
+  refresh = false,
 ): Promise<EstadisticasBundle> {
   const q = new URLSearchParams({ meses: meses.join(",") });
   if (sucursal) q.append("sucursal", sucursal);
+  if (refresh) q.set("refresh", "1");
   const url = `${API_URL}/api/bundle/estadisticas/${distId}?${q.toString()}`;
   const res = await fetch(url, {
     headers: getHeaders(),
@@ -2133,7 +2135,7 @@ export interface SyncStatusEntry {
   count: number;
   /** Última corrida exitosa del motor (motor_runs estado=ok) */
   last_run_ok_at?: string | null;
-  /** ISO próxima corrida programada CC (07:00 / 14:30 AR) */
+  /** ISO próxima corrida programada CC (07:00 / 14:30 / 20:00 AR) */
   next_run_at?: string | null;
   // padrón-only fields
   activos?: number;
@@ -3350,6 +3352,7 @@ export interface RadarKPI {
   pdvs: number;
   altas: number;
   exhibiciones: number;
+  pdvs_exhibidos: number;
   compradores: number;
   bultos: number;
   cobertura: number;
@@ -3360,12 +3363,18 @@ export interface VendorRawKpis {
   pdvs: number;
   altas: number;
   exhibiciones: number;
+  pdvs_exhibidos: number;
   compradores: number;
   bultos: number;
   /** Unidades vendidas en líneas con conversión (cigarrillos / papelillo / mix). */
   unidades_cigarrillos?: number;
+  /** % PDVs con al menos una exhibición lógica (legacy / otras vistas). */
   cobertura_pct: number;
+  /** % PDVs compradores sobre total cartera. */
+  cobertura_compra_pct?: number;
   objetivos_pct: number;
+  /** Top 2 localidades en cartera (también en carta raíz). */
+  top_localidades?: string;
 }
 
 export interface VendorCartaResumen {
@@ -3441,12 +3450,69 @@ export interface VendorDetalle {
   bultos_desglose_total?: number;
   bultos_desglose_count?: number;
   compradores: { id_cliente_erp: string; razon_social: string }[];
+  cartera?: VendorDetalleCartera;
+}
+
+export interface VendorDetalleCrrCliente {
+  id_cliente_erp: string;
+  razon_social: string;
+  nombre_fantasia?: string;
+  localidad?: string;
+  categoria: "reactivado" | "perdido" | "proximo_caer" | "anomalia" | "inactivo";
+  fecha_evento?: string;
+  fecha_ultima_compra?: string;
+  fecha_compra_anterior?: string;
+  dias_sin_compra?: number | null;
+  dias_para_caer?: number | null;
+  dias_desde_penultima_compra?: number | null;
+  compro_en_periodo?: boolean;
+  ultima_exhibicion?: string;
+  dias_desde_exhibicion?: number | null;
+  anomalia_exhibicion_compra?: boolean;
+  telefono?: string;
+  celular?: string;
+  contacto?: string;
+  id_ruta?: number;
+  ruta_nombre?: string;
+  dia_visita?: string;
+}
+
+export interface VendorDetalleCartera {
+  exhibidos: { id_cliente_erp: string; razon_social: string; es_comprador: boolean }[];
+  composicion: {
+    total_exhibidos: number;
+    total_compradores: number;
+    ambos: number;
+    solo_exhibidos: number;
+    solo_compradores: number;
+    cobertura_exhibicion_pct: number;
+  };
+  crr: {
+    balance: number;
+    nuevos: number;
+    reactivados: number;
+    perdidos: number;
+    proximos_caer: number;
+    anomalias_exhibicion?: number;
+    activos: number;
+    inactivos: number;
+    clientes: {
+      reactivados: VendorDetalleCrrCliente[];
+      perdidos: VendorDetalleCrrCliente[];
+      proximos_caer: VendorDetalleCrrCliente[];
+      anomalias?: VendorDetalleCrrCliente[];
+      inactivos?: VendorDetalleCrrCliente[];
+    };
+  };
 }
 
 export interface KpisMensualesIdeal {
   exhibiciones: number;
   pdvs_compradores: number;
   bultos: number;
+  /** Meta % de PDVs de la cartera con al menos 1 exhibición (eje PDE del radar). */
+  cobertura_exhibicion_pct: number;
+  /** Meta % de PDVs compradores sobre cartera (eje COB del radar). */
   cobertura_pct: number;
   objetivos_pct: number;
 }

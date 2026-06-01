@@ -161,12 +161,30 @@ def test_score_vendedor_ponderado_exacto():
 # ---------------------------------------------------------------------------
 
 def test_build_radar_normalized_meta_cero_usa_fallback_visual():
-    real = {"pdvs": 10, "altas": 5, "exhibiciones": 20, "compradores": 3,
-            "bultos": 100, "cobertura_pct": 50, "objetivos_pct": 75}
+    real = {
+        "pdvs": 10, "altas": 5, "exhibiciones": 20, "pdvs_exhibidos": 8,
+        "compradores": 3, "bultos": 100, "cobertura_pct": 50,
+        "cobertura_compra_pct": 30, "objetivos_pct": 75,
+    }
     meta = {k: 0 for k in KPI_KEYS}
+    meta["pdvs_exhibidos"] = 0
     radar = build_radar_normalized(real, meta)
     assert all(v > 0 for v in radar.values())
     assert all(v <= 100 for v in radar.values())
+
+
+def test_build_radar_normalized_pdvs_exhibidos_usa_cobertura_pct():
+    real = {
+        "pdvs": 100, "altas": 0, "exhibiciones": 50, "pdvs_exhibidos": 40,
+        "compradores": 0, "bultos": 0, "cobertura_pct": 40,
+        "cobertura_compra_pct": 0, "objetivos_pct": 0,
+    }
+    meta = {
+        "pdvs": 1, "altas": 1, "exhibiciones": 1, "compradores": 1,
+        "bultos": 1, "cobertura": 1, "objetivos": 1, "pdvs_exhibidos": 80,
+    }
+    radar = build_radar_normalized(real, meta)
+    assert radar["pdvs_exhibidos"] == 50
 
 
 def test_build_radar_normalized_cap_100():
@@ -190,10 +208,12 @@ def test_build_radar_normalized_exacto():
     assert radar["pdvs"] == 50
 
 
-def test_build_radar_normalized_cobertura_usa_cobertura_pct():
-    # cobertura in radar comes from cobertura_pct in real_kpis
-    real = {"pdvs": 0, "altas": 0, "exhibiciones": 0, "compradores": 0,
-            "bultos": 0, "cobertura_pct": 80, "objetivos_pct": 0}
+def test_build_radar_normalized_cobertura_usa_cobertura_compra_pct():
+    real = {
+        "pdvs": 0, "altas": 0, "exhibiciones": 0, "pdvs_exhibidos": 0,
+        "compradores": 0, "bultos": 0, "cobertura_pct": 40,
+        "cobertura_compra_pct": 80, "objetivos_pct": 0,
+    }
     meta = {"pdvs": 1, "altas": 1, "exhibiciones": 1, "compradores": 1,
             "bultos": 1, "cobertura": 100, "objetivos": 1}
     radar = build_radar_normalized(real, meta)
@@ -201,12 +221,20 @@ def test_build_radar_normalized_cobertura_usa_cobertura_pct():
 
 
 def test_build_radar_normalized_keys_correctas():
-    real = {"pdvs": 10, "altas": 10, "exhibiciones": 10, "compradores": 10,
-            "bultos": 10, "cobertura_pct": 10, "objetivos_pct": 10}
-    meta = {"pdvs": 100, "altas": 100, "exhibiciones": 100, "compradores": 100,
-            "bultos": 100, "cobertura": 100, "objetivos": 100}
+    from core.estadisticas_ideal import RADAR_OUTPUT_KEYS
+
+    real = {
+        "pdvs": 10, "altas": 10, "exhibiciones": 10, "pdvs_exhibidos": 5,
+        "compradores": 10, "bultos": 10, "cobertura_pct": 10,
+        "cobertura_compra_pct": 10, "objetivos_pct": 10,
+    }
+    meta = {
+        "pdvs": 100, "altas": 100, "exhibiciones": 100, "compradores": 100,
+        "bultos": 100, "cobertura": 100, "objetivos": 100, "pdvs_exhibidos": 50,
+    }
     radar = build_radar_normalized(real, meta)
-    assert set(radar.keys()) == set(KPI_KEYS)
+    assert set(radar.keys()) == set(RADAR_OUTPUT_KEYS)
+    assert radar["pdvs_exhibidos"] == 20
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +309,17 @@ def test_ideal_meta_display_values_periodo_y_pdvs():
     assert meta["bultos"] == 40.0
     assert meta["cobertura"] == 80.0
     assert meta["objetivos"] == 90.0
+    assert meta["pdvs_exhibidos"] == 0.0
+
+
+def test_ideal_meta_display_values_cobertura_exhibicion():
+    ideal = {
+        "meta_pdvs_total": 200,
+        "kpis_mensuales": {"cobertura_exhibicion_pct": 65, "cobertura_pct": 55},
+    }
+    meta = ideal_meta_display_values(ideal, 2)
+    assert meta["pdvs_exhibidos"] == 65.0
+    assert meta["cobertura"] == 55.0
 
 
 def test_ideal_meta_display_values_altas_faltante_pdvs():

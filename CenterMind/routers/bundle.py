@@ -66,6 +66,10 @@ def bundle_estadisticas(
         description="CSV de meses YYYY-MM, ej: 2026-05,2026-04. Default: mes actual AR.",
     ),
     sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    refresh: bool = Query(
+        False,
+        description="Forzar recomputo (ignora snapshot en Postgres).",
+    ),
     payload=Depends(verify_auth),
 ):
     """
@@ -77,7 +81,9 @@ def bundle_estadisticas(
         meses_list = [m.strip() for m in meses.split(",") if m.strip()]
     else:
         meses_list = [ar_now.strftime("%Y-%m")]
-    return get_or_refresh_estadisticas(dist_id, meses_list, sucursal)
+    return get_or_refresh_estadisticas(
+        dist_id, meses_list, sucursal, force_refresh=refresh
+    )
 
 
 @router.get("/recap-evolucion/{dist_id}")

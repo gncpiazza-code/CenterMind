@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any
 
 KPI_KEYS = ("pdvs", "altas", "exhibiciones", "compradores", "bultos", "cobertura", "objetivos")
+RADAR_OUTPUT_KEYS = KPI_KEYS + ("pdvs_exhibidos",)
 
 
 def validate_pesos(pesos: dict) -> tuple[bool, str]:
@@ -94,6 +95,7 @@ def ideal_meta_display_values(
         "pdvs": meta_pdvs,
         "altas": altas_meta,
         "exhibiciones": float(km.get("exhibiciones", 0)) * n,
+        "pdvs_exhibidos": float(km.get("cobertura_exhibicion_pct", 0)),
         "compradores": float(km.get("pdvs_compradores", 0)) * n,
         "bultos": float(km.get("bultos", 0)) * n,
         "cobertura": float(km.get("cobertura_pct", 0)),
@@ -143,13 +145,25 @@ def build_radar_normalized(
         faltante = max(1.0, float(ideal["meta_pdvs_total"]) - float(real_kpis.get("pdvs", 0)))
         altas_meta = faltante
 
+    pdvs_exhibidos_meta = float(meta_kpis.get("pdvs_exhibidos", 0))
+    if pdvs_exhibidos_meta <= 0 and batch_caps:
+        pdvs_exhibidos_meta = float(batch_caps.get("pdvs_exhibidos", 0))
+    if pdvs_exhibidos_meta <= 0:
+        pdvs_exhibidos_meta = 100.0
+
+    real_cobertura_exhibicion = float(real_kpis.get("cobertura_pct", 0))
+
     return {
         "pdvs": normalize_kpi(real_kpis.get("pdvs", 0), dm.get("pdvs", 0)),
         "altas": normalize_kpi(real_kpis.get("altas", 0), altas_meta),
         "exhibiciones": normalize_kpi(real_kpis.get("exhibiciones", 0), dm.get("exhibiciones", 0)),
+        "pdvs_exhibidos": normalize_kpi(real_cobertura_exhibicion, pdvs_exhibidos_meta),
         "compradores": normalize_kpi(real_kpis.get("compradores", 0), dm.get("compradores", 0)),
         "bultos": normalize_kpi(real_kpis.get("bultos", 0), dm.get("bultos", 0)),
-        "cobertura": normalize_kpi(real_kpis.get("cobertura_pct", 0), dm.get("cobertura", 0)),
+        "cobertura": normalize_kpi(
+            real_kpis.get("cobertura_compra_pct", real_kpis.get("cobertura_pct", 0)),
+            dm.get("cobertura", 0),
+        ),
         "objetivos": normalize_kpi(real_kpis.get("objetivos_pct", 0), dm.get("objetivos", 0)),
     }
 

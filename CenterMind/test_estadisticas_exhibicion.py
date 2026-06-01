@@ -261,3 +261,66 @@ def test_cliente_clave_via_id_cliente_fallback():
     ]
     counts = aggregate_exhibicion_counts_vendor_scope(rows)
     assert counts["total_logicas"] == 1
+
+
+def test_count_pdvs_exhibidos_mapea_id_cliente_pdv():
+    from core.exhibicion_aggregate import (
+        build_client_key_to_erp_map,
+        count_exhibited_clientes_in_cartera,
+    )
+
+    pdv_rows = [{"id_cliente_erp": "11413", "id_cliente": 55201}]
+    key_map = build_client_key_to_erp_map(pdv_rows)
+    ex_rows = [make_row(1, 55201, "2026-05-10T10:00:00")]
+    assert count_exhibited_clientes_in_cartera(ex_rows, key_map, {"11413"}) == 1
+    assert count_exhibited_clientes_in_cartera(ex_rows, key_map, {"99999"}) == 0
+
+
+def test_count_pdvs_exhibidos_mapea_sombra_con_ceros():
+    from core.exhibicion_aggregate import (
+        build_client_key_to_erp_map,
+        count_exhibited_clientes_in_cartera,
+    )
+
+    pdv_rows = [{"id_cliente_erp": "11413", "cliente_sombra_codigo": "011413"}]
+    key_map = build_client_key_to_erp_map(pdv_rows)
+    ex_rows = [
+        {
+            "id_exhibicion": "ex_sombra",
+            "id_integrante": 1,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-05-10T10:00:00",
+            "id_cliente_pdv": None,
+            "id_cliente": None,
+            "cliente_sombra_codigo": "11413",
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        }
+    ]
+    assert count_exhibited_clientes_in_cartera(ex_rows, key_map, {"11413"}) == 1
+
+
+def test_count_pdvs_exhibidos_fallback_campo_si_id_cliente_pdv_stale():
+    from core.exhibicion_aggregate import (
+        build_client_key_to_erp_map,
+        count_exhibited_clientes_in_cartera,
+    )
+
+    pdv_rows = [{"id_cliente_erp": "11413", "id_cliente": 55201, "cliente_sombra_codigo": "011413"}]
+    key_map = build_client_key_to_erp_map(pdv_rows)
+    ex_rows = [
+        {
+            "id_exhibicion": "ex_stale_pdv",
+            "id_integrante": 1,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-05-10T10:00:00",
+            "id_cliente_pdv": 99999999,
+            "id_cliente": None,
+            "cliente_sombra_codigo": "011413",
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        }
+    ]
+    assert count_exhibited_clientes_in_cartera(ex_rows, key_map, {"11413"}) == 1

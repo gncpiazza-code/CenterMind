@@ -5,6 +5,7 @@ from datetime import date
 from unittest.mock import patch
 
 from motores.informe_ventas import (
+    _fecha_label_variants,
     _fecha_reporte_label_es,
     _fecha_reporte_rango_es,
     _parse_fecha_es,
@@ -109,3 +110,8 @@ def test_primer_dia_del_mes_solo_ayer():
         desde, hasta, modo = _fecha_reporte_rango_es(usar_fecha_hoy=False)
     assert desde == hasta == date(2026, 4, 30)
     assert modo == "ayer"
+
+
+def test_fecha_label_variants_incluye_formato_es():
+    labels = _fecha_label_variants(date(2026, 5, 25))
+    assert "25 de mayo de 2026" in labels

@@ -59,6 +59,20 @@ def _fecha_label_calendario_es(d: date) -> str:
     return f"{d.day} de {_MESES_ES[d.month - 1]} de {d.year}"
 
 
+def _fecha_label_variants(d: date) -> list[str]:
+    """Variantes de label para calendarios Angular/ARIA con locale mixto."""
+    day = str(d.day)
+    month_es = _MESES_ES[d.month - 1]
+    month_es_cap = month_es.capitalize()
+    year = str(d.year)
+    return [
+        f"{day} de {month_es} de {year}",
+        f"{day} de {month_es_cap} de {year}",
+        f"{month_es} {day}, {year}",
+        f"{month_es_cap} {day}, {year}",
+    ]
+
+
 def _parse_fecha_es(value: str) -> date:
     """DD/MM/YYYY o YYYY-MM-DD."""
     v = (value or "").strip()
@@ -227,6 +241,34 @@ async def _set_fechas_reporte(
     fecha_desde: date | None = None,
     fecha_hasta: date | None = None,
 ) -> None:
+    async def _click_fecha_calendar(fecha_obj: date) -> None:
+        variants = _fecha_label_variants(fecha_obj)
+        for label in variants:
+            try:
+                await page.get_by_role("button", name=label, exact=True).click(timeout=2500)
+                return
+            except Exception:
+                continue
+        for label in variants:
+            try:
+                await page.get_by_role("button", name=label).first.click(timeout=2500)
+                return
+            except Exception:
+                continue
+        # Fallback: si el aria-label no coincide por locale, elegir el día visible.
+        day_txt = str(fecha_obj.day)
+        for sel in (
+            f'button[aria-label*="{day_txt}"]',
+            f'button[aria-label*=" {day_txt} "]',
+            f'button.mat-calendar-body-cell[aria-label*="{day_txt}"]',
+        ):
+            try:
+                await page.locator(sel).first.click(timeout=1800)
+                return
+            except Exception:
+                continue
+        raise RuntimeError(f"No se pudo seleccionar fecha en calendario: {variants[0]}")
+
     await _cerrar_overlays(page)
     desde, hasta, modo = _fecha_reporte_rango_es(
         usar_fecha_hoy,
@@ -236,12 +278,11 @@ async def _set_fechas_reporte(
     )
     t = COMBO_TIMEOUT_MS
     for campo, fecha_obj in (("Fecha Desde", desde), ("Fecha Hasta", hasta)):
-        label = _fecha_label_calendario_es(fecha_obj)
         await page.locator("mat-form-field").filter(has_text=campo).get_by_label(
             "Open calendar"
         ).click(timeout=t)
         await page.wait_for_timeout(400)
-        await page.get_by_role("button", name=label, exact=True).click(timeout=t)
+        await _click_fecha_calendar(fecha_obj)
         await _cerrar_overlays(page)
         await page.wait_for_timeout(300)
     logger.info(

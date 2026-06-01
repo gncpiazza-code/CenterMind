@@ -8,6 +8,7 @@ from motores.informe_ventas import (
     _fecha_label_variants,
     _fecha_reporte_label_es,
     _fecha_reporte_rango_es,
+    _meses_retroceder_calendario,
     _parse_fecha_es,
 )
 
@@ -115,3 +116,13 @@ def test_primer_dia_del_mes_solo_ayer():
 def test_fecha_label_variants_incluye_formato_es():
     labels = _fecha_label_variants(date(2026, 5, 25))
     assert "25 de mayo de 2026" in labels
+
+
+def test_meses_retroceder_calendario_cierre_mes_anterior():
+    """1/jun: calendario en junio, objetivo 31/may → 1 clic atrás."""
+    assert _meses_retroceder_calendario(date(2026, 5, 31), date(2026, 6, 1)) == 1
+    assert _meses_retroceder_calendario(date(2026, 6, 1), date(2026, 6, 1)) == 0
+
+
+def test_meses_retroceder_cambio_de_anio():
+    assert _meses_retroceder_calendario(date(2025, 12, 31), date(2026, 1, 1)) == 1

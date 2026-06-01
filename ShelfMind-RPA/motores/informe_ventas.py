@@ -8,6 +8,8 @@ Reglas clave:
 - Un solo login por corrida (sin re-login entre tenants).
 - Fecha del reporte (AR):
   - Scheduler 09:30: últimos 7 días → ayer (mín. día 1 del mes).
+    El 1º del mes: solo el último día del mes anterior (cierre); el calendario
+    debe retroceder de mes porque Consolido abre en el mes en curso.
   - Scheduler 13/17/21: últimos 7 días → hoy (mín. día 1 del mes).
   - Manual `mtd` / RPA_VENTAS_MODO=full_mtd: día 1 del mes → hoy (backfill).
   - Manual custom: `runner.py informe_ventas DD/MM/YYYY DD/MM/YYYY` o RPA_VENTAS_DESDE/HASTA.
@@ -57,6 +59,16 @@ _MESES_ES = (
 
 def _fecha_label_calendario_es(d: date) -> str:
     return f"{d.day} de {_MESES_ES[d.month - 1]} de {d.year}"
+
+
+def _meses_retroceder_calendario(objetivo: date, referencia: date | None = None) -> int:
+    """Cuántos clics «mes anterior» hacen falta si el popup abre en `referencia` (default hoy AR)."""
+    ref = referencia or datetime.now(AR_TZ).date()
+    return (ref.year - objetivo.year) * 12 + (ref.month - objetivo.month)
+
+
+def _fecha_input_ddmmyyyy(d: date) -> str:
+    return f"{d.day:02d}/{d.month:02d}/{d.year}"
 
 
 def _fecha_label_variants(d: date) -> list[str]:
@@ -233,6 +245,89 @@ async def _abrir_reporteador_y_seleccionar_informe(page: Page) -> None:
     logger.info(f"  ✅ Panel de parámetros listo ({selected_label})")
 
 
+async def _calendario_navegar_a_mes(page: Page, fecha_obj: date) -> None:
+    """Consolido abre el datepicker en el mes en curso; retrocede si el objetivo es mes anterior."""
+    retro = _meses_retroceder_calendario(fecha_obj)
+    if retro <= 0:
+        return
+    prev_selectors = (
+        "button.mat-calendar-previous-button",
+        'button[aria-label="Previous month"]',
+        'button[aria-label="Mes anterior"]',
+        ".mat-calendar-previous-button",
+    )
+    for _ in range(retro):
+        clicked = False
+        for sel in prev_selectors:
+            try:
+                await page.locator(sel).first.click(timeout=2_500)
+                clicked = True
+                break
+            except Exception:
+                continue
+        if not clicked:
+            raise RuntimeError(
+                f"No se pudo retroceder calendario hacia {fecha_obj.isoformat()}"
+            )
+        await page.wait_for_timeout(350)
+
+
+async def _click_fecha_calendar_dia(page: Page, fecha_obj: date) -> None:
+    variants = _fecha_label_variants(fecha_obj)
+    for label in variants:
+        try:
+            await page.get_by_role("button", name=label, exact=True).click(timeout=2500)
+            return
+        except Exception:
+            continue
+    for label in variants:
+        try:
+            await page.get_by_role("button", name=label).first.click(timeout=2500)
+            return
+        except Exception:
+            continue
+    day_txt = str(fecha_obj.day)
+    for sel in (
+        f'button[aria-label*="{day_txt}"]',
+        f'button[aria-label*=" {day_txt} "]',
+        f'button.mat-calendar-body-cell[aria-label*="{day_txt}"]',
+    ):
+        try:
+            await page.locator(sel).first.click(timeout=1800)
+            return
+        except Exception:
+            continue
+    raise RuntimeError(f"No se pudo seleccionar fecha en calendario: {variants[0]}")
+
+
+async def _set_fecha_en_campo(page: Page, campo: str, fecha_obj: date) -> None:
+    """Fecha Desde/Hasta: input DD/MM/AAAA o calendario con mes correcto."""
+    t = COMBO_TIMEOUT_MS
+    ff = page.locator("mat-form-field").filter(has_text=campo)
+    fecha_txt = _fecha_input_ddmmyyyy(fecha_obj)
+
+    inp = ff.locator("input").first
+    try:
+        await inp.wait_for(state="visible", timeout=t)
+        await inp.click(timeout=t)
+        await inp.press("Control+a")
+        await inp.fill(fecha_txt)
+        await inp.press("Tab")
+        await page.wait_for_timeout(400)
+        return
+    except Exception as e:
+        logger.info(
+            "  Fecha %s: input directo falló (%s), usando calendario",
+            campo,
+            e,
+        )
+
+    await ff.get_by_label("Open calendar").click(timeout=t)
+    await page.wait_for_timeout(400)
+    await _calendario_navegar_a_mes(page, fecha_obj)
+    await _click_fecha_calendar_dia(page, fecha_obj)
+
+
 async def _set_fechas_reporte(
     page: Page,
     *,
@@ -241,34 +336,6 @@ async def _set_fechas_reporte(
     fecha_desde: date | None = None,
     fecha_hasta: date | None = None,
 ) -> None:
-    async def _click_fecha_calendar(fecha_obj: date) -> None:
-        variants = _fecha_label_variants(fecha_obj)
-        for label in variants:
-            try:
-                await page.get_by_role("button", name=label, exact=True).click(timeout=2500)
-                return
-            except Exception:
-                continue
-        for label in variants:
-            try:
-                await page.get_by_role("button", name=label).first.click(timeout=2500)
-                return
-            except Exception:
-                continue
-        # Fallback: si el aria-label no coincide por locale, elegir el día visible.
-        day_txt = str(fecha_obj.day)
-        for sel in (
-            f'button[aria-label*="{day_txt}"]',
-            f'button[aria-label*=" {day_txt} "]',
-            f'button.mat-calendar-body-cell[aria-label*="{day_txt}"]',
-        ):
-            try:
-                await page.locator(sel).first.click(timeout=1800)
-                return
-            except Exception:
-                continue
-        raise RuntimeError(f"No se pudo seleccionar fecha en calendario: {variants[0]}")
-
     await _cerrar_overlays(page)
     desde, hasta, modo = _fecha_reporte_rango_es(
         usar_fecha_hoy,
@@ -276,13 +343,8 @@ async def _set_fechas_reporte(
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
     )
-    t = COMBO_TIMEOUT_MS
     for campo, fecha_obj in (("Fecha Desde", desde), ("Fecha Hasta", hasta)):
-        await page.locator("mat-form-field").filter(has_text=campo).get_by_label(
-            "Open calendar"
-        ).click(timeout=t)
-        await page.wait_for_timeout(400)
-        await _click_fecha_calendar(fecha_obj)
+        await _set_fecha_en_campo(page, campo, fecha_obj)
         await _cerrar_overlays(page)
         await page.wait_for_timeout(300)
     logger.info(

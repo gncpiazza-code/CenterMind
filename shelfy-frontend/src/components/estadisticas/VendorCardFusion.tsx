@@ -4,7 +4,7 @@ import "./vendor-card-fusion.css";
 import { AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import { VendorCardRadar } from "./VendorCardRadar";
-import { mergeFusionRadarFromRaw } from "@/lib/vendor-radar-fusion";
+import { effectiveRawKpisForRadar, mergeFusionRadarFromRaw } from "@/lib/vendor-radar-fusion";
 import { VendorCardFusionStats } from "./VendorCardFusionStats";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
@@ -44,6 +44,8 @@ export interface VendorCardFusionProps {
   evolucionDistId?: number;
   evolucionMes?: string | null;
   evolucionVendorName?: string;
+  /** Carta visible en estadísticas: alinea el cierre de mes en evolución con la grilla. */
+  evolucionCartaReferencia?: VendorCartaResumen;
 }
 
 export function VendorCardFusion({
@@ -60,11 +62,12 @@ export function VendorCardFusion({
   evolucionDistId,
   evolucionMes,
   evolucionVendorName,
+  evolucionCartaReferencia,
 }: VendorCardFusionProps) {
   const setActiveVendorId = useEstadisticasStore((s) => s.setActiveVendorId);
   const tier = scoreToTier(vendor.score);
   const theme = VENDOR_CARD_TIER_THEME[tier];
-  const k = vendor.raw_kpis;
+  const k = effectiveRawKpisForRadar(vendor.raw_kpis);
   const topLocalidades =
     vendor.top_localidades?.trim() || vendor.raw_kpis?.top_localidades?.trim() || "";
   const sucursalLabel = (vendor.sucursal || "—").toUpperCase();
@@ -206,7 +209,7 @@ export function VendorCardFusion({
           <VendorCardRadar
             radar={mergeFusionRadarFromRaw(
               vendor.radar,
-              vendor.raw_kpis,
+              k,
               vendor.ideal_meta_dist,
               vendor.ideal_meta_compania,
             )}
@@ -303,6 +306,7 @@ export function VendorCardFusion({
           mes={evolucionMes}
           vendorName={evolucionVendorName ?? vendor.nombre}
           nombreDistribuidora={nombreDistribuidora}
+          cartaReferencia={evolucionCartaReferencia ?? vendor}
           variant="card"
         />
       )}

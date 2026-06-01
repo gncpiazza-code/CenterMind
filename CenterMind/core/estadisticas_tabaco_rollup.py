@@ -123,13 +123,21 @@ def merge_raw_kpis(parts: list[dict], leader_pdvs: int) -> dict:
 
     pdvs = leader_pdvs if leader_pdvs > 0 else max(int(p.get("pdvs") or 0) for p in parts)
 
-    cob_vals = [float(p.get("cobertura_pct") or 0) for p in parts if p.get("pdvs")]
+    cob_vals = [
+        float(p.get("cobertura_pct") or 0)
+        for p in parts
+        if float(p.get("cobertura_pct") or 0) > 0
+    ]
     if pdvs > 0 and pdvs_exhibidos > 0:
         cobertura_pct = min(100.0, pdvs_exhibidos / pdvs * 100)
-    elif pdvs > 0 and exhibiciones > 0:
-        cobertura_pct = min(100.0, exhibiciones / pdvs * 100)
+    elif pdvs > 0 and pdvs_exhibidos <= 0 and cob_vals:
+        cobertura_pct = max(cob_vals)
+        if cobertura_pct > 0:
+            pdvs_exhibidos = int(round(pdvs * cobertura_pct / 100))
     elif cob_vals:
         cobertura_pct = max(cob_vals)
+        if pdvs > 0 and cobertura_pct > 0:
+            pdvs_exhibidos = int(round(pdvs * cobertura_pct / 100))
     else:
         cobertura_pct = 0.0
 

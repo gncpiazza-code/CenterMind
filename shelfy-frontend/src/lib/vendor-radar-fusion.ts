@@ -12,9 +12,23 @@ function pickIdealPct(
   return 100;
 }
 
+/** Conteo de PDVs con exhibición; si el backend trae % pero 0 en conteo, se infiere. */
+export function resolvePdvsExhibidosCount(
+  raw: VendorRawKpis,
+  override?: number,
+): number {
+  if (override != null && override > 0) return Math.round(override);
+  const direct = Number(raw.pdvs_exhibidos ?? 0);
+  if (direct > 0) return Math.round(direct);
+  const pdvs = Number(raw.pdvs ?? 0);
+  const pct = Number(raw.cobertura_pct ?? 0);
+  if (pdvs > 0 && pct > 0) return Math.round((pdvs * pct) / 100);
+  return 0;
+}
+
 export function exhibitionCoveragePct(raw: VendorRawKpis): number {
   const pdvs = Number(raw.pdvs ?? 0);
-  const exhibited = Number(raw.pdvs_exhibidos ?? 0);
+  const exhibited = resolvePdvsExhibidosCount(raw);
   if (pdvs > 0 && exhibited > 0) {
     return Math.min(100, (exhibited / pdvs) * 100);
   }
@@ -44,11 +58,7 @@ export function effectiveRawKpisForRadar(
   options?: { pdvsExhibidos?: number },
 ): VendorRawKpis {
   const pdvs = Number(raw.pdvs ?? 0);
-  let pdvsExhibidos = Number(raw.pdvs_exhibidos ?? 0);
-  const override = options?.pdvsExhibidos;
-  if (override != null && override > 0) {
-    pdvsExhibidos = override;
-  }
+  const pdvsExhibidos = resolvePdvsExhibidosCount(raw, options?.pdvsExhibidos);
 
   let coberturaPct = Number(raw.cobertura_pct ?? 0);
   if (pdvs > 0 && pdvsExhibidos > 0) {

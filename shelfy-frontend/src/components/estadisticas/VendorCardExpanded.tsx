@@ -401,6 +401,7 @@ export function VendorCardExpanded({
                       vendedorId={vendor.id_vendedor}
                       mes={mesForRecapEvolucion(meses)}
                       vendorName={vendor.nombre}
+                      cartaReferencia={vendor}
                       variant="panel"
                     />
                   </div>

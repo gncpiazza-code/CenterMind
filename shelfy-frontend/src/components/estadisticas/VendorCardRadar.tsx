@@ -177,7 +177,7 @@ function FusionRadarTooltipContent({
             whiteSpace: "normal",
           }}
         >
-          % de PDVs de la cartera con al menos una exhibición lógica en el período.
+          CEX: cumplimiento de cobertura de exhibición (PDVs exhibidos ÷ PDVs de cartera) vs. la meta % del ideal.
         </p>
       )}
       {meta.key === "cobertura" && (

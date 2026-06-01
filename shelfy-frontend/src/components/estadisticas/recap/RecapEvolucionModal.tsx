@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, ArrowRight, GitBranch, ArrowUp, ArrowDown, Minus } from "lucide-react";
@@ -10,6 +10,7 @@ import { ESTADISTICAS_FIFA } from "@/lib/vendor-card-detalle-theme";
 import { formatMesLabel } from "@/lib/recap-utils";
 import { VendorCardFusion } from "../VendorCardFusion";
 import { scoreToTier, VENDOR_CARD_TIER_THEME } from "@/lib/vendor-card-tier";
+import type { VendorCartaResumen } from "@/lib/api";
 import type { RecapEvolucionStep } from "@/lib/recap-types";
 import "../vendor-card-fusion.css";
 
@@ -165,6 +166,8 @@ interface RecapEvolucionModalProps {
   mes: string;
   vendorName?: string;
   nombreDistribuidora?: string | null;
+  /** Misma carta que la grilla de estadísticas para el paso C (cierre). */
+  cartaReferencia?: VendorCartaResumen | null;
 }
 
 export function RecapEvolucionModal({
@@ -175,13 +178,27 @@ export function RecapEvolucionModal({
   mes,
   vendorName,
   nombreDistribuidora,
+  cartaReferencia,
 }: RecapEvolucionModalProps) {
   useBodyScrollLock(open);
   const { data, isLoading, isError } = useRecapEvolucion(distId, vendedorId, mes, open);
   const F = ESTADISTICAS_FIFA;
   const nombre = vendorName ?? data?.nombre ?? "Vendedor";
 
-  const steps = data?.steps ?? [];
+  const steps = useMemo(() => {
+    const base = data?.steps ?? [];
+    if (!cartaReferencia) return base;
+    return base.map((step) =>
+      step.tipo === "C"
+        ? {
+            ...step,
+            carta: cartaReferencia,
+            available: true,
+          }
+        : step,
+    );
+  }, [data?.steps, cartaReferencia]);
+
   const scores = steps.map((s) => (s.carta ? Math.round(s.carta.score) : null));
 
   return (
@@ -326,6 +343,7 @@ interface RecapEvolucionButtonProps {
   mes: string | null;
   vendorName?: string;
   nombreDistribuidora?: string | null;
+  cartaReferencia?: VendorCartaResumen | null;
   variant?: "card" | "panel";
   className?: string;
 }
@@ -337,6 +355,7 @@ export function RecapEvolucionButton({
   mes,
   vendorName,
   nombreDistribuidora,
+  cartaReferencia,
   variant = "card",
 }: RecapEvolucionButtonProps) {
   const queryClient = useQueryClient();
@@ -375,6 +394,7 @@ export function RecapEvolucionButton({
         mes={mes}
         vendorName={vendorName}
         nombreDistribuidora={nombreDistribuidora}
+        cartaReferencia={cartaReferencia}
       />
     </>
   );

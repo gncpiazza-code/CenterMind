@@ -909,19 +909,23 @@ _EVOLUCION_CACHE_TTL_SEC = 900  # 15 min, alineado a snapshot estadísticas
 
 def _evolucion_step(dist_id: int, id_vendedor: str, mes: str, suffix: str) -> dict:
     pk = f"{mes}-{suffix}"
-    row = read_recap(dist_id, id_vendedor, pk)
     carta = None
     status = None
     generated_at = ""
-    if row:
-        payload = row.get("payload") or {}
-        if isinstance(payload, dict):
-            payload = enrich_story_payload_for_read(payload, dist_id, id_vendedor, pk)
-            carta = payload.get("carta")
-            status = row.get("status") or payload.get("status")
-            generated_at = str(row.get("generated_at") or payload.get("generated_at") or "")
-    if not carta:
+    # Cierre mensual: recalcular en vivo (mismo rango que estadísticas) para no desfasar vs. grilla.
+    if suffix == "C":
         carta = _get_carta_for_period(dist_id, pk, id_vendedor, allow_snapshot=False)
+    else:
+        row = read_recap(dist_id, id_vendedor, pk)
+        if row:
+            payload = row.get("payload") or {}
+            if isinstance(payload, dict):
+                payload = enrich_story_payload_for_read(payload, dist_id, id_vendedor, pk)
+                carta = payload.get("carta")
+                status = row.get("status") or payload.get("status")
+                generated_at = str(row.get("generated_at") or payload.get("generated_at") or "")
+        if not carta:
+            carta = _get_carta_for_period(dist_id, pk, id_vendedor, allow_snapshot=False)
     return {
         "periodo_key": pk,
         "tipo": suffix,

@@ -51,6 +51,7 @@ def test_merge_and_hide_members():
             "pdvs": 50,
             "altas": 1,
             "exhibiciones": 10,
+            "pdvs_exhibidos": 10,
             "compradores": 5,
             "bultos": 100,
             "cobertura_pct": 20.0,
@@ -60,6 +61,7 @@ def test_merge_and_hide_members():
             "pdvs": 0,
             "altas": 2,
             "exhibiciones": 15,
+            "pdvs_exhibidos": 18,
             "compradores": 3,
             "bultos": 40,
             "cobertura_pct": 0.0,
@@ -69,6 +71,7 @@ def test_merge_and_hide_members():
             "pdvs": 0,
             "altas": 0,
             "exhibiciones": 5,
+            "pdvs_exhibidos": 12,
             "compradores": 1,
             "bultos": 10,
             "cobertura_pct": 0.0,
@@ -81,7 +84,19 @@ def test_merge_and_hide_members():
     assert merged["30"]["altas"] == 3
     assert merged["30"]["bultos"] == 150
     assert merged["30"]["pdvs"] == 50
-    assert merged["30"]["cobertura_pct"] == 60.0
+    assert merged["30"]["pdvs_exhibidos"] == 40
+    assert merged["30"]["cobertura_pct"] == 80.0
+
+
+def test_merge_raw_kpis_derives_pdvs_exhibidos_from_cobertura():
+    merged = merge_raw_kpis(
+        [
+            {"pdvs_exhibidos": 0, "cobertura_pct": 72.4, "exhibiciones": 100},
+        ],
+        leader_pdvs=597,
+    )
+    assert merged["pdvs_exhibidos"] == 432
+    assert merged["cobertura_pct"] == pytest.approx(72.4, abs=0.1)
 
 
 def test_merge_raw_kpis_empty():

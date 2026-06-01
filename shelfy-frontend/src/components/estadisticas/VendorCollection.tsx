@@ -194,6 +194,7 @@ export function VendorCollection({
               evolucionDistId={distId}
               evolucionMes={evolucionMes}
               evolucionVendorName={vendor.nombre}
+              evolucionCartaReferencia={vendor}
             />
           </motion.div>
         ))}

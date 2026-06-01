@@ -111,16 +111,30 @@ export default function DashboardPage() {
   const {
     data: bundle,
     isLoading: loadingBundle,
+    isFetching: fetchingBundle,
     error: errorBundle,
   } = useQuery<DashboardBundle>({
     queryKey: bundleKeys.dashboard(distId, periodo, sucursalFiltro || null),
     queryFn: () => fetchDashboardBundle(distId, periodo, sucursalFiltro || null),
     enabled,
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, prevQuery) => {
+      if (!prev || !prevQuery) return undefined;
+      const key = prevQuery.queryKey;
+      if (key[3] !== periodo || key[4] !== (sucursalFiltro || null)) return undefined;
+      return prev;
+    },
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
-    // Snapshot SWR + WS invalidation; no interval polling (evita tormenta al backend).
-    refetchInterval: false,
+    // Solo poll mientras esperamos el primer snapshot (respuesta parcial revalidating).
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const meta = data?.meta;
+      if (!meta?.revalidating) return false;
+      const waitingFull =
+        !meta.cache_hit &&
+        ((data?.ranking?.length ?? 0) === 0 && (data?.kpis?.total ?? 0) === 0);
+      return waitingFull ? 8_000 : false;
+    },
   });
 
   // Desestructurar para mantener compatibilidad con el JSX existente
@@ -132,6 +146,7 @@ export default function DashboardPage() {
 
   const loading = loadingBundle && !bundle;
   const loadingHero = loadingBundle && !bundle;
+  const periodLoading = fetchingBundle && !!bundle && (bundle.meta?.revalidating ?? false);
   const error = errorBundle;
 
   // WS: invalida todas las queries del dashboard al recibir eventos
@@ -241,7 +256,7 @@ export default function DashboardPage() {
               <DashboardKpiCarousel
                 kpis={kpis}
                 evolucion={evolucion}
-                loading={loading && !kpis}
+                loading={(loading && !kpis) || periodLoading}
                 isDark={isDark}
                 bandHeightPx={dashLayout.kpiHeightPx}
                 chartYear={bounds.start.getFullYear()}

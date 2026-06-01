@@ -15,7 +15,6 @@ from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
     is_serveable_stale,
-    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -75,10 +74,26 @@ def get_or_refresh_supervision(
                 lambda: _refresh_supervision_background(dist_id, sucursal, id_vendedor),
             )
             return payload
-    return run_single_flight(
-        f"compute:supervision:{dist_id}:{sucursal}:{id_vendedor}",
-        lambda: _cold_compute_supervision(dist_id, sucursal, id_vendedor),
+    key = f"supervision:{dist_id}:{sucursal}:{id_vendedor}"
+    trigger_background_refresh(
+        key,
+        lambda: _refresh_supervision_background(dist_id, sucursal, id_vendedor),
     )
+    generated_at = datetime.now(timezone.utc).isoformat()
+    partial = {
+        "meta": {
+            "generated_at": generated_at,
+            "fecha_snapshot_cc": None,
+        },
+        "cuentas": {"fecha": None, "metadatos": {}, "vendedores": []},
+    }
+    apply_meta_flags(
+        partial["meta"],
+        cache_hit=False,
+        stale=False,
+        revalidating=True,
+    )
+    return partial
 
 
 def force_persist_supervision(

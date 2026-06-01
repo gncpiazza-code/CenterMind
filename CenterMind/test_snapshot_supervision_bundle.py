@@ -112,11 +112,10 @@ def test_meta_cache_hit_true_on_hit():
 
 
 def test_paridad_vendedores_count():
-    """La cantidad de vendedores en bundle coincide con el payload computado."""
+    """Tras background refresh, el snapshot persistido conserva la cantidad de vendedores."""
     vendedores = [_make_vendedor("A"), _make_vendedor("B"), _make_vendedor("C")]
     fresh_payload = _make_supervision_payload(vendedores)
 
-    # Simular cache miss: snapshot stale (data=[])
     sb_miss = MagicMock()
     miss_chain = MagicMock()
     miss_chain.execute.return_value.data = []
@@ -124,7 +123,6 @@ def test_paridad_vendedores_count():
     sb_miss.table.return_value.select.return_value.eq.return_value.eq.return_value.is_.return_value.limit.return_value = miss_chain
     sb_miss.table.return_value.select.return_value.eq.return_value.is_.return_value.eq.return_value.limit.return_value = miss_chain
     sb_miss.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.limit.return_value = miss_chain
-    # insert/delete chains
     sb_miss.table.return_value.update.return_value.eq.return_value.execute.return_value = MagicMock()
     sb_miss.table.return_value.delete.return_value.eq.return_value.is_.return_value.is_.return_value.execute.return_value = MagicMock()
     sb_miss.table.return_value.delete.return_value.eq.return_value.eq.return_value.is_.return_value.execute.return_value = MagicMock()
@@ -132,21 +130,26 @@ def test_paridad_vendedores_count():
     sb_miss.table.return_value.delete.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
     sb_miss.table.return_value.insert.return_value.execute.return_value = MagicMock()
 
+    def _run_bg(_key, fn):
+        fn()
+
     with patch("services.snapshot_supervision_service.sb", sb_miss):
         with patch(
-            "services.snapshot_supervision_service._compute_supervision",
-            return_value=fresh_payload,
+            "services.snapshot_supervision_service.trigger_background_refresh",
+            side_effect=_run_bg,
         ):
-            bundle = get_or_refresh_supervision(1, None, None)
+            with patch(
+                "services.snapshot_supervision_service._compute_supervision",
+                return_value=fresh_payload,
+            ):
+                bundle = get_or_refresh_supervision(1, None, None)
 
-    assert len(bundle["cuentas"]["vendedores"]) == len(vendedores)
+    assert len(bundle["cuentas"]["vendedores"]) == 0
+    sb_miss.table.return_value.insert.assert_called()
 
 
 def test_cache_miss_returns_cache_hit_false():
-    """En cache miss, cache_hit debe ser False."""
-    vendedores = [_make_vendedor()]
-    fresh_payload = _make_supervision_payload(vendedores)
-
+    """En cache miss, respuesta inmediata parcial con revalidating."""
     sb_miss = MagicMock()
     miss_chain = MagicMock()
     miss_chain.execute.return_value.data = []
@@ -157,10 +160,9 @@ def test_cache_miss_returns_cache_hit_false():
     sb_miss.table.return_value.insert.return_value.execute.return_value = MagicMock()
 
     with patch("services.snapshot_supervision_service.sb", sb_miss):
-        with patch(
-            "services.snapshot_supervision_service._compute_supervision",
-            return_value=fresh_payload,
-        ):
+        with patch("services.snapshot_supervision_service.trigger_background_refresh") as mock_bg:
             bundle = get_or_refresh_supervision(1, None, None)
 
     assert bundle["meta"]["cache_hit"] is False
+    assert bundle["meta"]["revalidating"] is True
+    mock_bg.assert_called_once()

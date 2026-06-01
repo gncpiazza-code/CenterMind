@@ -178,9 +178,20 @@ def get_or_refresh_estadisticas(
                 revalidating=True,
             )
 
-    return run_single_flight(
-        f"compute:estadisticas:{dist_id}:{meses_hash}:{sucursal}",
-        lambda: _cold_compute_estadisticas(dist_id, meses, sucursal, meses_hash),
+    key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
+    trigger_background_refresh(
+        key,
+        lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
+    )
+    return _build_estadisticas_response(
+        [],
+        dist_id,
+        meses,
+        sucursal,
+        datetime.now(timezone.utc).isoformat(),
+        cache_hit=False,
+        stale=False,
+        revalidating=True,
     )
 
 

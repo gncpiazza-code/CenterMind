@@ -976,6 +976,9 @@ def aggregate_kpis_vendedor_bounds(
     cobertura_pct = 0.0
     if pdvs_activos > 0:
         cobertura_pct = min(100.0, pdvs_exhibidos / pdvs_activos * 100)
+    hoy = date.today()
+    t_obj = "objetivos"
+    obj_res = sb.table(t_obj).select("*").eq("id_distribuidor", dist_id).execute()
     obj_rows = obj_res.data or []
     activos = [o for o in obj_rows if objetivo_activo_para_vendedor(o, hoy)]
     vendor_activos = [o for o in activos if str(o.get("id_vendedor", "")) == str(id_vendedor)]

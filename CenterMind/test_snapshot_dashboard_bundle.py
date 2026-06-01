@@ -66,18 +66,18 @@ def test_dashboard_bundle_normalizes_legacy_ranking_dict():
 
 
 def test_dashboard_bundle_cache_miss_flag():
-    fresh = _payload([{"vendedor": "X", "puntos": 1, "aprobadas": 1, "destacadas": 0, "rechazadas": 0}])
+    partial = _payload([])
     sb = MagicMock()
     miss = MagicMock()
     miss.execute.return_value.data = []
     miss.is_.return_value = miss
     miss.limit.return_value = miss
     sb.table.return_value.select.return_value.eq.return_value.eq.return_value = miss
-    sb.table.return_value.delete.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
-    sb.table.return_value.insert.return_value.execute.return_value = MagicMock()
     with patch("services.snapshot_dashboard_service.sb", sb), patch(
-        "services.snapshot_dashboard_service._compute_dashboard", return_value=fresh
-    ):
+        "services.snapshot_dashboard_service._partial_dashboard_payload", return_value=partial
+    ), patch("services.snapshot_dashboard_service.trigger_background_refresh") as mock_bg:
         out = get_or_refresh_dashboard(1, "mes", None)
     assert out["meta"]["cache_hit"] is False
+    assert out["meta"]["revalidating"] is True
     assert isinstance(out["ranking"], list)
+    mock_bg.assert_called_once()

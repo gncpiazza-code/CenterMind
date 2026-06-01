@@ -65,25 +65,22 @@ def test_dashboard_serves_stale_with_revalidating_flag():
     mock_bg.assert_called_once()
 
 
-def test_dashboard_epoch_invalid_forces_sync_compute():
+def test_dashboard_epoch_invalid_returns_partial_and_background():
     payload = {"kpis": {}, "ranking": [], "ultimas": [], "sucursales": [], "evolucion": []}
     sb = _dashboard_sb_stale(payload, "1970-01-01T00:00:00+00:00")
-    sb.table.return_value.delete.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
-    sb.table.return_value.insert.return_value.execute.return_value = MagicMock()
-    computed = {
+    partial = {
         **payload,
-        "meta": {"generated_at": _fresh_generated_at()},
-        "ranking": [{"vendedor": "X", "puntos": 2}],
+        "meta": {"generated_at": _fresh_generated_at(), "periodo": "mes"},
     }
 
     with patch("services.snapshot_dashboard_service.sb", sb), patch(
-        "services.snapshot_dashboard_service._compute_dashboard", return_value=computed
+        "services.snapshot_dashboard_service._partial_dashboard_payload", return_value=partial
     ), patch("services.snapshot_dashboard_service.trigger_background_refresh") as mock_bg:
         out = get_or_refresh_dashboard(1, "mes", None)
 
     assert out["meta"]["cache_hit"] is False
-    assert out["meta"].get("stale") is False
-    mock_bg.assert_not_called()
+    assert out["meta"]["revalidating"] is True
+    mock_bg.assert_called_once()
 
 
 def test_estadisticas_serves_stale_cartas():

@@ -135,16 +135,27 @@ export function cartasBundleQueryOptions(
   meses: string[],
   sucursal: string | null,
 ) {
+  const mesesKey = meses.join(",");
   return {
     queryKey: bundleKeys.estadisticas(distId, meses, sucursal),
     queryFn: () => fetchEstadisticasBundle(distId, meses, sucursal),
     enabled: distId > 0 && meses.length > 0,
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
-    placeholderData: keepPreviousData,
+    placeholderData: (prev: EstadisticasBundle | undefined, prevQuery) => {
+      if (!prev || !prevQuery) return undefined;
+      const key = prevQuery.queryKey;
+      if (key[3] !== mesesKey || key[4] !== sucursal) return undefined;
+      return prev;
+    },
     retry: 1,
-    // No poll on revalidating — backend refreshes in background; 2s polling saturated Railway.
-    refetchInterval: false,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const meta = data?.meta;
+      if (!meta?.revalidating) return false;
+      const waitingFull = !meta.cache_hit && (data?.cartas?.length ?? 0) === 0;
+      return waitingFull ? 8_000 : false;
+    },
   } as const;
 }
 

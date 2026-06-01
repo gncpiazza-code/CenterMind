@@ -104,21 +104,32 @@ def test_cartas_schema_fields():
 
 def test_snapshot_round_trip_cache_miss_then_hit():
     """
-    Primera llamada (cache miss): build_carta_resumen es invocado y cartas es list.
+    Primera llamada (cache miss): respuesta inmediata parcial + refresh en background.
     Segunda llamada (cache hit): meta.cache_hit=True.
     """
     cartas = [_make_carta()]
 
-    # Primera llamada: miss → llama build_carta_resumen → guarda snapshot
     sb_miss = _make_sb_miss()
+
+    def _run_bg(_key, fn):
+        fn()
+
     with patch("services.snapshot_estadisticas_service.sb", sb_miss):
-        with patch("services.estadisticas_service.build_carta_resumen", return_value=cartas) as mock_build:
-            first = get_or_refresh_estadisticas(1, ["2026-05"], None)
+        with patch(
+            "services.snapshot_estadisticas_service.trigger_background_refresh",
+            side_effect=_run_bg,
+        ):
+            with patch(
+                "services.estadisticas_service.build_carta_resumen", return_value=cartas
+            ) as mock_build:
+                first = get_or_refresh_estadisticas(1, ["2026-05"], None)
 
     assert isinstance(first["cartas"], list)
     assert first["meta"]["cache_hit"] is False
+    assert first["meta"]["revalidating"] is True
+    assert first["cartas"] == []
+    mock_build.assert_called_once()
 
-    # Segunda llamada: hit → cache_hit=True, no llama build_carta_resumen
     sb_hit = _make_sb_hit(cartas)
     with patch("services.snapshot_estadisticas_service.sb", sb_hit):
         with patch("services.estadisticas_service.build_carta_resumen") as mock_build_2:

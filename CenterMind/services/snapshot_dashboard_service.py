@@ -16,7 +16,6 @@ from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
     is_serveable_stale,
-    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -78,37 +77,21 @@ def get_or_refresh_dashboard(
                 lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
             )
             return payload
-    try:
-        return run_single_flight(
-            f"compute:dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}",
-            lambda: _cold_compute_dashboard(dist_id, periodo, sucursal_id, hide_qa),
-            timeout=90.0,
-        )
-    except Exception as e:
-        logger.error(
-            "[snap_dashboard] compute failed dist=%s periodo=%s: %s",
-            dist_id,
-            periodo,
-            e,
-        )
-        if snap is not None:
-            payload = _normalize_dashboard_payload(snap["payload"], dist_id)
-            apply_meta_flags(
-                payload.setdefault("meta", {}),
-                cache_hit=False,
-                stale=True,
-                revalidating=False,
-                generated_at=snap["generated_at"],
-            )
-            payload["meta"]["compute_error"] = str(e)[:240]
-            return payload
-        return _partial_dashboard_payload(
-            dist_id,
-            periodo,
-            sucursal_id,
-            hide_qa,
-            error=str(e)[:240],
-        )
+
+    # Sin snapshot: no bloquear el request en cold compute (evita 1–2 min de espera).
+    key = f"dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}"
+    trigger_background_refresh(
+        key,
+        lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
+    )
+    partial = _partial_dashboard_payload(dist_id, periodo, sucursal_id, hide_qa)
+    apply_meta_flags(
+        partial.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=True,
+    )
+    return partial
 
 
 def force_persist_dashboard(

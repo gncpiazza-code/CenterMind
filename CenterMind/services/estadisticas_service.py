@@ -1751,7 +1751,9 @@ def _top_localidades_label(
     return " - ".join(names)
 
 
-_PDV_EXHIBICION_MAP_SELECT = "id_cliente_erp,id_cliente,id_cliente_pdv,cliente_sombra_codigo"
+# Solo columnas presentes en clientes_pdv_v2 de todos los tenants (Real/Tabaco/Aloma/Liver).
+# id_cliente_pdv / cliente_sombra_codigo viven en exhibiciones, no en padrón PDV.
+_PDV_EXHIBICION_MAP_SELECT = "id_cliente_erp,id_cliente"
 
 
 _PDV_DETALLE_SELECT = (

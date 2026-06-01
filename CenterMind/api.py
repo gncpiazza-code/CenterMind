@@ -11,6 +11,7 @@ Punto de entrada limpio. Toda la lógica de negocio vive en:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -64,9 +65,26 @@ app.include_router(recap.router)
 @app.get("/health")
 async def health_check():
     from core.config import WEBHOOK_URL
+    from core.bot_registry import fetch_active_distribuidores, is_transient_supabase_error
+
+    bots_expected: int | None = None
+    supabase_ok = True
+    try:
+        rows = await asyncio.to_thread(fetch_active_distribuidores, max_retries=2)
+        bots_expected = len(rows)
+    except Exception as e:
+        supabase_ok = not is_transient_supabase_error(e)
+        bots_expected = None
+
+    bots_active = list(bots.keys())
+    bots_healthy = (
+        bots_expected is not None
+        and bots_expected > 0
+        and len(bots_active) >= bots_expected
+    )
     return {
-        "status": "online",
-        "version": "2.1.3-deploy-marker",
+        "status": "online" if (supabase_ok and (bots_expected == 0 or bots_healthy)) else "degraded",
+        "version": "2.1.4-bot-recovery",
         # Railway / CI inyectan SHA para verificar deploy sin CLI (fixit / ops).
         "deploy_git_sha": (
             os.getenv("RAILWAY_GIT_COMMIT_SHA")
@@ -74,8 +92,11 @@ async def health_check():
             or os.getenv("GIT_COMMIT")
             or os.getenv("COMMIT_SHA")
         ),
-        "bots_active": list(bots.keys()),
+        "bots_active": bots_active,
+        "bots_expected": bots_expected,
+        "bots_healthy": bots_healthy,
         "webhook_url": WEBHOOK_URL,
+        "supabase_ok": supabase_ok,
     }
 
 

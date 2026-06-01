@@ -14,9 +14,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, WebSocket
 
-from core.config import WEBHOOK_URL
-from db import sb
-from bot_worker import BotWorker
+from core.bot_registry import ensure_missing_bots, start_all_bots
 from services.erp_ingestion_service import erp_service
 
 logger = logging.getLogger("ShelfyAPI")
@@ -24,6 +22,7 @@ logger = logging.getLogger("ShelfyAPI")
 # ── Estado global ──────────────────────────────────────────────────────────────
 bots: dict = {}
 scheduler = BackgroundScheduler()
+_main_loop: asyncio.AbstractEventLoop | None = None
 
 
 # ── WebSocket Connection Manager ───────────────────────────────────────────────
@@ -102,32 +101,35 @@ def erp_automatic_sync():
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
+
+    # Startup — bots con reintento si Supabase schema cache (PGRST002) tarda
     logger.info("🚀 Iniciando gestor de bots Webhook...")
-    try:
-        res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").eq("estado", "activo").execute()
-        distribuidores = res.data if res.data else []
-    except Exception as e:
-        logger.error(f"❌ Error consultando distribuidores: {e}")
-        distribuidores = []
+    bot_boot = await start_all_bots(manager, bots)
+    if bot_boot.get("error"):
+        logger.error("❌ Arranque de bots incompleto: %s", bot_boot["error"])
+    elif bot_boot.get("active", 0) < bot_boot.get("expected", 0):
+        logger.warning(
+            "⚠️ Bots parciales: %s/%s — el job ensure_bots reintentará",
+            bot_boot.get("active"),
+            bot_boot.get("expected"),
+        )
 
-    for dist in distribuidores:
-        d_id = dist["id_distribuidor"]
+    def _ensure_bots_job():
+        loop = _main_loop
+        if loop is None or not loop.is_running():
+            return
         try:
-            worker = BotWorker(distribuidor_id=d_id, ws_manager=manager)
-            ptb_app = worker.build_app()
-            await ptb_app.initialize()
-            if WEBHOOK_URL:
-                webhook_path = f"{WEBHOOK_URL.rstrip('/')}/api/telegram/webhook/{d_id}"
-                await ptb_app.bot.set_webhook(url=webhook_path)
-                logger.info(f"✅ Bot {d_id} ({dist['nombre_empresa']}) - Webhook OK: {webhook_path}")
-            else:
-                logger.warning(f"⚠️ Bot {d_id} ({dist['nombre_empresa']}) - WEBHOOK_URL no definida")
-            await ptb_app.start()
-            bots[d_id] = ptb_app
+            fut = asyncio.run_coroutine_threadsafe(
+                ensure_missing_bots(manager, bots),
+                loop,
+            )
+            fut.result(timeout=120)
         except Exception as e:
-            logger.error(f"❌ Error iniciando bot {d_id}: {e}")
+            logger.warning("[bot_registry] ensure_bots job: %s", e)
 
+    scheduler.add_job(_ensure_bots_job, "interval", minutes=2, id="ensure_telegram_bots")
     scheduler.add_job(erp_automatic_sync, "cron", hour=4, minute=0)
 
     def _digest_padron():

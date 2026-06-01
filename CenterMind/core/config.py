@@ -22,7 +22,18 @@ JWT_ALGORITHM    = "HS256"
 JWT_EXPIRE_HOURS = 8
 
 # URL pública del servidor (para webhooks Telegram)
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+def _normalize_webhook_url(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    u = raw.strip().rstrip("/")
+    if not u:
+        return None
+    if not u.startswith("http://") and not u.startswith("https://"):
+        u = f"https://{u}"
+    return u
+
+
+WEBHOOK_URL = _normalize_webhook_url(os.environ.get("WEBHOOK_URL"))
 
 # Offset UTC → America/Argentina (UTC-3, sin DST)
 AR_OFFSET = "-3 hours"

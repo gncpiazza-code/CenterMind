@@ -1162,13 +1162,15 @@ export async function fetchGaleriaClientesPorVendedor(
 export async function fetchGaleriaTimelineCliente(
   idClientePdv: number,
   distId: number,
-  params?: { offset?: number; limit?: number; idVendedor?: number | null },
+  params?: { offset?: number; limit?: number; idVendedor?: number | null; desde?: string; hasta?: string },
 ): Promise<GaleriaTimelineResponse> {
   const qs = new URLSearchParams();
   qs.set("dist_id", String(distId));
   if (typeof params?.offset === "number") qs.set("offset", String(params.offset));
   if (typeof params?.limit === "number") qs.set("limit", String(params.limit));
   if (typeof params?.idVendedor === "number") qs.set("id_vendedor", String(params.idVendedor));
+  if (params?.desde) qs.set("desde", params.desde);
+  if (params?.hasta) qs.set("hasta", params.hasta);
   return apiFetch<GaleriaTimelineResponse>(`/api/galeria/cliente/${idClientePdv}/timeline?${qs.toString()}`);
 }
 

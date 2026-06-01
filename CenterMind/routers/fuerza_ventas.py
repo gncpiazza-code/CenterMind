@@ -227,6 +227,118 @@ def _build_shadow_code_to_pdv_map(dist_id: int, exhibiciones: list[dict]) -> dic
     return out
 
 
+def _erp_variants_from_pdv_row(pdv_row: dict) -> set[str]:
+    erp = _safe_text(pdv_row.get("id_cliente_erp")).strip()
+    if not erp:
+        return set()
+    return {v for v in {erp, _normalize_erp_code(erp)} if v}
+
+
+def _pdv_shadow_map_for_target(pdv_id: int, erp_variants: set[str]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for erp in erp_variants:
+        out[erp] = pdv_id
+        out[_normalize_erp_code(erp)] = pdv_id
+    return out
+
+
+def _resolve_pdv_id_for_exhibition(ex: dict, shadow_to_pdv: dict[str, int]) -> int | None:
+    """Misma resolución que la grilla de clientes (FK directa → sombra/nro)."""
+    id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+    if id_pdv is not None:
+        return id_pdv
+    for field in ("cliente_sombra_codigo", "nro_cliente"):
+        code = _safe_text(ex.get(field)).strip()
+        if not code:
+            continue
+        hit = shadow_to_pdv.get(code) or shadow_to_pdv.get(_normalize_erp_code(code))
+        if hit is not None:
+            return hit
+    return None
+
+
+def _exhibition_belongs_to_pdv(
+    ex: dict,
+    pdv_id: int,
+    erp_variants: set[str],
+    shadow_to_pdv: dict[str, int],
+) -> bool:
+    resolved = _resolve_pdv_id_for_exhibition(ex, shadow_to_pdv)
+    if resolved == pdv_id:
+        return True
+    if not erp_variants:
+        return False
+    for field in ("cliente_sombra_codigo", "nro_cliente", "id_cliente_pdv", "id_cliente"):
+        raw = _safe_text(ex.get(field)).strip()
+        if not raw:
+            continue
+        if raw in erp_variants or _normalize_erp_code(raw) in erp_variants:
+            return True
+    return False
+
+
+_GALERIA_EX_TIMELINE_SELECT = (
+    "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
+    "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv, "
+    "id_integrante, id_cliente_pdv, id_cliente, cliente_sombra_codigo, nro_cliente"
+)
+
+
+def _fetch_galeria_exhibiciones_for_scope(
+    dist_id: int,
+    integrante_ids: Optional[list[int]],
+    *,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+) -> list[dict]:
+    """Pagina exhibiciones del scope (dist + integrantes opcional)."""
+    select_attempts = [
+        _GALERIA_EX_TIMELINE_SELECT,
+        "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
+        "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv, "
+        "id_integrante, id_cliente_pdv, id_cliente, cliente_sombra_codigo",
+    ]
+    ex_select = select_attempts[-1]
+    for cols in select_attempts:
+        try:
+            probe = (
+                sb.table("exhibiciones")
+                .select(cols)
+                .eq("id_distribuidor", dist_id)
+                .limit(1)
+            )
+            if integrante_ids:
+                probe = probe.in_("id_integrante", integrante_ids)
+            probe.execute()
+            ex_select = cols
+            break
+        except Exception:
+            continue
+
+    rows: list[dict] = []
+    offset = 0
+    batch = 1000
+    while True:
+        q = (
+            sb.table("exhibiciones")
+            .select(ex_select)
+            .eq("id_distribuidor", dist_id)
+            .order("timestamp_subida", desc=True)
+        )
+        if integrante_ids:
+            q = q.in_("id_integrante", integrante_ids)
+        if desde:
+            q = q.gte("timestamp_subida", f"{desde}T00:00:00")
+        if hasta:
+            q = q.lte("timestamp_subida", f"{hasta}T23:59:59")
+        chunk = q.range(offset, offset + batch - 1).execute().data or []
+        rows.extend(chunk)
+        if len(chunk) < batch:
+            break
+        offset += batch
+    return rows
+
+
 def _resolve_binding_progressive(dist_id: int, id_vendedor: int) -> dict:
     """
     Prioriza vínculo nuevo (vendedores_telegram_binding).
@@ -1316,11 +1428,7 @@ def galeria_list_clientes_por_vendedor(
         seen_logic: set[tuple[str, str]] = set()
 
         for ex in exhibiciones:
-            id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
-            if id_pdv is None:
-                sombra = _safe_text(ex.get("cliente_sombra_codigo")).strip()
-                if sombra:
-                    id_pdv = shadow_to_pdv.get(sombra) or shadow_to_pdv.get(_normalize_erp_code(sombra))
+            id_pdv = _resolve_pdv_id_for_exhibition(ex, shadow_to_pdv)
             if id_pdv is None:
                 continue
             key = f"pdv:{id_pdv}"
@@ -1512,16 +1620,17 @@ def galeria_timeline_cliente(
     id_cliente_pdv: int,
     dist_id: int = Query(...),
     id_vendedor: Optional[int] = Query(None),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=120),
     payload=Depends(verify_auth),
 ):
-    """Timeline completo de exhibiciones de un PDV (directo + limbo)."""
+    """Timeline completo de exhibiciones de un PDV (directo + limbo + FK legacy)."""
     check_dist_permission(payload, dist_id)
     qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
     qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
     try:
-        # Verificar que el PDV pertenece al distribuidor
         cpv_r = (
             sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
             .select("id_cliente, id_cliente_erp")
@@ -1532,6 +1641,10 @@ def galeria_timeline_cliente(
         )
         if not cpv_r.data:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+        pdv_row = cpv_r.data[0]
+        erp_variants = _erp_variants_from_pdv_row(pdv_row)
+        shadow_to_pdv = _pdv_shadow_map_for_target(id_cliente_pdv, erp_variants)
 
         integrante_ids: Optional[list[int]] = None
         if id_vendedor is not None:
@@ -1550,57 +1663,29 @@ def galeria_timeline_cliente(
             if not integrante_ids:
                 return GaleriaTimelineResponse(items=[], offset=offset, limit=limit, has_more=False)
 
-        ex_select = (
-            "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
-            "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv, "
-            "id_integrante, id_cliente_pdv, id_cliente, cliente_sombra_codigo"
+        scope_rows = _fetch_galeria_exhibiciones_for_scope(
+            dist_id,
+            integrante_ids,
+            desde=desde,
+            hasta=hasta,
         )
+        shadow_to_pdv.update(_build_shadow_code_to_pdv_map(dist_id, scope_rows))
 
-        rows: list[dict] = []
-
-        # 1) Exhibiciones con referencia directa al PDV (FK actual o legacy).
-        direct_q = (
-            sb.table("exhibiciones")
-            .select(ex_select)
-            .eq("id_distribuidor", dist_id)
-            .or_(f"id_cliente_pdv.eq.{id_cliente_pdv},id_cliente.eq.{id_cliente_pdv}")
-        )
-        if integrante_ids:
-            direct_q = direct_q.in_("id_integrante", integrante_ids)
-        direct_rows = direct_q.execute().data or []
-        rows.extend(direct_rows)
-
-        # 2) Exhibiciones limbo: mapear por cliente_sombra_codigo contra id_cliente_erp del PDV.
-        pdv_row = cpv_r.data[0] if cpv_r.data else {}
-        erp_code_raw = _safe_text(pdv_row.get("id_cliente_erp")).strip()
-        erp_variants = set()
-        if erp_code_raw:
-            erp_variants.add(erp_code_raw)
-            erp_variants.add(_normalize_erp_code(erp_code_raw))
-        erp_variants = {v for v in erp_variants if v}
-        if erp_variants:
-            for erp_code in erp_variants:
-                limbo_q = (
-                    sb.table("exhibiciones")
-                    .select(ex_select)
-                    .eq("id_distribuidor", dist_id)
-                    .is_("id_cliente_pdv", "null")
-                    .eq("cliente_sombra_codigo", erp_code)
-                )
-                if integrante_ids:
-                    limbo_q = limbo_q.in_("id_integrante", integrante_ids)
-                rows.extend(limbo_q.execute().data or [])
-
-        # Deduplicar y paginar en memoria para combinar direct + limbo sin cruces.
-        uniq: dict[int, dict] = {}
-        for r in rows:
-            ex_id = _safe_int(r.get("id_exhibicion"))
-            if ex_id is None:
+        matched: list[dict] = []
+        seen_ex: set[int] = set()
+        for ex in scope_rows:
+            ex_id = _safe_int(ex.get("id_exhibicion"))
+            if ex_id is None or ex_id in seen_ex:
                 continue
-            if ex_id not in uniq:
-                uniq[ex_id] = r
+            if qa_filter and qa_iids and _safe_int(ex.get("id_integrante")) in qa_iids:
+                continue
+            if not _exhibition_belongs_to_pdv(ex, id_cliente_pdv, erp_variants, shadow_to_pdv):
+                continue
+            seen_ex.add(ex_id)
+            matched.append(ex)
+
         sorted_rows = sorted(
-            uniq.values(),
+            matched,
             key=lambda r: _safe_text(r.get("timestamp_subida")),
             reverse=True,
         )
@@ -1609,12 +1694,6 @@ def galeria_timeline_cliente(
         end = offset + limit
         page_rows = sorted_rows[start:end]
         has_more = end < len(sorted_rows)
-
-        if qa_filter and qa_iids:
-            page_rows = [
-                r for r in page_rows
-                if _safe_int(r.get("id_integrante")) not in qa_iids
-            ]
 
         # Enriquecer con re-evaluaciones de compañía si el usuario es Compañía
         is_compania = (

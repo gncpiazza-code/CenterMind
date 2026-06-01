@@ -490,6 +490,8 @@ export default function GaleriaExhibicionesPage() {
         idClientePdv={timelineCliente?.id_cliente ?? null}
         distId={distId}
         idVendedor={selectedVendedor?.id_vendedor ?? null}
+        fechaDesde={fechaDesde}
+        fechaHasta={fechaHasta}
         nombreCliente={timelineCliente ? (timelineCliente.nombre_fantasia || timelineCliente.nombre_cliente) : ""}
         motivoNoReferencia={timelineCliente?.motivo_no_referencia ?? null}
         directItems={timelineCliente?.exhibiciones_directas ?? []}

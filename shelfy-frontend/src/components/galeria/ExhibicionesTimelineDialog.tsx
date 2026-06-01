@@ -26,6 +26,8 @@ interface Props {
   idClientePdv: number | null;
   distId: number;
   idVendedor?: number | null;
+  fechaDesde?: string;
+  fechaHasta?: string;
   nombreCliente: string;
   motivoNoReferencia?: string | null;
   directItems?: GaleriaTimelineItem[];
@@ -267,6 +269,8 @@ export function ExhibicionesTimelineDialog({
   idClientePdv,
   distId,
   idVendedor = null,
+  fechaDesde,
+  fechaHasta,
   nombreCliente,
   motivoNoReferencia,
   directItems,
@@ -285,13 +289,15 @@ export function ExhibicionesTimelineDialog({
     hasNextPage,
     fetchNextPage,
   } = useInfiniteQuery<GaleriaTimelineResponse>({
-    queryKey: ["galeria-timeline", distId, idClientePdv],
+    queryKey: ["galeria-timeline", distId, idClientePdv, idVendedor ?? "all", fechaDesde ?? "", fechaHasta ?? ""],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       fetchGaleriaTimelineCliente(idClientePdv!, distId, {
         offset: pageParam as number,
         limit: pageSize,
         idVendedor,
+        desde: fechaDesde,
+        hasta: fechaHasta,
       }),
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,

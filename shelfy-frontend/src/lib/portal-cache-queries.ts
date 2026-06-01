@@ -88,9 +88,8 @@ export function prefetchPortalModuleIdle(
 
 export function warmPortalBundlesOnce(distId: number): void {
   if (distId <= 0 || !markPortalWarmSent(distId)) return;
-  void warmPortalBundles(distId, ["dashboard", "estadisticas", "supervision", "visor"]).catch(
-    () => {},
-  );
+  // Solo dashboard + estadísticas — evita saturar Railway con supervision/visor pesados.
+  void warmPortalBundles(distId, ["dashboard", "estadisticas"]).catch(() => {});
 }
 
 export function prefetchModuleByRoute(

@@ -557,6 +557,8 @@ export function coerceDashboardRankingRows(raw: unknown): Record<string, unknown
   return [];
 }
 
+/** Timeout HTTP para bundles — respuesta rápida + poll en background. */
+const BUNDLE_FETCH_TIMEOUT_MS = 8_000;
 /** Normaliza listas de bundle que pudieron persistirse como dict indexado. */
 export function coerceBundleList<T>(raw: unknown): T[] {
   if (Array.isArray(raw)) return raw as T[];
@@ -582,7 +584,7 @@ export async function fetchDashboardBundle(
     sucursales: SucursalStats[];
     evolucion: EvolucionTiempo[];
   }>(`/api/bundle/dashboard/${distribuidorId}?${q.toString()}`, {
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(BUNDLE_FETCH_TIMEOUT_MS),
   });
 
   const ranking = coerceDashboardRankingRows(data.ranking).map((row) => ({
@@ -642,7 +644,9 @@ export async function fetchSupervisionBundle(
   const data = await apiFetch<{
     meta: BundleMeta;
     cuentas: CuentasSupervision & { vendedores?: unknown };
-  }>(`/api/bundle/supervision/${distId}${qs}`);
+  }>(`/api/bundle/supervision/${distId}${qs}`, {
+    signal: AbortSignal.timeout(BUNDLE_FETCH_TIMEOUT_MS),
+  });
   const vendedores = coerceBundleList<Record<string, unknown>>(data.cuentas?.vendedores);
   return {
     meta: data.meta ?? {},
@@ -676,7 +680,7 @@ export async function fetchEstadisticasBundle(
   const url = `${API_URL}/api/bundle/estadisticas/${distId}?${q.toString()}`;
   const res = await fetch(url, {
     headers: getHeaders(),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(BUNDLE_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     handleSessionExpired401(`/api/bundle/estadisticas/${distId}`, res.status);
@@ -707,16 +711,22 @@ export interface VisorBundle {
 }
 
 export async function fetchVisorBundle(distId: number): Promise<VisorBundle> {
-  return apiFetch<VisorBundle>(`/api/bundle/visor/${distId}`);
+  return apiFetch<VisorBundle>(`/api/bundle/visor/${distId}`, {
+    signal: AbortSignal.timeout(BUNDLE_FETCH_TIMEOUT_MS),
+  });
 }
 
 /** Pre-calienta snapshots en background (202 Accepted, no bloquea). */
 export async function warmPortalBundles(
   distId: number,
   domains?: string[],
+  periodo?: string,
 ): Promise<void> {
-  const q = domains?.length ? `?domains=${encodeURIComponent(domains.join(","))}` : "";
-  await apiFetch<{ ok: boolean }>(`/api/bundle/warm/${distId}${q}`, {
+  const q = new URLSearchParams();
+  if (domains?.length) q.set("domains", domains.join(","));
+  if (periodo) q.set("periodo", periodo);
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  await apiFetch<{ ok: boolean }>(`/api/bundle/warm/${distId}${qs}`, {
     method: "POST",
   });
 }

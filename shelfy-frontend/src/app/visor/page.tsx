@@ -222,7 +222,11 @@ export function VisorPageContent() {
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
     placeholderData: (prev) => prev,
-    refetchInterval: 90_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data?.meta?.revalidating && (data.pendientes?.length ?? 0) === 0) return 5_000;
+      return 90_000;
+    },
   });
 
   const loadingPendientes = loadingPendientesRaw && !visorBundle;

@@ -78,13 +78,15 @@ def get_or_refresh_dashboard(
             )
             return payload
 
-    # Sin snapshot: no bloquear el request en cold compute (evita 1–2 min de espera).
+    # Sin snapshot: respuesta rápida (<3s) con RPCs livianos; KPIs/ranking en background.
     key = f"dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}"
     trigger_background_refresh(
         key,
         lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
     )
-    partial = _partial_dashboard_payload(dist_id, periodo, sucursal_id, hide_qa)
+    partial = _partial_dashboard_payload(
+        dist_id, periodo, sucursal_id, hide_qa, fast_rpcs=True
+    )
     apply_meta_flags(
         partial.setdefault("meta", {}),
         cache_hit=False,
@@ -280,8 +282,9 @@ def _partial_dashboard_payload(
     *,
     error: str | None = None,
     instant: bool = True,
+    fast_rpcs: bool = False,
 ) -> dict:
-    """Respuesta degradada. Por defecto instantánea (sin DB) mientras corre el refresh."""
+    """Respuesta degradada. `fast_rpcs`: solo evolución/sucursales (RPC, <1s)."""
     kpis = {
         "total": 0,
         "pendientes": 0,
@@ -303,7 +306,7 @@ def _partial_dashboard_payload(
     if error:
         meta["compute_error"] = error
 
-    if instant:
+    if instant and not fast_rpcs:
         return {
             "meta": meta,
             "kpis": kpis,
@@ -316,11 +319,14 @@ def _partial_dashboard_payload(
     from routers.reportes import _resolve_sucursal_pk, _enrich_por_sucursal_rows
 
     suc_pk = _resolve_sucursal_pk(dist_id, sucursal_id)
+    ultimas: list[dict] = []
+    if not fast_rpcs:
+        ultimas = _fetch_ultimas_simple(dist_id, suc_pk)
     return {
         "meta": meta,
         "kpis": kpis,
         "ranking": [],
-        "ultimas": _fetch_ultimas_simple(dist_id, suc_pk),
+        "ultimas": ultimas,
         "sucursales": _fetch_sucursales(dist_id, periodo, _enrich_por_sucursal_rows),
         "evolucion": _fetch_evolucion(dist_id, periodo, suc_pk),
     }

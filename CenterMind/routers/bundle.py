@@ -120,19 +120,23 @@ def bundle_warm(
     response: Response,
     domains: Optional[str] = Query(
         None,
-        description="CSV de dominios: dashboard,supervision,estadisticas,visor. Default: todos.",
+        description="CSV de dominios: dashboard,supervision,estadisticas,visor. Default: dashboard,estadisticas.",
+    ),
+    periodo: Optional[str] = Query(
+        None,
+        description="Período YYYY-MM o preset (mes) para warm de dashboard/estadísticas.",
     ),
     payload=Depends(verify_auth),
 ):
     """
     Pre-calienta snapshots en background (fire-and-forget).
-    No bloquea; útil post-login o desde cron externo.
+    Secuencial por dist — no satura el worker.
     """
     check_dist_permission(payload, dist_id)
     domain_list: list[str] | None = None
     if domains:
         domain_list = [d.strip() for d in domains.split(",") if d.strip()]
-    warm_portal_bundles(dist_id, domain_list)
+    warm_portal_bundles(dist_id, domain_list, periodo=periodo)
     warmed = domain_list or ["dashboard", "estadisticas"]
     response.headers["X-Bundle-Warm"] = "accepted"
-    return {"ok": True, "dist_id": dist_id, "warming": warmed}
+    return {"ok": True, "dist_id": dist_id, "warming": warmed, "periodo": periodo}

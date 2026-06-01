@@ -68,19 +68,34 @@ def handle_ingestion_event(event_type: str, dist_id: int) -> None:
     mark_all_stale(dist_id, domains)
 
 
-def _recompute_domain(dist_id: int, domain: str) -> None:
+def _meses_warm() -> tuple[str, str]:
+    """Mes actual AR + mes anterior (p.ej. junio → 2026-06 y 2026-05)."""
+    ar_now = datetime.utcnow() - timedelta(hours=3)
+    mes_actual = ar_now.strftime("%Y-%m")
+    first_of_month = ar_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_month = (first_of_month - timedelta(days=1)).strftime("%Y-%m")
+    return mes_actual, prev_month
+
+
+def _recompute_domain(dist_id: int, domain: str, periodo: str | None = None) -> None:
     """Recompute directo (sin path SWR) para warm/cron."""
     try:
-        mes_actual = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m")
+        mes_actual, prev_month = _meses_warm()
         if domain == "dashboard":
             from services.snapshot_dashboard_service import force_persist_dashboard
-            force_persist_dashboard(dist_id, "mes", None, hide_qa=False)
+            target = periodo or "mes"
+            force_persist_dashboard(dist_id, target, None, hide_qa=False)
+            if target == "mes" and prev_month != mes_actual:
+                force_persist_dashboard(dist_id, prev_month, None, hide_qa=False)
         elif domain == "supervision":
             from services.snapshot_supervision_service import force_persist_supervision
             force_persist_supervision(dist_id, None, None)
         elif domain == "estadisticas":
             from services.snapshot_estadisticas_service import force_persist_estadisticas
-            force_persist_estadisticas(dist_id, [mes_actual], None)
+            meses = [periodo] if periodo and periodo != "mes" else [mes_actual]
+            force_persist_estadisticas(dist_id, meses, None)
+            if prev_month not in meses:
+                force_persist_estadisticas(dist_id, [prev_month], None)
         elif domain == "visor":
             from services.snapshot_visor_service import force_persist_visor
             force_persist_visor(dist_id)
@@ -90,17 +105,30 @@ def _recompute_domain(dist_id: int, domain: str) -> None:
         logger.warning(f"[snap_refresh] recompute domain={domain} dist={dist_id}: {e}")
 
 
-def warm_portal_bundles(dist_id: int, domains: list[str] | None = None) -> None:
+def _warm_dist_sequential(dist_id: int, domains: list[str], periodo: str | None = None) -> None:
+    """Un solo hilo por dist — evita saturar Railway con 4 computes paralelos."""
+    for domain in domains:
+        _recompute_domain(dist_id, domain, periodo=periodo)
+
+
+def warm_portal_bundles(
+    dist_id: int,
+    domains: list[str] | None = None,
+    periodo: str | None = None,
+) -> None:
     """
     Pre-calienta snapshots en background (solo cron / endpoint manual).
-    No usar desde login FE — satura el worker con computes paralelos.
+    Secuencial por dist para no colapsar el worker.
     """
     from services.snapshot_common import trigger_background_refresh
 
     all_domains = domains or ["dashboard", "estadisticas"]
-    for domain in all_domains:
-        key = f"warm:{dist_id}:{domain}"
-        trigger_background_refresh(key, lambda d=domain: _recompute_domain(dist_id, d))
+    periodo_tag = periodo or "default"
+    key = f"warm-seq:{dist_id}:{periodo_tag}:{','.join(all_domains)}"
+    trigger_background_refresh(
+        key,
+        lambda: _warm_dist_sequential(dist_id, all_domains, periodo=periodo),
+    )
 
 
 def refresh_eager(dist_id: int, domains: list[str] | None = None) -> None:

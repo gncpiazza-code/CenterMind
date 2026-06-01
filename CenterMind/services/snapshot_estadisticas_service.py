@@ -17,7 +17,6 @@ from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
     is_serveable_stale,
-    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -141,9 +140,34 @@ def get_or_refresh_estadisticas(
 
     meses_hash = _hash_meses(meses)
     if force_refresh:
-        return run_single_flight(
-            f"force:estadisticas:{dist_id}:{meses_hash}:{sucursal}",
-            lambda: _cold_compute_estadisticas(dist_id, meses, sucursal, meses_hash),
+        key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
+        trigger_background_refresh(
+            key,
+            lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
+        )
+        snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
+        if snap is not None:
+            gen = snap["generated_at"]
+            payload = _normalize_cartas_payload(snap["payload"])
+            return _build_estadisticas_response(
+                payload,
+                dist_id,
+                meses,
+                sucursal,
+                gen,
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+            )
+        return _build_estadisticas_response(
+            [],
+            dist_id,
+            meses,
+            sucursal,
+            datetime.now(timezone.utc).isoformat(),
+            cache_hit=False,
+            stale=False,
+            revalidating=True,
         )
     snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
     if snap is not None:

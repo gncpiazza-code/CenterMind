@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
-  fetchDashboardBundle, getWSUrl,
+  fetchDashboardBundle, getWSUrl, warmPortalBundles,
   type DashboardBundle, type KPIs, type VendedorRanking, type UltimaEvaluada, type SucursalStats, type EvolucionTiempo,
 } from "@/lib/api";
 import { XCircle } from "lucide-react";
@@ -106,6 +106,13 @@ export default function DashboardPage() {
     setCustomMonth(month);
     setSucursalFiltro("");
   }
+
+  // Pre-calienta snapshot en backend al elegir mes histórico (p.ej. 2026-05).
+  useEffect(() => {
+    if (!enabled || distId <= 0) return;
+    if (!/^\d{4}-\d{2}$/.test(periodo)) return;
+    void warmPortalBundles(distId, ["dashboard", "estadisticas"], periodo).catch(() => {});
+  }, [distId, periodo, enabled]);
 
   // Bundle query — replaces 5 separate queries
   const {

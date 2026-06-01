@@ -14,12 +14,14 @@ from db import sb
 from services.snapshot_common import (
     apply_meta_flags,
     is_fresh,
-    run_single_flight,
+    is_serveable_stale,
+    trigger_background_refresh,
 )
 
 logger = logging.getLogger("snapshot_visor_service")
 
 VISOR_MAX_STALE_SECONDS = 90  # 1.5 min
+VISOR_SERVE_STALE_SECONDS = 86400  # 24 h — SWR serve window
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -41,9 +43,10 @@ def force_persist_visor(dist_id: int, hide_qa: bool = False) -> None:
 
 def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
     snap = _read_visor_snapshot(dist_id)
+    refresh_key = f"visor:{dist_id}:{hide_qa}"
     if snap is not None:
         gen = snap["generated_at"]
-        payload = snap["payload"]
+        payload = dict(snap["payload"])
         pendientes = payload.get("pendientes") or []
         pendientes_ok = _pendientes_payload_valid(pendientes)
         has_pendientes = bool(pendientes)
@@ -60,10 +63,39 @@ def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
                 generated_at=gen,
             )
             return payload
-    return run_single_flight(
-        f"compute:visor:{dist_id}:{hide_qa}",
-        lambda: _cold_compute_visor(dist_id, hide_qa),
+        if is_serveable_stale(gen, VISOR_SERVE_STALE_SECONDS) and pendientes_ok and has_pendientes:
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+                generated_at=gen,
+            )
+            trigger_background_refresh(
+                refresh_key,
+                lambda: _refresh_visor_background(dist_id, hide_qa),
+            )
+            return payload
+
+    trigger_background_refresh(
+        refresh_key,
+        lambda: _refresh_visor_background(dist_id, hide_qa),
     )
+    partial = {
+        "meta": {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "dist_id": dist_id,
+        },
+        "pendientes": [],
+        "stats": {},
+    }
+    apply_meta_flags(
+        partial["meta"],
+        cache_hit=False,
+        stale=False,
+        revalidating=True,
+    )
+    return partial
 
 
 def _cold_compute_visor(dist_id: int, hide_qa: bool) -> dict:

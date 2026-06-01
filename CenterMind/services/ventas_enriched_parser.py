@@ -80,6 +80,7 @@ def _normalize_bultos_by_business_rule(row: "VentaEnrichedRow") -> None:
     Encendedores → bulto crudo Excel.
     Cigarrillos / papelillos / mix exhibidores → conversión desde unidades.
     """
+    row.bultos_excel = float(row.bultos_total or 0)
     row.bultos_total = bultos_efectivos(
         row.agrupacion_art_2,
         row.descripcion_articulo,
@@ -155,6 +156,7 @@ class VentaEnrichedRow:
     importe_neto: float
     importe_bruto: float
     importe_bonificado: float
+    bultos_excel: float = 0.0
 
 
 def parse_informe_ventas_enriched(file_bytes: bytes) -> list[dict[str, Any]]:

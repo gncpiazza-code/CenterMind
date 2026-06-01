@@ -207,6 +207,62 @@ async def lifespan(app: FastAPI):
         id="snapshot_prewarm_0645_ar",
     )
 
+    import os
+
+    if os.getenv("RECAP_CRON_ENABLED", "0") == "1":
+        from core.recap_period import is_last_day_of_month, _today_ar
+        from services.recap_cron_service import run_recap_job_q1, run_recap_job_q2_and_cierre
+
+        def _recap_job_q1():
+            try:
+                result = run_recap_job_q1()
+                logger.info(
+                    "[recap_cron] Q1 ok periodo=%s processed=%s errors=%s",
+                    result.get("periodo_key"),
+                    result.get("processed"),
+                    result.get("errors"),
+                )
+            except Exception as e:
+                logger.warning("[recap_cron] Q1 omitido: %s", e)
+
+        def _recap_job_q2_cierre():
+            if not is_last_day_of_month(_today_ar()):
+                return
+            try:
+                result = run_recap_job_q2_and_cierre()
+                logger.info(
+                    "[recap_cron] Q2+C ok q2=%s c=%s processed=%s errors=%s",
+                    result.get("periodo_key_q2"),
+                    result.get("periodo_key_cierre"),
+                    result.get("processed"),
+                    result.get("errors"),
+                )
+            except Exception as e:
+                logger.warning("[recap_cron] Q2+C omitido: %s", e)
+
+        _tz_recap = _ZoneInfoL("America/Argentina/Buenos_Aires")
+        scheduler.add_job(
+            _recap_job_q1,
+            "cron",
+            day=15,
+            hour=23,
+            minute=59,
+            timezone=_tz_recap,
+            id="recap_q1_15_2359_ar",
+        )
+        # Corre diariamente 23:59; solo persiste Q2+C si es último día del mes.
+        scheduler.add_job(
+            _recap_job_q2_cierre,
+            "cron",
+            hour=23,
+            minute=59,
+            timezone=_tz_recap,
+            id="recap_q2_cierre_2359_ar",
+        )
+        logger.info("📅 Repaso Comercial cron activo (15 y fin de mes 23:59 AR)")
+    else:
+        logger.info("📅 Repaso Comercial cron desactivado (RECAP_CRON_ENABLED!=1)")
+
     scheduler.start()
     logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR + Binding Watcher 07:30 AR + Snapshot Prewarm 06:45 AR)")
 

@@ -439,61 +439,21 @@ class ObjetivosWatcherService:
         obj_id = obj["id"]
         
         def _filter_previously_active(clients: list[dict], since_str: str) -> list[dict]:
+            """Solo PDVs inactivos al inicio del objetivo (30d sin compra previa a `since`)."""
             if not clients:
                 return clients
             try:
-                from datetime import datetime, timedelta
-                since_dt = datetime.fromisoformat(since_str.replace("Z", "+00:00"))
-                thirty_days_ago = (since_dt - timedelta(days=30)).isoformat()[:10]
-                since_date = since_str[:10]
-                
-                erp_ids = [str(c["id_cliente_erp"]) for c in clients if c.get("id_cliente_erp")]
-                active_erps = set()
-                if erp_ids:
-                    ventas_res = (
-                        sb.table(tenant_table_name("ventas_enriched_v2", dist_id))
-                        .select("id_cliente_erp")
-                        .eq("id_distribuidor", dist_id)
-                        .in_("id_cliente_erp", erp_ids)
-                        .gte("fecha_factura", thirty_days_ago)
-                        .lt("fecha_factura", since_date)
-                        .execute()
-                    )
-                    active_erps = {str(v["id_cliente_erp"]) for v in (ventas_res.data or []) if v.get("id_cliente_erp")}
-                    
-                    # Fallback para ventas históricas que no estén en ventas_enriched_v2
-                    try:
-                        agg_res = (
-                            sb.table("ventas_comprobantes_agg_cliente")
-                            .select("cliente_codigo, ventas_comprobantes_analytics_runs!inner(fecha_rango_desde)")
-                            .eq("id_distribuidor", dist_id)
-                            .in_("cliente_codigo", erp_ids)
-                            .gte("ventas_comprobantes_analytics_runs.fecha_rango_desde", thirty_days_ago)
-                            .lt("ventas_comprobantes_analytics_runs.fecha_rango_desde", since_date)
-                            .execute()
-                        )
-                        active_erps.update(str(v["cliente_codigo"]) for v in (agg_res.data or []) if v.get("cliente_codigo"))
-                    except Exception as e_agg:
-                        logger.warning(f"[Watcher] Error consultando ventas_comprobantes_agg_cliente: {e_agg}")
-                
-                client_ids = [int(c["id_cliente"]) for c in clients if c.get("id_cliente")]
-                active_ids = set()
-                if client_ids:
-                    ventas_v2_res = (
-                        sb.table("ventas_v2")
-                        .select("id_cliente")
-                        .eq("id_distribuidor", dist_id)
-                        .in_("id_cliente", client_ids)
-                        .gte("fecha", thirty_days_ago)
-                        .lt("fecha", since_date)
-                        .execute()
-                    )
-                    active_ids = {int(v["id_cliente"]) for v in (ventas_v2_res.data or []) if v.get("id_cliente")}
+                from core.compras_fechas import inactivo_comercial_en
 
+                since_date = since_str[:10]
                 return [
-                    c for c in clients 
-                    if str(c.get("id_cliente_erp")) not in active_erps and 
-                       (not c.get("id_cliente") or int(c["id_cliente"]) not in active_ids)
+                    c
+                    for c in clients
+                    if inactivo_comercial_en(
+                        c.get("fecha_ultima_compra"),
+                        c.get("fecha_compra_anterior"),
+                        since_date,
+                    )
                 ]
             except Exception as filter_err:
                 logger.warning(f"[Watcher] Error filtrando activos previos en activacion: {filter_err}")
@@ -568,7 +528,10 @@ class ObjetivosWatcherService:
             if item_pdv_ids or obj.get("id_target_pdv") is not None:
                 q = (
                     sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
-                    .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
+                    .select(
+                        "id_cliente, id_cliente_erp, nombre_fantasia, "
+                        "fecha_ultima_compra, fecha_compra_anterior"
+                    )
                     .eq("id_distribuidor", dist_id)
                     .gte("fecha_ultima_compra", since)
                 )
@@ -623,7 +586,10 @@ class ObjetivosWatcherService:
 
             clientes_res = (
                 sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
-                .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
+                .select(
+                    "id_cliente, id_cliente_erp, nombre_fantasia, "
+                    "fecha_ultima_compra, fecha_compra_anterior"
+                )
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
                 .gte("fecha_ultima_compra", since)

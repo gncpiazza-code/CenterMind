@@ -1232,6 +1232,53 @@ class BotWorker:
             return True
         return False
 
+    UPLOAD_SESSION_TTL_SECS = 600
+
+    def _upload_session_get(self, user_id: int) -> dict | None:
+        """Memoria + Supabase (sobrevive redeploy de la API)."""
+        sess = self.upload_sessions.get(user_id)
+        if sess is not None:
+            return sess
+        from core.bot_upload_session_store import load_upload_session
+
+        loaded = load_upload_session(self.distribuidor_id, user_id)
+        if loaded:
+            self.upload_sessions[user_id] = loaded
+        return loaded
+
+    async def _upload_session_save(self, user_id: int) -> None:
+        sess = self.upload_sessions.get(user_id)
+        if not sess:
+            return
+        from core.bot_upload_session_store import save_upload_session
+
+        await asyncio.to_thread(
+            save_upload_session,
+            self.distribuidor_id,
+            user_id,
+            sess,
+            ttl_secs=self.UPLOAD_SESSION_TTL_SECS,
+        )
+
+    async def _upload_session_delete(self, user_id: int) -> None:
+        self.upload_sessions.pop(user_id, None)
+        from core.bot_upload_session_store import delete_upload_session
+
+        await asyncio.to_thread(
+            delete_upload_session, self.distribuidor_id, user_id
+        )
+
+    @staticmethod
+    def _text_looks_like_nro_cliente(text: str) -> bool:
+        clean = (
+            text.lower()
+            .replace("cliente", "")
+            .replace("#", "")
+            .replace("nro", "")
+            .strip()
+        )
+        return bool(clean) and clean.isnumeric()
+
     async def _registrar_pdv_pendiente_aviso(
         self,
         session: dict,
@@ -1975,6 +2022,11 @@ class BotWorker:
             return
         self.upload_sessions.clear()
         self.active_msgs.clear()
+        from core.bot_upload_session_store import clear_upload_sessions_for_dist
+
+        await asyncio.to_thread(
+            clear_upload_sessions_for_dist, self.distribuidor_id
+        )
         await update.message.reply_text("✅ Memoria limpiada (reset suave)")
         self.logger.info(f"Reset ejecutado por uid={uid}")
 
@@ -2053,11 +2105,12 @@ class BotWorker:
             return
 
         now = time.time()
-        session_exists = user_id in self.upload_sessions
+        existing = self._upload_session_get(user_id)
+        session_exists = existing is not None
 
         # ── Lógica de ráfaga (múltiples fotos, hasta 5 en 8 segundos) ──
-        if session_exists:
-            session  = self.upload_sessions[user_id]
+        if session_exists and existing:
+            session  = existing
             last_t   = session.get("last_photo_time", 0)
             n_photos = len(session.get("photos", []))
             is_burst = (
@@ -2068,15 +2121,16 @@ class BotWorker:
             if is_burst:
                 session["photos"].append({"file_id": file_id, "message_id": msg_id})
                 session["last_photo_time"] = now
+                await self._upload_session_save(user_id)
                 self.logger.info(f"📸 Ráfaga: {username} ({n_photos + 1} fotos)")
                 return
 
         # ── Sesiones colgadas o viejas ──
-        is_stuck = session_exists and self.upload_sessions[user_id].get("stage") == self.STAGE_WAITING_TYPE
-        is_old   = session_exists and (now - self.upload_sessions[user_id].get("last_photo_time", 0) > 8)
+        is_stuck = session_exists and existing and existing.get("stage") == self.STAGE_WAITING_TYPE
+        is_old   = session_exists and existing and (now - existing.get("last_photo_time", 0) > 8)
 
-        if session_exists and is_stuck:
-            old_photos = self.upload_sessions[user_id].get("photos", [])
+        if session_exists and is_stuck and existing:
+            old_photos = existing.get("photos", [])
             if old_photos:
                 try:
                     await context.bot.send_message(
@@ -2102,6 +2156,7 @@ class BotWorker:
             "last_photo_time": now,
         }
         self.upload_sessions[user_id]["photos"].append({"file_id": file_id, "message_id": msg_id})
+        await self._upload_session_save(user_id)
         self.logger.info(f"✅ Nueva sesión creada para {username}")
 
         await asyncio.sleep(0.5)  # Pequeño delay anti-race
@@ -2141,8 +2196,16 @@ class BotWorker:
 
 
 
-        session = self.upload_sessions.get(user_id)
+        session = self._upload_session_get(user_id)
         if not session:
+            if self._text_looks_like_nro_cliente(text):
+                await update.message.reply_text(
+                    "⚠️ <b>No tengo una carga de foto activa</b> "
+                    "(puede pasar tras un reinicio del servidor).\n\n"
+                    "Por favor <b>reenviá la foto</b> del PDV y después el NRO CLIENTE.",
+                    parse_mode=ParseMode.HTML,
+                    reply_to_message_id=msg_id,
+                )
             return
 
         if session.get("stage") == self.STAGE_WAITING_ID_BLOCKED:
@@ -2194,11 +2257,13 @@ class BotWorker:
                         )
                     except Exception as e_kb:
                         self.logger.error(f"Error enviando botones cartera: {e_kb}")
+                    await self._upload_session_save(user_id)
                     return
                 session["_vendedor_v2_id"] = id_vendedor_v2
 
         session["nro_cliente"] = clean
         session["stage"] = self.STAGE_WAITING_TYPE
+        await self._upload_session_save(user_id)
 
         # Safety-first (producción): aunque el perfil tenga alta confianza,
         # mantenemos el flujo único de selección manual para no desviar
@@ -2241,7 +2306,7 @@ class BotWorker:
             )
         except Exception as e:
             self.logger.error(f"Error enviando botones: {e}")
-            del self.upload_sessions[user_id]
+            await self._upload_session_delete(user_id)
 
     # ─────────────────────────────────────────────────────────────
     # CALLBACK — TIPO PDV seleccionado
@@ -2259,11 +2324,12 @@ class BotWorker:
         status_message_id: Optional[int] = None,
         status_reply_to: Optional[int] = None,
     ) -> None:
-        session = self.upload_sessions.get(uploader_id)
+        session = self._upload_session_get(uploader_id)
         if not session:
             return
 
         session["tipo_pdv"] = tipo_pdv
+        await self._upload_session_save(uploader_id)
         nro_cliente = session["nro_cliente"]
         pdv_name_display = session.get("pdv_name_display", "")
         photos = session["photos"]
@@ -2465,7 +2531,7 @@ class BotWorker:
                 **err_kw,
             )
 
-        self.upload_sessions.pop(uploader_id, None)
+        await self._upload_session_delete(uploader_id)
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.callback_query:
@@ -2542,13 +2608,14 @@ class BotWorker:
             if uid != target_uid:
                 await q.answer("❌ Esta no es tu sesión.", show_alert=True)
                 return
-            sess = self.upload_sessions.get(target_uid)
+            sess = self._upload_session_get(target_uid)
             if not sess:
                 await q.answer("⚠️ Sesión expirada. Enviá la foto de nuevo.", show_alert=True)
                 return
             sess["stage"] = self.STAGE_WAITING_ID
             sess.pop("nro_cliente", None)
             sess.pop("_vendedor_v2_id", None)
+            await self._upload_session_save(target_uid)
             try:
                 await q.edit_message_text(
                     "📋 Enviá el <b>NRO CLIENTE</b> nuevamente.",
@@ -2567,7 +2634,7 @@ class BotWorker:
             if uid != target_uid:
                 await q.answer("❌ Esta no es tu sesión.", show_alert=True)
                 return
-            sess = self.upload_sessions.get(target_uid)
+            sess = self._upload_session_get(target_uid)
             if not sess:
                 await q.answer("⚠️ Sesión expirada. Enviá la foto de nuevo.", show_alert=True)
                 return
@@ -2577,6 +2644,7 @@ class BotWorker:
                 return
             sess["pdv_nuevo_declarado"] = True
             sess["stage"] = self.STAGE_WAITING_TYPE
+            await self._upload_session_save(target_uid)
             try:
                 await q.edit_message_text(
                     f"✅ PDV nuevo: <code>{nro}</code>\n\n"
@@ -2638,7 +2706,7 @@ class BotWorker:
             await q.answer("❌ Esta no es tu sesión.", show_alert=True)
             return
 
-        session = self.upload_sessions.get(uploader_id)
+        session = self._upload_session_get(uploader_id)
         if not session or session.get("stage") != self.STAGE_WAITING_TYPE:
             await q.answer("⚠️ Sesión expirada.", show_alert=True)
             return
@@ -2648,6 +2716,7 @@ class BotWorker:
             return
 
         session["tipo_pdv"] = tipo_pdv
+        await self._upload_session_save(uploader_id)
         nro_cliente    = session["nro_cliente"]
         pdv_name_display = session.get("pdv_name_display", "")
         photos         = session["photos"]
@@ -3336,7 +3405,7 @@ class BotWorker:
                 link_preview_options=_NO_LINK_PREVIEW,
             )
 
-        del self.upload_sessions[uploader_id]
+        await self._upload_session_delete(uploader_id)
 
     # ─────────────────────────────────────────────────────────────
     # JOB: Sincronizar evaluaciones web → Telegram
@@ -3515,13 +3584,21 @@ class BotWorker:
     # ─────────────────────────────────────────────────────────────
 
     async def cleanup_sessions_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        from core.bot_upload_session_store import purge_expired_upload_sessions
+
         now = time.time()
-        expired = [uid for uid, s in self.upload_sessions.items()
-                   if now - s.get("created_at", now) > 600]
+        expired = [
+            uid
+            for uid, s in self.upload_sessions.items()
+            if now - s.get("created_at", now) > self.UPLOAD_SESSION_TTL_SECS
+        ]
         for uid in expired:
-            del self.upload_sessions[uid]
-        if expired:
-            self.logger.info(f"🧹 {len(expired)} sesiones expiradas eliminadas")
+            await self._upload_session_delete(uid)
+        purged = await asyncio.to_thread(purge_expired_upload_sessions)
+        if expired or purged:
+            self.logger.info(
+                f"🧹 sesiones expiradas: memoria={len(expired)} db={purged}"
+            )
 
     async def objetivos_daily_reminder_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """

@@ -64,6 +64,22 @@ def test_normalize_cartas_dict_to_list():
     assert len(out) == 2
 
 
+def test_normalize_cartas_backfills_cex_radar_axis():
+    """Si falta radar.pdvs_exhibidos en snapshot viejo, se recompone desde cobertura_pct."""
+    raw = [
+        {
+            "id_vendedor": "V1",
+            "nombre": "Vendedor 1",
+            "radar": {"pdvs": 80, "exhibiciones": 70},
+            "raw_kpis": {"cobertura_pct": 42.5},
+            "ideal_meta_dist": {"pdvs_exhibidos": 85},
+        }
+    ]
+    out = _normalize_cartas_payload(raw)
+    assert isinstance(out, list)
+    assert out[0]["radar"]["pdvs_exhibidos"] == 50
+
+
 def test_cartas_is_list():
     """get_or_refresh_estadisticas debe retornar 'cartas' como list."""
     cartas = [_make_carta("V1"), _make_carta("V2")]

@@ -27,14 +27,55 @@ ESTADISTICAS_MAX_STALE_SECONDS = 900  # 15 min
 ESTADISTICAS_SERVE_STALE_SECONDS = 86400  # 24 h
 
 
+def _normalize_carta_radar(card: dict) -> dict:
+    """
+    Backfill radar axis values for legacy/partial snapshots.
+
+    Production snapshots may contain `raw_kpis` + ideal metadata but an outdated
+    `radar` shape missing `pdvs_exhibidos` (CEX). In that case, reconstruct CEX
+    from `% cartera exhibida` to preserve expected rendering.
+    """
+    if not isinstance(card, dict):
+        return card
+    radar = card.get("radar")
+    if not isinstance(radar, dict):
+        return card
+
+    if "pdvs_exhibidos" in radar and radar.get("pdvs_exhibidos") is not None:
+        return card
+
+    raw = card.get("raw_kpis") or {}
+    if not isinstance(raw, dict):
+        return card
+
+    cobertura_real = float(raw.get("cobertura_pct") or 0)
+    ideal_target = 0.0
+    for key in ("ideal_meta_dist", "ideal_meta_compania"):
+        meta = card.get(key) or {}
+        if not isinstance(meta, dict):
+            continue
+        candidate = float(meta.get("pdvs_exhibidos") or 0)
+        if candidate > 0:
+            ideal_target = candidate
+            break
+    if ideal_target <= 0:
+        ideal_target = 100.0
+
+    radar["pdvs_exhibidos"] = max(
+        0,
+        min(100, round((cobertura_real / ideal_target) * 100)),
+    )
+    return card
+
+
 def _normalize_cartas_payload(raw) -> list:
     """Snapshots corruptos pueden guardar cartas como dict; el FE espera list."""
     if isinstance(raw, list):
-        return raw
+        return [_normalize_carta_radar(item) for item in raw]
     if isinstance(raw, dict):
         vals = list(raw.values())
         if vals and isinstance(vals[0], dict):
-            return vals
+            return [_normalize_carta_radar(item) for item in vals]
     return []
 
 

@@ -355,8 +355,8 @@ def _meses_con_cartas_visibles(dist_id: int, candidates: list[str]) -> list[str]
     vend_rows = source.get("vendedores") or []
     visible: list[str] = []
     for mes in sorted(candidates, reverse=True):
-        all_raw = _aggregate_kpis_from_rows(source, [mes])
-        all_raw.pop("__ventas_meta__", None)  # type: ignore[call-overload]
+        all_raw, _loc = _aggregate_kpis_from_rows(source, [mes])
+        all_raw.pop("__ventas_meta__", None)
         rolled, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
         if _any_vendor_carta_visible(dist_id, rolled, vend_rows, hidden_vids):
             visible.append(mes)
@@ -1403,7 +1403,9 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
     return parallel
 
 
-def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> dict[str, dict]:
+def _aggregate_kpis_from_rows(
+    parallel: dict[str, object], meses: list[str]
+) -> tuple[dict[str, dict], dict[int, dict[str, set[str]]]]:
     """Agrega KPIs por vendedor a partir de filas ya cargadas."""
     meses_set = set(meses)
 

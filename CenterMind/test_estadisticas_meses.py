@@ -31,6 +31,47 @@ def test_fetch_meses_excluye_futuros(monkeypatch):
     assert fetch_meses_disponibles(1) == ["2026-06", "2026-05"]
 
 
+def test_meses_con_cartas_visibles_desempaqueta_aggregate_tuple(monkeypatch):
+    """Regresión: _aggregate_kpis_from_rows devuelve (raw, localidades)."""
+    from services.estadisticas_service import _meses_con_cartas_visibles
+
+    def fake_fetch(_dist_id, _meses):
+        return {
+            "vendedores": [
+                {"id_vendedor": 1, "nombre_erp": "Vendedor A", "id_sucursal": 1},
+            ],
+        }
+
+    def fake_agg(_source, _meses_list):
+        return (
+            {
+                "1": {
+                    "pdvs": 5,
+                    "compradores": 1,
+                    "bultos": 0,
+                    "exhibiciones": 2,
+                },
+                "__ventas_meta__": {},
+            },
+            {},
+        )
+
+    monkeypatch.setattr(
+        "services.estadisticas_service._fetch_carta_source_rows",
+        fake_fetch,
+    )
+    monkeypatch.setattr(
+        "services.estadisticas_service._aggregate_kpis_from_rows",
+        fake_agg,
+    )
+    monkeypatch.setattr(
+        "services.estadisticas_service.apply_tabaco_rollups",
+        lambda _d, raw, _v: (raw, set()),
+    )
+
+    assert _meses_con_cartas_visibles(1, ["2026-05"]) == ["2026-05"]
+
+
 def test_any_vendor_carta_visible_requiere_actividad_comercial():
     from services.estadisticas_service import _any_vendor_carta_visible
 

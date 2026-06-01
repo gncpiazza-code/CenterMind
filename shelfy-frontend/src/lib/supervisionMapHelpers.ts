@@ -1,7 +1,7 @@
 /**
- * Mapa supervisión: la fuente de verdad operativa es el **padrón** (Consolido, ~1×/día).
- * Comparaciones de “últimos 30 días” usan **días calendario locales**, no ms desde UTC,
- * para no desfasar bordes por `Date.parse` de ISO solo-fecha.
+ * Mapa supervisión: última compra operativa = **Informe de Ventas** (nomcli = padrón)
+ * y, si no hay venta válida, **fecha_ultima_compra del padrón** (API ya devuelve la mezcla).
+ * Comparaciones de “últimos 30 días” usan días calendario locales (es-AR).
  */
 
 /** Primera aparición de YYYY-MM-DD en string API/Postgres. */

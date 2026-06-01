@@ -110,17 +110,34 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
 
     records = list(merged.values())
     
-    # Acumular fecha más reciente por cliente (para actualizar fecha_ultima_compra)
+    # Fechas padrón solo si nomcli del informe coincide con el PDV (mismo id_cliente_erp).
+    from core.cliente_nombre_match import cliente_nombre_coincide_padron
+    from core.compras_fechas import _padron_nombres_por_erp
+
+    erps_en_archivo = {
+        str(r.get("id_cliente_erp") or "").strip()
+        for r in records
+        if str(r.get("id_cliente_erp") or "").strip()
+    }
+    padron_nombres = _padron_nombres_por_erp(dist_id, erps_en_archivo)
+
     ids_cliente_erp_actualizados: dict[str, str] = {}
     for r in records:
         fecha = r.get("fecha_factura")
         id_cliente_erp = r.get("id_cliente_erp")
         anulado = r.get("anulado")
-        # Ignorar anulados o devoluciones (importe negativo)
         if not fecha or not id_cliente_erp or anulado or r.get("importe_final", 0) < 0:
             continue
-            
-        id_cliente_erp_str = str(id_cliente_erp)
+
+        id_cliente_erp_str = str(id_cliente_erp).strip()
+        pnom = padron_nombres.get(id_cliente_erp_str) or {}
+        if pnom and not cliente_nombre_coincide_padron(
+            r.get("nombre_cliente"),
+            nombre_fantasia=pnom.get("nombre_fantasia"),
+            nombre_razon_social=pnom.get("nombre_razon_social"),
+        ):
+            continue
+
         prev = ids_cliente_erp_actualizados.get(id_cliente_erp_str)
         if not prev or fecha > prev:
             ids_cliente_erp_actualizados[id_cliente_erp_str] = fecha

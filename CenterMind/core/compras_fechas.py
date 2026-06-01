@@ -18,7 +18,9 @@ from core.objetivos_compradores import _norm_erp
 from core.tenant_tables import tenant_table_name
 from core.ultima_compra import PAGE, _venta_cuenta_como_compra
 
-_VENTAS_FECHAS_SELECT = "id_cliente_erp,fecha_factura,importe_final,anulado"
+_VENTAS_FECHAS_SELECT = (
+    "id_cliente_erp,fecha_factura,importe_final,anulado,nombre_cliente"
+)
 
 
 def _iso(d: Any) -> str | None:
@@ -166,17 +168,53 @@ def _top2_from_dias(dias: set[str]) -> tuple[str | None, str | None]:
     return _pair_validas(ultima, anterior)
 
 
+def _padron_nombres_por_erp(
+    dist_id: int,
+    erp_ids: Iterable[str],
+) -> dict[str, dict[str, str | None]]:
+    """id_cliente_erp → {nombre_fantasia, nombre_razon_social}."""
+    erp_list = list(dict.fromkeys(str(e).strip() for e in erp_ids if str(e or "").strip()))
+    if not erp_list:
+        return {}
+    cli_table = tenant_table_name("clientes_pdv_v2", dist_id)
+    out: dict[str, dict[str, str | None]] = {}
+    for i in range(0, len(erp_list), 400):
+        chunk = erp_list[i : i + 400]
+        try:
+            res = (
+                sb.table(cli_table)
+                .select("id_cliente_erp,nombre_fantasia,nombre_razon_social")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_erp", chunk)
+                .execute()
+            )
+        except Exception:
+            continue
+        for row in res.data or []:
+            erp = str(row.get("id_cliente_erp") or "").strip()
+            if erp:
+                out[erp] = {
+                    "nombre_fantasia": row.get("nombre_fantasia"),
+                    "nombre_razon_social": row.get("nombre_razon_social"),
+                }
+    return out
+
+
 def fetch_top2_fechas_compra_por_erp(
     dist_id: int,
     erp_ids: Iterable[str],
     *,
     ventana_dias: int = 730,
     fecha_hasta: date | None = None,
+    padron_nombres: dict[str, dict[str, str | None]] | None = None,
+    solo_nombre_coincidente: bool = False,
 ) -> dict[str, tuple[str | None, str | None]]:
     """
     Mapa ERP normalizado → (ultima, anterior) desde ventas_enriched_v2.
     Un día = una fecha distinta (varios comprobantes el mismo día cuentan como uno).
+    Si solo_nombre_coincidente: solo filas cuyo nomcli coincide con el padrón del ERP.
     """
+    from core.cliente_nombre_match import cliente_nombre_coincide_padron
     erp_raw: list[str] = []
     erp_norm_set: set[str] = set()
     for e in erp_ids:
@@ -190,6 +228,9 @@ def fetch_top2_fechas_compra_por_erp(
 
     if not erp_norm_set:
         return {}
+
+    if solo_nombre_coincidente and padron_nombres is None:
+        padron_nombres = _padron_nombres_por_erp(dist_id, erp_raw)
 
     hasta = fecha_hasta or date.today()
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
@@ -217,9 +258,18 @@ def fetch_top2_fechas_compra_por_erp(
             for row in batch:
                 if not _venta_cuenta_como_compra(row):
                     continue
-                n = _norm_erp(row.get("id_cliente_erp"))
+                erp_raw_row = str(row.get("id_cliente_erp") or "").strip()
+                n = _norm_erp(erp_raw_row)
                 if not n or n not in erp_norm_set:
                     continue
+                if solo_nombre_coincidente and padron_nombres is not None:
+                    pnom = padron_nombres.get(erp_raw_row) or padron_nombres.get(n) or {}
+                    if not cliente_nombre_coincide_padron(
+                        row.get("nombre_cliente"),
+                        nombre_fantasia=pnom.get("nombre_fantasia"),
+                        nombre_razon_social=pnom.get("nombre_razon_social"),
+                    ):
+                        continue
                 f = _iso(row.get("fecha_factura"))
                 if f:
                     dias_por_erp.setdefault(n, set()).add(f)
@@ -231,6 +281,120 @@ def fetch_top2_fechas_compra_por_erp(
     for n, dias in dias_por_erp.items():
         out[n] = _top2_from_dias(dias)
     return out
+
+
+def _tiene_ventas_sin_match_nombre(
+    dist_id: int,
+    id_cliente_erp: str,
+    padron_row: dict[str, str | None],
+) -> bool:
+    """Hay ventas en informe para el ERP pero ninguna con nomcli = padrón."""
+    from core.cliente_nombre_match import cliente_nombre_coincide_padron
+
+    erp = str(id_cliente_erp or "").strip()
+    if not erp:
+        return False
+    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    offset = 0
+    tiene_alguna = False
+    tiene_match = False
+    while True:
+        batch = (
+            sb.table(t_ventas)
+            .select("nombre_cliente,fecha_factura,importe_final,anulado")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_cliente_erp", erp)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        for row in batch:
+            if not _venta_cuenta_como_compra(row):
+                continue
+            tiene_alguna = True
+            if cliente_nombre_coincide_padron(
+                row.get("nombre_cliente"),
+                nombre_fantasia=padron_row.get("nombre_fantasia"),
+                nombre_razon_social=padron_row.get("nombre_razon_social"),
+            ):
+                tiene_match = True
+                break
+        if tiene_match or len(batch) < PAGE:
+            break
+        offset += PAGE
+    return tiene_alguna and not tiene_match
+
+
+def resolve_fecha_compra_operativa(
+    dist_id: int,
+    *,
+    id_cliente_erp: str | None,
+    nombre_fantasia: str | None,
+    nombre_razon_social: str | None,
+    fecha_padron: str | None,
+    fecha_padron_anterior: str | None = None,
+    top2_cache: dict[str, tuple[str | None, str | None]] | None = None,
+) -> tuple[str | None, str | None]:
+    """
+    Informe de ventas (nomcli = padrón) primero; si no hay match válido, padrón Chess.
+    Si hay ventas con otro nombre en el mismo ERP → sin fecha operativa (evita falso activo).
+    """
+    erp = str(id_cliente_erp or "").strip()
+    if not erp:
+        return _iso(fecha_padron), _iso(fecha_padron_anterior)
+
+    padron_row = {
+        "nombre_fantasia": nombre_fantasia,
+        "nombre_razon_social": nombre_razon_social,
+    }
+    norm = _norm_erp(erp) or erp
+    if top2_cache is not None:
+        v_u, v_a = top2_cache.get(norm, (None, None))
+    else:
+        top2 = fetch_top2_fechas_compra_por_erp(
+            dist_id,
+            [erp],
+            padron_nombres={erp: padron_row},
+            solo_nombre_coincidente=True,
+        )
+        v_u, v_a = top2.get(norm, (None, None))
+
+    if v_u:
+        return v_u, v_a
+    if _tiene_ventas_sin_match_nombre(dist_id, erp, padron_row):
+        return None, None
+    return _iso(fecha_padron), _iso(fecha_padron_anterior)
+
+
+def enrich_supervision_fechas_compra(dist_id: int, rows: list[dict]) -> None:
+    """In-place: fecha_ultima_compra operativa para mapa (informe validado → padrón)."""
+    if not rows:
+        return
+    erps = [str(r.get("id_cliente_erp") or "").strip() for r in rows if r.get("id_cliente_erp")]
+    padron_nombres = _padron_nombres_por_erp(dist_id, erps)
+    top2 = fetch_top2_fechas_compra_por_erp(
+        dist_id,
+        erps,
+        padron_nombres=padron_nombres,
+        solo_nombre_coincidente=True,
+    )
+    for r in rows:
+        erp = str(r.get("id_cliente_erp") or "").strip()
+        pnom = padron_nombres.get(erp) or {}
+        u, a = resolve_fecha_compra_operativa(
+            dist_id,
+            id_cliente_erp=erp,
+            nombre_fantasia=pnom.get("nombre_fantasia") or r.get("nombre_fantasia"),
+            nombre_razon_social=pnom.get("nombre_razon_social") or r.get("nombre_razon_social"),
+            fecha_padron=r.get("fecha_ultima_compra"),
+            fecha_padron_anterior=r.get("fecha_compra_anterior"),
+            top2_cache=top2,
+        )
+        r["fecha_ultima_compra_padron"] = r.get("fecha_ultima_compra")
+        r["fecha_compra_anterior_padron"] = r.get("fecha_compra_anterior")
+        r["fecha_ultima_compra"] = u
+        r["fecha_compra_anterior"] = a
 
 
 def update_cliente_fechas_compra(
@@ -306,7 +470,13 @@ def batch_update_fechas_compra_desde_ventas(
     if not erp_list:
         return 0
 
-    top2 = fetch_top2_fechas_compra_por_erp(dist_id, erp_list)
+    padron_nombres = _padron_nombres_por_erp(dist_id, erp_list)
+    top2 = fetch_top2_fechas_compra_por_erp(
+        dist_id,
+        erp_list,
+        padron_nombres=padron_nombres,
+        solo_nombre_coincidente=True,
+    )
     nuevas = nuevas_por_erp or {}
     cli_table = tenant_table_name("clientes_pdv_v2", dist_id)
     actualizados = 0
@@ -334,9 +504,17 @@ def batch_update_fechas_compra_desde_ventas(
             norm = _norm_erp(erp) or erp
             v_u, v_a = top2.get(norm, (None, None))
             nueva = nuevas.get(erp)
+            pnom = padron_nombres.get(erp) or {}
+            if nueva and not v_u:
+                nueva = None
             if nueva:
                 pad_u, pad_a = advance_fechas_compra(pad_u, pad_a, nueva)
-            ultima, anterior = resolve_fechas_compra_persistidas(pad_u, pad_a, v_u, v_a)
+            if v_u:
+                ultima, anterior = resolve_fechas_compra_persistidas(pad_u, pad_a, v_u, v_a)
+            elif _tiene_ventas_sin_match_nombre(dist_id, erp, pnom):
+                ultima, anterior = None, None
+            else:
+                ultima, anterior = resolve_fechas_compra_persistidas(pad_u, pad_a, None, None)
             cur_u, cur_a = _pair_validas(row.get("fecha_ultima_compra"), row.get("fecha_compra_anterior"))
             if cur_u == ultima and cur_a == anterior:
                 continue

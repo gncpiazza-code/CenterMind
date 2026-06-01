@@ -198,7 +198,7 @@ export function useSupervisionPanelQueries(
     refetchInterval: 60_000,
   });
 
-  // Bundle: carga snapshot sucursal-wide al entrar (no depende de vendedor seleccionado)
+  // Bundle: carga snapshot sucursal-wide al entrar (prefetch global vía PortalCacheOrchestrator)
   const bundleQuery = useQuery<SupervisionBundle>({
     ...supervisionBundleQueryOptions(distId, sucursalParam ?? null, null),
     enabled: !!distId,
@@ -213,12 +213,6 @@ export function useSupervisionPanelQueries(
     enabled: !!distId && !!selectedVendedorId,
     placeholderData: keepPreviousData,
   });
-
-  // Precarga bundle al entrar / cambiar sucursal (sin esperar vendedor)
-  useEffect(() => {
-    if (!distId) return;
-    prefetchSupervisionBundle(qc, distId, sucursalParam ?? null, null);
-  }, [distId, sucursalParam, qc]);
 
   // Tras ingesta CC (sync-status cambia), invalidar snapshots de supervisión
   useEffect(() => {

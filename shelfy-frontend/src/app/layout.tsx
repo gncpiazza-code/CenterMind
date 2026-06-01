@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 import { UIProvider } from "@/contexts/UIContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
-import { BundlePrefetchProvider } from "@/components/providers/BundlePrefetchProvider";
+import { PortalCacheProvider } from "@/components/providers/PortalCacheProvider";
 import { Toaster } from "@/components/ui/sonner";
 
 export default function RootLayout({
@@ -36,12 +36,12 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ReactQueryProvider>
           <AuthProvider>
-            <BundlePrefetchProvider>
+            <PortalCacheProvider>
               <UIProvider>
                 {children}
                 <Toaster richColors position="top-right" />
               </UIProvider>
-            </BundlePrefetchProvider>
+            </PortalCacheProvider>
           </AuthProvider>
         </ReactQueryProvider>
       </body>

@@ -6,6 +6,7 @@ import {
   Eye, LayoutDashboard, BarChart2, Target, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { usePortalCache } from "@/contexts/PortalCacheContext";
 
 interface MobileNavItem {
   href: string;
@@ -26,6 +27,7 @@ const ALL_NAV: MobileNavItem[] = [
 export function BottomNav() {
   const pathname = usePathname();
   const { user, hasPermiso } = useAuth();
+  const { prefetchRoute } = usePortalCache();
   const rol = user?.rol ?? "";
   const navItems = ALL_NAV.filter((i) => {
     const roleAllowed = i.roles.includes(rol);
@@ -45,6 +47,9 @@ export function BottomNav() {
           <Link
             key={href}
             href={href}
+            onTouchStart={() => prefetchRoute(href)}
+            onMouseEnter={() => prefetchRoute(href)}
+            onFocus={() => prefetchRoute(href)}
             className={`flex-1 min-w-[56px] flex flex-col items-center gap-0.5 py-2.5 text-[9px] font-semibold transition-colors
               ${active ? "text-[var(--shelfy-primary)]" : "text-[var(--shelfy-muted)]"}`}
           >

@@ -213,7 +213,7 @@ export function VisorPageContent() {
 
   const {
     data: visorBundle,
-    isLoading: loadingPendientes,
+    isLoading: loadingPendientesRaw,
     error: errorPend,
   } = useQuery({
     queryKey: bundleKeys.visor(distId),
@@ -224,6 +224,8 @@ export function VisorPageContent() {
     placeholderData: (prev) => prev,
     refetchInterval: 90_000,
   });
+
+  const loadingPendientes = loadingPendientesRaw && !visorBundle;
 
 
   // Extract data from bundle (field names adapted to match existing JSX)

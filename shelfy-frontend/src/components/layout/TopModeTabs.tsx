@@ -7,6 +7,7 @@ import {
   Eye, LayoutDashboard, BarChart2, Map, Target, Images, Radio, FileBarChart2, UserCog, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { usePortalCache } from "@/contexts/PortalCacheContext";
 import { cn } from "@/lib/utils";
 
 interface TabItem {
@@ -90,6 +91,7 @@ const TABS: TabItem[] = [
 export function TopModeTabs() {
   const pathname = usePathname();
   const { user, hasPermiso, effectiveDistribuidorId } = useAuth();
+  const { prefetchRoute } = usePortalCache();
   const rol = user?.rol ?? "";
   const isSuperadmin = !!user?.is_superadmin;
 
@@ -127,6 +129,8 @@ export function TopModeTabs() {
           <Link
             key={href}
             href={href}
+            onMouseEnter={() => prefetchRoute(href)}
+            onFocus={() => prefetchRoute(href)}
             className={cn(
               "flex flex-col items-center gap-1 px-3.5 py-2 rounded-xl transition-all duration-200 min-w-[64px] shrink-0 group",
               active

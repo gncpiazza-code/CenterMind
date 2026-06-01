@@ -111,21 +111,20 @@ export function prefetchEstadisticasCartas(
   prefetchEstadisticasCartasBundle(queryClient, distId, meses, sucursal);
 }
 
-/** Vecinos del modal + cartas del período al montar la página */
+/** Precarga solo detalle de vecinos (cartas bundle las cubre el orquestador). */
 export function useEstadisticasWarmCache(
   queryClient: QueryClient,
   distId: number,
   meses: string[],
-  sucursal: string | null,
+  _sucursal: string | null,
   neighborVendorIds: string[] = [],
 ) {
   useEffect(() => {
-    if (!distId || meses.length === 0) return;
-    prefetchEstadisticasCartas(queryClient, distId, meses, sucursal);
+    if (!distId || meses.length === 0 || neighborVendorIds.length === 0) return;
     for (const id of neighborVendorIds) {
       prefetchEstadisticasDetalle(queryClient, distId, id, meses);
     }
-  }, [queryClient, distId, meses, sucursal, neighborVendorIds.join("|")]);
+  }, [queryClient, distId, meses, neighborVendorIds.join("|")]);
 }
 
 // ── Bundle variant (Estadísticas Cartas via snapshot backend) ────────────────

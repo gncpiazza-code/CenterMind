@@ -147,10 +147,11 @@ export default function DashboardPage() {
     !!bundle?.meta?.revalidating &&
     ranking.length === 0 &&
     (kpis?.total ?? 0) === 0;
-  const loading = (loadingBundle && !bundle) || waitingSnapshot;
-  const loadingHero = loadingBundle && !bundle;
-  const periodLoading = fetchingBundle && waitingSnapshot;
-  const rankingLoading = loading || periodLoading;
+  // SWR: solo bloquear si no hay ningún dato (RAM o persist)
+  const loading = loadingBundle && !bundle;
+  const loadingHero = loading;
+  const periodLoading = fetchingBundle && waitingSnapshot && !!bundle;
+  const rankingLoading = loading;
   const error = errorBundle;
 
   // WS: invalida todas las queries del dashboard al recibir eventos

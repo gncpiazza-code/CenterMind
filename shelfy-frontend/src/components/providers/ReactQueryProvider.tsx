@@ -1,33 +1,52 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { useState } from "react";
+import {
+  createPortalPersister,
+  portalPersistOptions,
+  registerShelfyQueryClient,
+} from "@/lib/portal-cache-persist";
+import {
+  BUNDLE_GC_MS,
+  DEFAULT_QUERY_STALE_MS,
+} from "@/lib/query-cache-constants";
 
-// staleTime constants — import these in useQuery calls for bundle queries,
-// since TanStack Query v5 does not support per-key staleTime in defaultOptions.
-export const BUNDLE_STALE_MS = 5 * 60 * 1000;  // 5 min — bundles with backend snapshot
-export const BUNDLE_GC_MS = 30 * 60 * 1000;    // 30 min — bundle garbage collection
+// Re-export for backward compatibility
+export { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/lib/query-cache-constants";
 
-const DEFAULT_STALE = 60 * 1000;  // 1 min — all other queries
+function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: DEFAULT_QUERY_STALE_MS,
+        gcTime: BUNDLE_GC_MS,
+        retry: 1,
+        refetchOnWindowFocus: false,
+      },
+    },
+  });
+}
 
 export function ReactQueryProvider({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: DEFAULT_STALE,
-            gcTime: 30 * 60 * 1000,
-            retry: 1,
-            refetchOnWindowFocus: false,
-          },
-        },
-      })
-  );
+  const [queryClient] = useState(() => {
+    const client = makeQueryClient();
+    registerShelfyQueryClient(client);
+    return client;
+  });
+
+  const [persister] = useState(() => createPortalPersister());
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister,
+        ...portalPersistOptions,
+      }}
+    >
       {children}
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }

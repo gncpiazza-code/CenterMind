@@ -27,44 +27,61 @@ ESTADISTICAS_MAX_STALE_SECONDS = 900  # 15 min
 ESTADISTICAS_SERVE_STALE_SECONDS = 86400  # 24 h
 
 
-def _normalize_carta_radar(card: dict) -> dict:
-    """
-    Backfill radar axis values for legacy/partial snapshots.
+def _percent_from_raw(raw: dict, pct_key: str, fallback_num: str) -> float:
+    """% 0–100 desde raw_kpis; fallback calculado si el campo viene en 0."""
+    pct = float(raw.get(pct_key) or 0)
+    if pct > 0:
+        return min(100.0, pct)
+    pdvs = float(raw.get("pdvs") or 0)
+    if pdvs <= 0:
+        return 0.0
+    num = float(raw.get(fallback_num) or 0)
+    return min(100.0, num / pdvs * 100)
 
-    Production snapshots may contain `raw_kpis` + ideal metadata but an outdated
-    `radar` shape missing `pdvs_exhibidos` (CEX). In that case, reconstruct CEX
-    from `% cartera exhibida` to preserve expected rendering.
-    """
-    if not isinstance(card, dict):
-        return card
-    radar = card.get("radar")
-    if not isinstance(radar, dict):
-        return card
 
-    if "pdvs_exhibidos" in radar and radar.get("pdvs_exhibidos") is not None:
-        return card
-
-    raw = card.get("raw_kpis") or {}
-    if not isinstance(raw, dict):
-        return card
-
-    cobertura_real = float(raw.get("cobertura_pct") or 0)
-    ideal_target = 0.0
+def _ideal_pct_targets(card: dict) -> tuple[float, float]:
+    """Meta % del ideal para CEX (exhibición) y COB (compra), prioriza distribuidora."""
+    ideal_cex = 0.0
+    ideal_cob = 0.0
     for key in ("ideal_meta_dist", "ideal_meta_compania"):
         meta = card.get(key) or {}
         if not isinstance(meta, dict):
             continue
-        candidate = float(meta.get("pdvs_exhibidos") or 0)
-        if candidate > 0:
-            ideal_target = candidate
-            break
-    if ideal_target <= 0:
-        ideal_target = 100.0
+        if ideal_cex <= 0:
+            ideal_cex = float(meta.get("pdvs_exhibidos") or 0)
+        if ideal_cob <= 0:
+            ideal_cob = float(meta.get("cobertura") or 0)
+    if ideal_cex <= 0:
+        ideal_cex = 100.0
+    if ideal_cob <= 0:
+        ideal_cob = 100.0
+    return ideal_cex, ideal_cob
 
+
+def _normalize_carta_radar(card: dict) -> dict:
+    """
+    Recompone CEX/COB del radar: cumplimiento % real vs % meta del ideal.
+    """
+    if not isinstance(card, dict):
+        return card
+    radar = card.get("radar")
+    raw = card.get("raw_kpis") or {}
+    if not isinstance(radar, dict) or not isinstance(raw, dict):
+        return card
+
+    cob_exh_real = _percent_from_raw(raw, "cobertura_pct", "pdvs_exhibidos")
+    cob_compra_real = _percent_from_raw(raw, "cobertura_compra_pct", "compradores")
+    ideal_cex, ideal_cob = _ideal_pct_targets(card)
+
+    radar = dict(radar)
     radar["pdvs_exhibidos"] = max(
-        0,
-        min(100, round((cobertura_real / ideal_target) * 100)),
+        0, min(100, round(cob_exh_real / ideal_cex * 100)),
     )
+    radar["cobertura"] = max(
+        0, min(100, round(cob_compra_real / ideal_cob * 100)),
+    )
+    card = dict(card)
+    card["radar"] = radar
     return card
 
 

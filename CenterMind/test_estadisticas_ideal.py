@@ -13,6 +13,7 @@ from core.estadisticas_ideal import (
     repartir_pesos,
     score_vendedor,
     build_radar_normalized,
+    build_radar_scoring_normalized,
     ideal_meta_display_values,
     meta_periodo_kpi,
     normalize_kpi,
@@ -173,7 +174,7 @@ def test_build_radar_normalized_meta_cero_usa_fallback_visual():
     assert all(v <= 100 for v in radar.values())
 
 
-def test_build_radar_normalized_pdvs_exhibidos_usa_cobertura_pct():
+def test_build_radar_normalized_pdvs_exhibidos_vs_meta_ideal_pct():
     real = {
         "pdvs": 100, "altas": 0, "exhibiciones": 50, "pdvs_exhibidos": 40,
         "compradores": 0, "bultos": 0, "cobertura_pct": 40,

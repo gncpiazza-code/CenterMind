@@ -64,20 +64,26 @@ def test_normalize_cartas_dict_to_list():
     assert len(out) == 2
 
 
-def test_normalize_cartas_backfills_cex_radar_axis():
-    """Si falta radar.pdvs_exhibidos en snapshot viejo, se recompone desde cobertura_pct."""
+def test_normalize_cartas_syncs_percent_radar_vs_ideal():
+    """CEX/COB = % real del vendedor ÷ % meta del ideal (×100, tope 100)."""
     raw = [
         {
             "id_vendedor": "V1",
             "nombre": "Vendedor 1",
             "radar": {"pdvs": 80, "exhibiciones": 70},
-            "raw_kpis": {"cobertura_pct": 42.5},
-            "ideal_meta_dist": {"pdvs_exhibidos": 85},
+            "raw_kpis": {
+                "cobertura_pct": 42.5,
+                "cobertura_compra_pct": 91.0,
+                "pdvs": 100,
+                "compradores": 91,
+            },
+            "ideal_meta_dist": {"pdvs_exhibidos": 85, "cobertura": 100},
         }
     ]
     out = _normalize_cartas_payload(raw)
     assert isinstance(out, list)
     assert out[0]["radar"]["pdvs_exhibidos"] == 50
+    assert out[0]["radar"]["cobertura"] == 91
 
 
 def test_cartas_is_list():

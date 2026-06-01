@@ -129,14 +129,14 @@ def _display_meta(meta_kpis: dict, batch_caps: dict | None) -> dict:
     return out
 
 
-def build_radar_normalized(
+def build_radar_scoring_normalized(
     real_kpis: dict,
     meta_kpis: dict,
     ideal: dict | None = None,
     batch_caps: dict | None = None,
 ) -> dict:
     """
-    Radar 0–100: cumplimiento vs meta del ideal (con fallback visual si meta=0).
+    Radar 0–100: cumplimiento vs meta del ideal (score ponderado).
     real_kpis usa cobertura_pct / objetivos_pct; meta_kpis usa cobertura / objetivos.
     """
     dm = _display_meta(meta_kpis, batch_caps)
@@ -166,6 +166,22 @@ def build_radar_normalized(
         ),
         "objetivos": normalize_kpi(real_kpis.get("objetivos_pct", 0), dm.get("objetivos", 0)),
     }
+
+
+def build_radar_normalized(
+    real_kpis: dict,
+    meta_kpis: dict,
+    ideal: dict | None = None,
+    batch_caps: dict | None = None,
+) -> dict:
+    """
+    Radar 0–100: cumplimiento vs meta del ideal (UI y score).
+    CEX: cobertura_pct real ÷ meta cobertura_exhibicion_pct.
+    COB: cobertura_compra_pct real ÷ meta cobertura_pct del ideal.
+    """
+    return build_radar_scoring_normalized(
+        real_kpis, meta_kpis, ideal=ideal, batch_caps=batch_caps
+    )
 
 
 def diff_ideal(old: dict | None, new: dict) -> dict:

@@ -191,14 +191,16 @@ def _normalize_erp_code(value: Any) -> str:
 
 def _build_shadow_code_to_pdv_map(dist_id: int, exhibiciones: list[dict]) -> dict[str, int]:
     """
-    Resuelve cliente_sombra_codigo -> id_cliente (clientes_pdv_v2) por dist.
+    Resuelve cliente_sombra_codigo / nro_cliente -> id_cliente (clientes_pdv_v2) por dist.
+    Incluye filas con FK legacy incorrecta (sombra/nro siguen siendo autoritativos).
     Soporta variantes con/sin ceros a la izquierda.
     """
-    codes = {
-        _safe_text(ex.get("cliente_sombra_codigo")).strip()
-        for ex in exhibiciones
-        if _safe_int(ex.get("id_cliente_pdv")) is None and _safe_text(ex.get("cliente_sombra_codigo")).strip()
-    }
+    codes: set[str] = set()
+    for ex in exhibiciones:
+        for field in ("cliente_sombra_codigo", "nro_cliente"):
+            code = _safe_text(ex.get(field)).strip()
+            if code:
+                codes.add(code)
     if not codes:
         return {}
 
@@ -243,10 +245,7 @@ def _pdv_shadow_map_for_target(pdv_id: int, erp_variants: set[str]) -> dict[str,
 
 
 def _resolve_pdv_id_for_exhibition(ex: dict, shadow_to_pdv: dict[str, int]) -> int | None:
-    """Misma resolución que la grilla de clientes (FK directa → sombra/nro)."""
-    id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
-    if id_pdv is not None:
-        return id_pdv
+    """Misma resolución que la grilla: sombra/nro (ERP) antes que FK legacy."""
     for field in ("cliente_sombra_codigo", "nro_cliente"):
         code = _safe_text(ex.get(field)).strip()
         if not code:
@@ -254,6 +253,9 @@ def _resolve_pdv_id_for_exhibition(ex: dict, shadow_to_pdv: dict[str, int]) -> i
         hit = shadow_to_pdv.get(code) or shadow_to_pdv.get(_normalize_erp_code(code))
         if hit is not None:
             return hit
+    id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+    if id_pdv is not None:
+        return id_pdv
     return None
 
 
@@ -263,6 +265,10 @@ def _exhibition_belongs_to_pdv(
     erp_variants: set[str],
     shadow_to_pdv: dict[str, int],
 ) -> bool:
+    if _safe_int(ex.get("id_cliente_pdv")) == pdv_id:
+        return True
+    if _safe_int(ex.get("id_cliente")) == pdv_id:
+        return True
     resolved = _resolve_pdv_id_for_exhibition(ex, shadow_to_pdv)
     if resolved == pdv_id:
         return True
@@ -275,6 +281,29 @@ def _exhibition_belongs_to_pdv(
         if raw in erp_variants or _normalize_erp_code(raw) in erp_variants:
             return True
     return False
+
+
+def _ex_row_to_galeria_timeline_item(ex: dict) -> GaleriaTimelineItem:
+    return GaleriaTimelineItem(
+        id_exhibicion=int(ex["id_exhibicion"]),
+        url_foto=ex.get("url_foto_drive") or "",
+        estado=ex.get("estado") or "Pendiente",
+        timestamp_subida=ex.get("timestamp_subida") or "",
+        fecha_evaluacion=ex.get("evaluated_at"),
+        supervisor=ex.get("supervisor_nombre"),
+        comentario=ex.get("comentario_evaluacion"),
+        tipo_pdv=ex.get("tipo_pdv"),
+        reevaluaciones=[],
+    )
+
+
+def _galeria_directas_from_rows(ex_rows: list[dict]) -> list[GaleriaTimelineItem]:
+    ordered = sorted(
+        ex_rows,
+        key=lambda r: _safe_text(r.get("timestamp_subida")),
+        reverse=True,
+    )
+    return [_ex_row_to_galeria_timeline_item(ex) for ex in ordered if ex.get("id_exhibicion") is not None]
 
 
 _GALERIA_EX_TIMELINE_SELECT = (
@@ -1425,6 +1454,7 @@ def galeria_list_clientes_por_vendedor(
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         id_pdv_por_key: dict[str, int] = {}
+        raw_por_key: dict[str, list[dict]] = {}
         seen_logic: set[tuple[str, str]] = set()
 
         for ex in exhibiciones:
@@ -1433,10 +1463,11 @@ def galeria_list_clientes_por_vendedor(
                 continue
             key = f"pdv:{id_pdv}"
             id_pdv_por_key[key] = id_pdv
-            
+            raw_por_key.setdefault(key, []).append(ex)
+
             ts = _safe_text(ex.get("timestamp_subida")).strip()
             fecha = ts[:10] if ts else ""
-            
+
             if fecha:
                 logic_key = (key, fecha)
                 if logic_key in seen_logic:
@@ -1507,7 +1538,7 @@ def galeria_list_clientes_por_vendedor(
                 total_exhibiciones=0,
                 es_sin_referencia=False,
                 motivo_no_referencia=None,
-                exhibiciones_directas=[],
+                exhibiciones_directas=_galeria_directas_from_rows(raw_por_key.get(key, [])),
             )
 
         result: list[GaleriaClienteCard] = []
@@ -1552,7 +1583,7 @@ def galeria_list_clientes_por_vendedor(
                 total_exhibiciones=total,
                 es_sin_referencia=False,
                 motivo_no_referencia=None,
-                exhibiciones_directas=[],
+                exhibiciones_directas=_galeria_directas_from_rows(raw_por_key.get(key, [])),
             )
             # Si logró resolverse a PDV, pisa/actualiza la fila base para conservar coherencia.
             result_by_key[key] = row
@@ -1644,6 +1675,10 @@ def galeria_timeline_cliente(
 
         pdv_row = cpv_r.data[0]
         erp_variants = _erp_variants_from_pdv_row(pdv_row)
+        erp_variants |= {
+            str(id_cliente_pdv),
+            _normalize_erp_code(id_cliente_pdv),
+        }
         shadow_to_pdv = _pdv_shadow_map_for_target(id_cliente_pdv, erp_variants)
 
         integrante_ids: Optional[list[int]] = None

@@ -280,11 +280,13 @@ export function ExhibicionesTimelineDialog({
   canReevaluarCompania = false,
 }: Props) {
   const [zoomedImage, setZoomedImage] = useState<{ url: string; id: number } | null>(null);
-  const isDirectMode = (directItems?.length ?? 0) > 0;
+  const useEmbeddedTimeline = (directItems?.length ?? 0) > 0;
 
   const {
     data,
     isLoading,
+    isError,
+    error,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
@@ -301,13 +303,14 @@ export function ExhibicionesTimelineDialog({
       }),
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
-    enabled: open && !isDirectMode && idClientePdv != null,
+    enabled: open && !useEmbeddedTimeline && idClientePdv != null,
     staleTime: 30_000,
+    refetchOnMount: "always",
   });
 
   const timeline = useMemo(
-    () => (isDirectMode ? (directItems ?? []) : (data?.pages.flatMap((p) => p.items) ?? [])),
-    [data, directItems, isDirectMode]
+    () => (useEmbeddedTimeline ? (directItems ?? []) : (data?.pages.flatMap((p) => p.items) ?? [])),
+    [data, directItems, useEmbeddedTimeline]
   );
 
   const groupedTimeline = useMemo<TimelineGroup[]>(() => {
@@ -355,7 +358,7 @@ export function ExhibicionesTimelineDialog({
               {stats.aprobadas > 0 && <Badge className="text-[10px] bg-green-100 text-green-700 border border-green-200">{stats.aprobadas} aprobadas</Badge>}
               {stats.destacadas > 0 && <Badge className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200">{stats.destacadas} destacadas</Badge>}
               {stats.rechazadas > 0 && <Badge className="text-[10px] bg-red-100 text-red-700 border border-red-200">{stats.rechazadas} rechazadas</Badge>}
-              {isDirectMode && (
+              {motivoNoReferencia && (
                 <Badge className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
                   Sin referencia de PDV
                 </Badge>
@@ -368,7 +371,7 @@ export function ExhibicionesTimelineDialog({
         </DialogHeader>
 
         <ScrollArea className="flex-1 min-h-0 h-full px-6 py-4">
-          {isLoading ? (
+          {isLoading && !useEmbeddedTimeline ? (
             <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="flex gap-3">
@@ -376,6 +379,16 @@ export function ExhibicionesTimelineDialog({
                   <Skeleton className="flex-1 h-48 rounded-2xl" />
                 </div>
               ))}
+            </div>
+          ) : isError && !useEmbeddedTimeline ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 px-4 text-center">
+              <Images size={40} style={{ color: "var(--shelfy-muted)" }} />
+              <p className="text-sm font-semibold text-red-600">
+                No se pudo cargar el historial
+              </p>
+              <p className="text-xs" style={{ color: "var(--shelfy-muted)" }}>
+                {error instanceof Error ? error.message : "Error de red o servidor"}
+              </p>
             </div>
           ) : timeline.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">

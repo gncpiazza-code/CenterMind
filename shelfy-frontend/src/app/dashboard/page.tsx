@@ -22,7 +22,6 @@ import { DashboardFilterBar } from "@/components/dashboard/DashboardFilterBar";
 import { HeroCarousel } from "@/components/dashboard/HeroCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
 import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
-import { DashboardMobile } from "@/components/dashboard/DashboardMobile";
 
 import {
   type PeriodPreset,
@@ -39,7 +38,6 @@ import {
   type DashboardLayoutConfig,
 } from "@/lib/dashboard-layout";
 import { DashboardLayoutTuner } from "@/components/dashboard/DashboardLayoutTuner";
-import { useIsDesktop } from "@/hooks/useViewport";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,7 +54,6 @@ const sectionVariants = {
 export default function DashboardPage() {
   const { user, effectiveDistribuidorId } = useAuth();
   const queryClient = useQueryClient();
-  const isDesktop = useIsDesktop();
 
   // Período
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("mes");
@@ -225,25 +222,6 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {!isDesktop ? (
-            <DashboardMobile
-              kpis={kpis}
-              evolucion={evolucion}
-              ranking={rankingFiltrado}
-              ultimasHero={ultimasHero}
-              loading={loading && !kpis}
-              isDark={isDark}
-              periodPreset={periodPreset}
-              customYear={customYear}
-              customMonth={customMonth}
-              onPeriodChange={handlePeriodChange}
-              sucursalFiltro={sucursalFiltro}
-              sucursales={sucursales}
-              onSucursal={setSucursalFiltro}
-              onToggleTheme={toggleTheme}
-            />
-          ) : (
-          <>
           {/* KPIs (izq) + filtros/tema/fullscreen en columna (der) */}
           <motion.div
             className="shrink-0 mb-1.5 flex flex-col sm:flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
@@ -343,8 +321,6 @@ export default function DashboardPage() {
               </motion.div>
             </div>
           </div>
-          </>
-          )}
 
         </main>
       </div>

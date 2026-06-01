@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import {
   keepPreviousData,
   useQuery,
-  useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
 import {
@@ -14,7 +13,6 @@ import {
   fetchEstadisticasVendedorDetalle,
   fetchEstadisticasBundle,
   type EstadisticasBundle,
-  type VendorCartaResumen,
 } from "@/lib/api";
 import { estadisticasKeys } from "@/lib/estadisticas-query-keys";
 import { bundleKeys } from "@/lib/query-keys";
@@ -132,17 +130,6 @@ export function useEstadisticasWarmCache(
 
 // ── Bundle variant (Estadísticas Cartas via snapshot backend) ────────────────
 
-function cartaTieneTopLocalidades(c: VendorCartaResumen): boolean {
-  return Boolean(c.top_localidades?.trim() || c.raw_kpis?.top_localidades?.trim());
-}
-
-function cartasNecesitanRefreshLocalidades(
-  cartas: VendorCartaResumen[] | undefined,
-): boolean {
-  if (!cartas?.length) return false;
-  return !cartas.some(cartaTieneTopLocalidades);
-}
-
 export function cartasBundleQueryOptions(
   distId: number,
   meses: string[],
@@ -166,26 +153,7 @@ export function useEstadisticasCartasBundle(
   meses: string[],
   sucursal: string | null,
 ) {
-  const queryClient = useQueryClient();
-  const localidadesRefreshScope = useRef<string | null>(null);
-  const scopeKey = `${distId}|${meses.join(",")}|${sucursal ?? ""}`;
-
-  const query = useQuery(cartasBundleQueryOptions(distId, meses, sucursal));
-
-  useEffect(() => {
-    const cartas = query.data?.cartas;
-    if (!cartas?.length) return;
-    if (localidadesRefreshScope.current === scopeKey) return;
-    if (!cartasNecesitanRefreshLocalidades(cartas)) return;
-
-    localidadesRefreshScope.current = scopeKey;
-    void queryClient.fetchQuery({
-      ...cartasBundleQueryOptions(distId, meses, sucursal),
-      queryFn: () => fetchEstadisticasBundle(distId, meses, sucursal, true),
-    });
-  }, [query.data, distId, meses, sucursal, queryClient, scopeKey]);
-
-  return query;
+  return useQuery(cartasBundleQueryOptions(distId, meses, sucursal));
 }
 
 export function prefetchEstadisticasCartasBundle(

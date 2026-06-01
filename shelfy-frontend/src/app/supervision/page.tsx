@@ -358,12 +358,12 @@ export default function SupervisionPage() {
                 >
                 {/* ── NIVEL 3: 4 KPI cards — Deuda Total expande lateral (→) ── */}
                 <SupervisionRevealItem className="shrink-0">
-                <div className="grid grid-cols-2 md:flex md:flex-row gap-3 items-stretch min-w-0">
+                <div className="flex flex-row gap-3 items-stretch min-w-0">
 
                   {/* Card 1: Deuda Total — desglose empuja cards 2–4 a la derecha */}
                   <div
                     className={cn(
-                      "col-span-2 md:col-span-1 flex min-w-0 transition-[flex-grow,flex-basis] duration-300 ease-out",
+                      "flex min-w-0 transition-[flex-grow,flex-basis] duration-300 ease-out",
                       ccResumenExpanded && showCcResumen ? "flex-[1.35_1_0%]" : "flex-[1_1_0%]",
                     )}
                   >
@@ -486,7 +486,7 @@ export default function SupervisionPage() {
                       trendUnit="pdv"
                     />
                   </div>
-                  <div className="col-span-2 md:col-span-1 flex-[1_1_0%] min-w-0 transition-[flex-grow] duration-300 ease-out">
+                  <div className="flex-[1_1_0%] min-w-0 transition-[flex-grow] duration-300 ease-out">
                     <AnimatedKpiCard
                       label="Dias de Atraso Promedio"
                       uppercaseLabel={false}
@@ -504,7 +504,7 @@ export default function SupervisionPage() {
 
                 {/* ── NIVEL 4: Paneles 40/60 ─────────────────────────────── */}
                 <SupervisionRevealItem className={SUPERVISION_PANELS_VIEWPORT_CLASS}>
-                <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-5 items-stretch flex-1 min-h-0 h-full">
+                <div className={SUPERVISION_PANELS_ROW_CLASS}>
 
                   {/* ── Izquierda 40%: Tabla CC ──────────────────────────── */}
                   <div className={SUPERVISION_PANEL_COLUMN_CLASS}>

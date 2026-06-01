@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   useQuery,
   useQueryClient,
@@ -75,9 +75,23 @@ export function useVisorPdvPrefetch(
   usaContextoErp: boolean,
 ) {
   const queryClient = useQueryClient();
+  const lastPrefetchKeyRef = useRef<string>("");
 
   useEffect(() => {
     if (!distId) return;
+    if (!activeQueue.length && !allGrupos.length) return;
+
+    const activeSignature = activeQueue
+      .slice(0, 24)
+      .map((g) => visorErpFromGrupo(g))
+      .join("|");
+    const allSignature = allGrupos
+      .slice(0, 24)
+      .map((g) => visorErpFromGrupo(g))
+      .join("|");
+    const prefetchKey = `${distId}:${currentIndex}:${usaContextoErp ? 1 : 0}:${activeQueue.length}:${allGrupos.length}:${activeSignature}:${allSignature}`;
+    if (prefetchKey === lastPrefetchKeyRef.current) return;
+    lastPrefetchKeyRef.current = prefetchKey;
 
     const seen = new Set<string>();
     const ordered: GrupoPendiente[] = [];

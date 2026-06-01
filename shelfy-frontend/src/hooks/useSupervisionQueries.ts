@@ -150,9 +150,13 @@ export function usePrefetchDeudoresBatch(
 ) {
   const qc = useQueryClient();
   const key = idClienteErps.slice(0, 8).join("|");
+  const lastPrefetchKeyRef = useRef<string>("");
 
   useEffect(() => {
     if (!enabled || !distId || !key) return;
+    const prefetchKey = `${distId}:${key}`;
+    if (prefetchKey === lastPrefetchKeyRef.current) return;
+    lastPrefetchKeyRef.current = prefetchKey;
     for (const erp of idClienteErps.slice(0, 8)) {
       void prefetchDeudorDetalle(qc, distId, erp);
     }

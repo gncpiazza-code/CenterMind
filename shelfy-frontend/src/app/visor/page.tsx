@@ -265,12 +265,12 @@ export function VisorPageContent() {
     new Set(grupos.map((g) => (g.sucursal || "Sin sucursal").trim()).filter(Boolean)),
   ).sort((a, b) => a.localeCompare(b, "es"));
 
-  const filtrados = (() => {
+  const filtrados = useMemo(() => {
     let base = filtroVendedor === "Todos" ? grupos : grupos.filter((g) => g.vendedor === filtroVendedor);
     base = filtroSucursal === "Todas" ? base : base.filter((g) => (g.sucursal || "Sin sucursal") === filtroSucursal);
     if (visorTab === "objetivo") base = base.filter((g) => (g.fotos ?? []).some((f) => f.es_objetivo));
     return base;
-  })();
+  }, [grupos, filtroVendedor, filtroSucursal, visorTab]);
 
   const grupo = filtrados[currentIndex] ?? null;
 
@@ -358,8 +358,9 @@ export function VisorPageContent() {
 
   useEffect(() => {
     if (!filtrados.length) return;
+    if (isMdUp) return;
     preloadVisorQueueIdle(filtrados);
-  }, [filtrados]);
+  }, [filtrados, isMdUp]);
 
   const navigateToFoto = useCallback(
     (idx: number) => {

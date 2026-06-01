@@ -147,7 +147,7 @@ async def lifespan(app: FastAPI):
     # Respaldo si el RPA no llamó a /api/v1/ops/motor-digest (horarios AR aprox. post-corrida)
     for h, m in ((9, 0), (12, 0), (16, 0), (19, 0)):
         scheduler.add_job(_digest_padron, "cron", hour=h, minute=m, id=f"digest_padron_{h:02d}{m:02d}")
-    for h, m in ((8, 0), (15, 30)):
+    for h, m in ((8, 0), (15, 30), (21, 0)):
         scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
 
     def _lanzar_objetivos_programados():

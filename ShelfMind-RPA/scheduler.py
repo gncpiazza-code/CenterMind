@@ -8,7 +8,7 @@ Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. 
 
 Horarios productivos (AR):
   - Padrón: 08:30, 11:30, 15:30, 18:30 — **un job por tenant** (escalonado) + catch-up
-  - Cuentas corrientes: 07:00, 14:30
+  - Cuentas corrientes: 07:00, 14:30, 20:00
   - Informe de ventas enriquecido: 09:30, 13:00, 17:00, 21:00 (cierre)
 
 Padrón: lock de archivo serializa Consolido; tenants chicos primero; catch-up si falta motor_run.
@@ -38,8 +38,8 @@ logger = logging.getLogger("SCHEDULER")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Cuentas corrientes (AR): 07:00, 14:30
-_SLOTS_CUENTAS = [(7, 0), (14, 30)]
+# Cuentas corrientes (AR): 07:00, 14:30, 20:00
+_SLOTS_CUENTAS = [(7, 0), (14, 30), (20, 0)]
 # Padrón (AR): 08:30, 11:30, 15:30, 18:30
 _SLOTS_PADRON = [(8, 30), (11, 30), (15, 30), (18, 30)]
 # Informe de ventas enriquecido (AR): 09:30, 13:00, 17:00, 21:00

@@ -5,7 +5,7 @@
 #   - Railway config file: /ShelfMind-RPA/railway.toml
 #
 # watchPatterns: solo redeploy si cambia algo del motor RPA (paths desde / del repo).
-# Docs: https://docs.railway.com/guides/build-configuration#configure-watch-paths
+# Redeploy trigger: 2026-06-01 CC corrida 20:00 AR
 
 [build]
 builder = "dockerfile"

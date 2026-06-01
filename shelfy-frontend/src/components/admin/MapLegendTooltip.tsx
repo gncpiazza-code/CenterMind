@@ -111,7 +111,7 @@ export function MapLegendTooltip() {
               <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Latencia de datos</h3>
               <p className="text-[12px] text-muted-foreground">
                 Los datos del padrón se actualizan <strong>una vez por día</strong> a las 07:00 (hora Argentina).
-                Las cuentas corrientes se actualizan dos veces al día (07:00 y 14:30).
+                Las cuentas corrientes se actualizan tres veces al día (07:00, 14:30 y 20:00).
                 Las exhibiciones son en tiempo real.
               </p>
             </section>

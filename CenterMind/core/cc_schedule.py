@@ -1,11 +1,11 @@
-"""Horarios RPA de cuentas corrientes (AR) — scheduler 07:00 y 14:30."""
+"""Horarios RPA de cuentas corrientes (AR) — scheduler 07:00, 14:30 y 20:00."""
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
-CC_RUN_SLOTS_AR = ((7, 0), (14, 30))
+CC_RUN_SLOTS_AR = ((7, 0), (14, 30), (20, 0))
 
 
 def next_cc_run_ar(now: datetime | None = None) -> datetime:

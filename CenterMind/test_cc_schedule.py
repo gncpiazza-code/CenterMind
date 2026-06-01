@@ -14,6 +14,19 @@ def test_next_cc_run_after_morning_slot():
     assert nxt.hour == 14 and nxt.minute == 30
 
 
+def test_next_cc_run_after_afternoon_slot():
+    now = datetime(2026, 5, 30, 16, 0, tzinfo=AR_TZ)
+    nxt = next_cc_run_ar(now)
+    assert nxt.hour == 20 and nxt.minute == 0
+
+
+def test_next_cc_run_after_evening_rolls_to_morning():
+    now = datetime(2026, 5, 30, 21, 0, tzinfo=AR_TZ)
+    nxt = next_cc_run_ar(now)
+    assert nxt.date().day == 31
+    assert nxt.hour == 7 and nxt.minute == 0
+
+
 def test_next_cc_run_before_morning():
     now = datetime(2026, 5, 30, 6, 0, tzinfo=AR_TZ)
     nxt = next_cc_run_ar(now)

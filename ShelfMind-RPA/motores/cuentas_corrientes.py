@@ -6,7 +6,7 @@ Motor 3: Reporte de Saldos Totales (Cuentas Corrientes) — CHESS ERP
 
 ¿Qué hace?
 ----------
-En producción, el horario lo define `scheduler.py` (07:30 y 17:30 AR) o `runner.py cuentas` manual.
+En producción, el horario lo define `scheduler.py` (07:00, 14:30 y 20:00 AR) o `runner.py cuentas` manual.
 
 **Por defecto (`run()`):** delega en `motores/chess_cuentas_v2` — mismo login y Procesar; intenta
 payload desde JSON de red y si no, export Excel + parser (igual que antes). `RPA_CUENTAS_ENGINE=v1`

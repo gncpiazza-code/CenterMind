@@ -34,7 +34,7 @@
 
 ## Horarios (scheduler)
 
-Horarios en `scheduler.py` (hora **Argentina**): padrón 08:30/11:30/15:30/18:30; cuentas 07:00/14:30; **informe ventas** 09:30/13:00/17:00/21:00 (rolling7). El motor CHESS comprobantes (`runner.py ventas`) está retirado.
+Horarios en `scheduler.py` (hora **Argentina**): padrón 08:30/11:30/15:30/18:30; cuentas 07:00/14:30/20:00; **informe ventas** 09:30/13:00/17:00/21:00 (rolling7). El motor CHESS comprobantes (`runner.py ventas`) está retirado.
 
 ## Notas
 

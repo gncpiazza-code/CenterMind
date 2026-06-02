@@ -473,3 +473,58 @@ class GroupBindingSuggestResponse(BaseModel):
     prefetch_reason: Optional[str] = None
     vendedor_candidates: list[BindingFieldSuggestionVendor] = []
     uid_candidates: list[BindingFieldSuggestionUid] = []
+
+
+# ── Galería Mapa ──────────────────────────────────────────────────────────────
+
+class GaleriaMapaPin(BaseModel):
+    id_cliente: int
+    nombre_cliente: str
+    latitud: float
+    longitud: float
+    total_exhibiciones: int
+    cover_url: Optional[str] = None
+    estado_cover: str = "Pendiente"
+
+
+class GaleriaMapaResponse(BaseModel):
+    pins: List[GaleriaMapaPin]
+    sin_coords_count: int
+    total_vendedor: int
+
+
+class GaleriaFotoPublicacion(BaseModel):
+    id_exhibicion: int
+    url_foto: str
+    estado: str
+    timestamp_subida: str
+    comentario: Optional[str] = None
+    supervisor: Optional[str] = None
+
+
+class GaleriaPublicacion(BaseModel):
+    dia_ar: str  # YYYY-MM-DD
+    fotos: List[GaleriaFotoPublicacion]
+    estado_dia: str
+    total_fotos: int
+
+
+class GaleriaPublicacionesResponse(BaseModel):
+    id_cliente: int
+    nombre_cliente: str
+    publicaciones: List[GaleriaPublicacion]
+
+
+class GaleriaSinCoordsItem(BaseModel):
+    id_cliente: int
+    nombre_cliente: str
+    total_exhibiciones: int
+
+
+class GaleriaVecinoResponse(BaseModel):
+    id_cliente: int
+    nombre_cliente: str
+    latitud: float
+    longitud: float
+    distancia_km: float
+    publicaciones: List[GaleriaPublicacion]

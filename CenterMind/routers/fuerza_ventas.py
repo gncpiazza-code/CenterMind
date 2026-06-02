@@ -16,7 +16,9 @@ Rutas:
   GET  /api/galeria/cliente/{id_cliente_pdv}/timeline
 """
 import logging
+import math
 import unicodedata
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import uuid4
@@ -40,6 +42,10 @@ from models.schemas import (
     GaleriaTimelineItem,
     GaleriaTimelineResponse,
     GaleriaReevaluacionItem,
+    GaleriaMapaPin,
+    GaleriaMapaResponse,
+    GaleriaSinCoordsItem,
+    GaleriaVecinoResponse,
     BindingSuggestion,
     BindingSuggestionResolve,
     GroupBindingApplyRequest,
@@ -91,6 +97,19 @@ def _safe_int(value) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+_ESTADO_SCORE_MAP: dict[str, int] = {"Destacado": 3, "Aprobado": 2, "Rechazado": 1, "Pendiente": 0}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distancia en km entre dos puntos geográficos (fórmula haversine)."""
+    R = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def _build_integrante_vendedor_map(dist_id: int, vendedores: list[dict]) -> dict[int, int]:
@@ -1637,7 +1656,8 @@ def _check_fv_access(user_payload: dict, dist_id: int) -> None:
 
     if is_super:
         return
-    if rol == "directorio":
+    from core.roles import normalize_rol
+    if normalize_rol(rol) == "compania":
         check_dist_permission(user_payload, dist_id)
         return
     # Excepción ALOMA (dist_id=4): admin y supervisor
@@ -1731,9 +1751,10 @@ def galeria_timeline_cliente(
         has_more = end < len(sorted_rows)
 
         # Enriquecer con re-evaluaciones de compañía si el usuario es Compañía
+        from core.roles import normalize_rol
         is_compania = (
             payload.get("is_superadmin")
-            or (payload.get("rol") or "").lower() in ("superadmin", "directorio")
+            or normalize_rol(payload.get("rol") or "") in ("superadmin", "compania")
         )
         reevaluaciones_by_ex: dict[int, list[GaleriaReevaluacionItem]] = {}
         if is_compania and page_rows:
@@ -1803,6 +1824,263 @@ def galeria_timeline_cliente(
             status_code=500,
             detail=f"galeria_timeline_error: {type(e).__name__}: {e}",
         )
+
+
+# ── Galería Mapa — endpoints ──────────────────────────────────────────────────
+
+@router.get("/api/galeria/mapa/vendedor/{id_vendedor}", tags=["Galería"])
+def galeria_mapa_vendedor_bbox(
+    id_vendedor: int,
+    dist_id: int = Query(...),
+    lat_min: float = Query(...),
+    lng_min: float = Query(...),
+    lat_max: float = Query(...),
+    lng_max: float = Query(...),
+    zoom: int = Query(10, ge=1, le=20),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
+    """PDVs con exhibición del vendedor dentro del bbox, con coords válidas."""
+    check_dist_permission(payload, dist_id)
+    qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
+    qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
+
+    # 1. Obtener integrante_ids del vendedor
+    vend_r = sb.table(tenant_table_name("vendedores_v2", dist_id)).select(
+        "id_vendedor, nombre_erp, id_vendedor_erp"
+    ).eq("id_distribuidor", dist_id).execute()
+    integ_map = _build_integrante_vendedor_map(dist_id, vend_r.data or [])
+    integrante_ids = [iid for iid, vid in integ_map.items() if vid == id_vendedor]
+
+    if not integrante_ids:
+        return GaleriaMapaResponse(pins=[], sin_coords_count=0, total_vendedor=0)
+
+    # 2. Fetch exhibiciones del vendedor con paginación
+    ex_rows = _fetch_galeria_exhibiciones_for_scope(dist_id, integrante_ids, desde=desde, hasta=hasta)
+
+    # Aplicar filtros
+    if qa_filter and qa_iids:
+        ex_rows = [ex for ex in ex_rows if _safe_int(ex.get("id_integrante")) not in qa_iids]
+    if estado:
+        ex_rows = [ex for ex in ex_rows if ex.get("estado") == estado]
+
+    # 3. Contar exhibiciones por id_cliente_pdv (cliente_key resolution simple)
+    count_by_pdv: dict[int, int] = defaultdict(int)
+    cover_by_pdv: dict[int, dict] = {}
+    for ex in ex_rows:
+        pdv_id = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+        if pdv_id is None:
+            continue
+        count_by_pdv[pdv_id] += 1
+        existing = cover_by_pdv.get(pdv_id)
+        score = _ESTADO_SCORE_MAP.get(ex.get("estado") or "Pendiente", 0)
+        if existing is None or score > existing["score"]:
+            cover_by_pdv[pdv_id] = {"score": score, "url": ex.get("url_foto_drive"), "estado": ex.get("estado") or "Pendiente"}
+
+    pdv_ids = list(count_by_pdv.keys())
+    if not pdv_ids:
+        return GaleriaMapaResponse(pins=[], sin_coords_count=0, total_vendedor=0)
+
+    # 4. Fetch PDV data con coords
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    pdv_rows: list[dict] = []
+    PAGE = 1000
+    pdv_offset = 0
+    while True:
+        batch = (
+            sb.table(t_clientes)
+            .select("id_cliente, nombre_cliente, nombre_fantasia, latitud, longitud")
+            .eq("id_distribuidor", dist_id)
+            .in_("id_cliente", pdv_ids[pdv_offset:pdv_offset + PAGE])
+            .execute().data or []
+        )
+        pdv_rows.extend(batch)
+        if len(batch) < PAGE or pdv_offset + PAGE >= len(pdv_ids):
+            break
+        pdv_offset += PAGE
+
+    # 5. Separar con coords vs sin coords; filtrar por bbox
+    pins = []
+    sin_coords = 0
+    for pdv in pdv_rows:
+        lat = pdv.get("latitud")
+        lng = pdv.get("longitud")
+        pdv_id = pdv["id_cliente"]
+        if lat is None or lng is None or (lat == 0.0 and lng == 0.0):
+            sin_coords += 1
+            continue
+        if not (lat_min <= lat <= lat_max and lng_min <= lng <= lng_max):
+            continue
+        cover = cover_by_pdv.get(pdv_id, {})
+        nombre = pdv.get("nombre_fantasia") or pdv.get("nombre_cliente") or ""
+        pins.append(GaleriaMapaPin(
+            id_cliente=pdv_id,
+            nombre_cliente=nombre,
+            latitud=lat,
+            longitud=lng,
+            total_exhibiciones=count_by_pdv.get(pdv_id, 0),
+            cover_url=cover.get("url"),
+            estado_cover=cover.get("estado", "Pendiente"),
+        ))
+
+    return GaleriaMapaResponse(pins=pins, sin_coords_count=sin_coords, total_vendedor=len(pdv_ids))
+
+
+@router.get("/api/galeria/mapa/vendedor/{id_vendedor}/sin-coords", tags=["Galería"])
+def galeria_sin_coords_vendedor(
+    id_vendedor: int,
+    dist_id: int = Query(...),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
+    """PDVs con exhibición del vendedor pero sin coordenadas válidas."""
+    check_dist_permission(payload, dist_id)
+    qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
+    qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
+
+    vend_r = sb.table(tenant_table_name("vendedores_v2", dist_id)).select(
+        "id_vendedor, nombre_erp, id_vendedor_erp"
+    ).eq("id_distribuidor", dist_id).execute()
+    integ_map = _build_integrante_vendedor_map(dist_id, vend_r.data or [])
+    integrante_ids = [iid for iid, vid in integ_map.items() if vid == id_vendedor]
+    if not integrante_ids:
+        return []
+
+    ex_rows = _fetch_galeria_exhibiciones_for_scope(dist_id, integrante_ids, desde=desde, hasta=hasta)
+    if qa_filter and qa_iids:
+        ex_rows = [ex for ex in ex_rows if _safe_int(ex.get("id_integrante")) not in qa_iids]
+    if estado:
+        ex_rows = [ex for ex in ex_rows if ex.get("estado") == estado]
+
+    count_by_pdv: dict[int, int] = defaultdict(int)
+    for ex in ex_rows:
+        pdv_id = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+        if pdv_id is not None:
+            count_by_pdv[pdv_id] += 1
+
+    pdv_ids = list(count_by_pdv.keys())
+    if not pdv_ids:
+        return []
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    pdv_rows: list[dict] = []
+    PAGE = 1000
+    pdv_offset = 0
+    while True:
+        batch = (
+            sb.table(t_clientes)
+            .select("id_cliente, nombre_cliente, nombre_fantasia, latitud, longitud")
+            .eq("id_distribuidor", dist_id)
+            .in_("id_cliente", pdv_ids[pdv_offset:pdv_offset + PAGE])
+            .execute().data or []
+        )
+        pdv_rows.extend(batch)
+        if len(batch) < PAGE or pdv_offset + PAGE >= len(pdv_ids):
+            break
+        pdv_offset += PAGE
+
+    result = []
+    for pdv in pdv_rows:
+        lat = pdv.get("latitud")
+        lng = pdv.get("longitud")
+        if lat is None or lng is None or (lat == 0.0 and lng == 0.0):
+            nombre = pdv.get("nombre_fantasia") or pdv.get("nombre_cliente") or ""
+            result.append(GaleriaSinCoordsItem(
+                id_cliente=pdv["id_cliente"],
+                nombre_cliente=nombre,
+                total_exhibiciones=count_by_pdv.get(pdv["id_cliente"], 0),
+            ))
+    return result
+
+
+@router.get("/api/galeria/mapa/vendedor/{id_vendedor}/vecino", tags=["Galería"])
+def galeria_mapa_vecino(
+    id_vendedor: int,
+    dist_id: int = Query(...),
+    from_cliente: int = Query(...),
+    lat: float = Query(...),
+    lng: float = Query(...),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    estado: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
+    """Retorna el PDV con exhibición más cercano (haversine) al punto dado."""
+    check_dist_permission(payload, dist_id)
+    qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
+    qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
+
+    vend_r = sb.table(tenant_table_name("vendedores_v2", dist_id)).select(
+        "id_vendedor, nombre_erp, id_vendedor_erp"
+    ).eq("id_distribuidor", dist_id).execute()
+    integ_map = _build_integrante_vendedor_map(dist_id, vend_r.data or [])
+    integrante_ids = [iid for iid, vid in integ_map.items() if vid == id_vendedor]
+    if not integrante_ids:
+        raise HTTPException(status_code=404, detail="Vendedor sin integrantes")
+
+    ex_rows = _fetch_galeria_exhibiciones_for_scope(dist_id, integrante_ids, desde=desde, hasta=hasta)
+    if qa_filter and qa_iids:
+        ex_rows = [ex for ex in ex_rows if _safe_int(ex.get("id_integrante")) not in qa_iids]
+    if estado:
+        ex_rows = [ex for ex in ex_rows if ex.get("estado") == estado]
+
+    rows_by_pdv: dict[int, list] = defaultdict(list)
+    for ex in ex_rows:
+        pdv_id = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+        if pdv_id is not None and pdv_id != from_cliente:
+            rows_by_pdv[pdv_id].append(ex)
+
+    pdv_ids = list(rows_by_pdv.keys())
+    if not pdv_ids:
+        raise HTTPException(status_code=404, detail="No hay PDVs vecinos")
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    pdv_rows: list[dict] = []
+    PAGE = 1000
+    pdv_offset = 0
+    while True:
+        batch = (
+            sb.table(t_clientes)
+            .select("id_cliente, nombre_cliente, nombre_fantasia, latitud, longitud")
+            .eq("id_distribuidor", dist_id)
+            .in_("id_cliente", pdv_ids[pdv_offset:pdv_offset + PAGE])
+            .execute().data or []
+        )
+        pdv_rows.extend(batch)
+        if len(batch) < PAGE or pdv_offset + PAGE >= len(pdv_ids):
+            break
+        pdv_offset += PAGE
+
+    best = None
+    best_dist = float("inf")
+    for pdv in pdv_rows:
+        pdv_lat = pdv.get("latitud")
+        pdv_lng = pdv.get("longitud")
+        if pdv_lat is None or pdv_lng is None or (pdv_lat == 0.0 and pdv_lng == 0.0):
+            continue
+        d = _haversine_km(lat, lng, pdv_lat, pdv_lng)
+        if d < best_dist:
+            best_dist = d
+            best = pdv
+
+    if best is None:
+        raise HTTPException(status_code=404, detail="No hay PDVs vecinos con coordenadas")
+
+    from core.galeria_publicaciones import group_exhibiciones_publicaciones
+    publicaciones = group_exhibiciones_publicaciones(rows_by_pdv[best["id_cliente"]])
+    nombre = best.get("nombre_fantasia") or best.get("nombre_cliente") or ""
+    return GaleriaVecinoResponse(
+        id_cliente=best["id_cliente"],
+        nombre_cliente=nombre,
+        latitud=best["latitud"],
+        longitud=best["longitud"],
+        distancia_km=round(best_dist, 2),
+        publicaciones=publicaciones,
+    )
 
 
 # ── Binding Queue — endpoints ─────────────────────────────────────────────────

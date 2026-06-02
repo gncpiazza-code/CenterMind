@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.config import JWT_AVAILABLE, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS, _jwt
+from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from core.security import verify_auth
 from db import sb
 from models.schemas import LoginRequest, TokenResponse
@@ -48,21 +49,23 @@ def auth_login(req: LoginRequest):
                 if d_data.get("estado_operativo") != "Activo":
                     logger.warning(f"⚠️ Tenant {dist_id} logueando en modo lectura (Bloqueado)")
 
-        # Fetch role permissions from roles_permisos table
+        # Normaliza 'directorio' → 'compania' para compat con DB pre-migración.
+        # El JWT siempre emite el nombre canónico del rol.
+        rol_normalizado = normalize_rol(user["rol"])
+        is_superadmin = bool(user.get("is_superadmin") or rol_normalizado in ROLES_COMPANIA_SCOPE)
+
+        # Fetch role permissions from roles_permisos table (con rol ya normalizado)
         permisos: dict = {}
         try:
-            permisos_res = sb.table("roles_permisos").select("permiso_key, valor").eq("rol", user["rol"]).execute()
+            permisos_res = sb.table("roles_permisos").select("permiso_key, valor").eq("rol", rol_normalizado).execute()
             permisos = {row["permiso_key"]: row["valor"] for row in (permisos_res.data or [])}
         except Exception as e:
-            logger.warning(f"⚠️ No se pudieron cargar permisos para rol '{user['rol']}': {e}")
-
-        # directorio role gets superadmin scope so check_dist_permission passes
-        is_superadmin = bool(user.get("is_superadmin") or user["rol"] in ("superadmin", "directorio"))
+            logger.warning(f"⚠️ No se pudieron cargar permisos para rol '{rol_normalizado}': {e}")
 
         payload = {
             "sub":                  user["usuario_login"],
             "id_usuario":           user["id_usuario"],
-            "rol":                  user["rol"],
+            "rol":                  rol_normalizado,
             "id_distribuidor":      dist_id,
             "nombre_empresa":       user.get("nombre_empresa"),
             "is_superadmin":        is_superadmin,
@@ -76,7 +79,7 @@ def auth_login(req: LoginRequest):
         token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
         return TokenResponse(
             access_token=token, token_type="bearer",
-            usuario=user["usuario_login"], rol=user["rol"],
+            usuario=user["usuario_login"], rol=rol_normalizado,
             id_usuario=user["id_usuario"], id_distribuidor=dist_id,
             nombre_empresa=user.get("nombre_empresa"),
             is_superadmin=payload["is_superadmin"],

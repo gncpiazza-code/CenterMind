@@ -7,6 +7,7 @@ import logging
 from fastapi import HTTPException, Header
 
 from core.config import API_KEY, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
+from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from db import sb
 
 logger = logging.getLogger("ShelfyAPI")
@@ -70,11 +71,15 @@ def check_distributor_status(dist_id: int, user_payload: dict):
 
 
 def require_compania_role(payload: dict):
-    """Lanza 403 si el usuario no es superadmin ni directorio (roles de Compañía)."""
+    """Lanza 403 si el usuario no tiene rol de Compañía (superadmin o compania).
+
+    Acepta el valor legacy 'directorio' para compatibilidad con JWTs emitidos
+    antes de la migración 20260601_rol_compania.sql.
+    """
     if payload.get("is_superadmin"):
         return
-    rol = (payload.get("rol") or "").lower()
-    if rol in ("superadmin", "directorio"):
+    rol = normalize_rol(payload.get("rol") or "")
+    if rol in ROLES_COMPANIA_SCOPE:
         return
     raise HTTPException(status_code=403, detail="Solo usuarios de Compañía pueden realizar esta acción")
 

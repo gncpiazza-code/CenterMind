@@ -1795,6 +1795,101 @@ def galeria_pdv_insight(
     return data
 
 
+def _enviar_guia_exhibicion_response(dist_id: int, id_vendedor: int, payload: dict) -> dict:
+    nombre = (
+        payload.get("usuario")
+        or payload.get("nombre_usuario")
+        or payload.get("sub")
+        or None
+    )
+    from services.objetivos_notification_service import objetivos_notification
+
+    result = objetivos_notification.notify_guia_exhibicion_telegram(
+        int(dist_id),
+        int(id_vendedor),
+        nombre_remitente=str(nombre) if nombre else None,
+    )
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=422,
+            detail=result.get("detail") or "No se pudo enviar la guía",
+        )
+    return result
+
+
+@router.post(
+    "/api/galeria/vendedor/{id_vendedor}/enviar-guia-exhibicion",
+    tags=["Galería"],
+)
+def galeria_enviar_guia_exhibicion(
+    id_vendedor: int,
+    dist_id: int = Query(...),
+    payload=Depends(verify_auth),
+):
+    """Envía al grupo Telegram del vendedor la guía visual de estándares de exhibición."""
+    check_dist_permission(payload, dist_id)
+    return _enviar_guia_exhibicion_response(dist_id, id_vendedor, payload)
+
+
+@router.post(
+    "/api/galeria/exhibicion/{id_exhibicion}/enviar-guia-exhibicion",
+    tags=["Galería"],
+)
+def galeria_enviar_guia_exhibicion_por_exhibicion(
+    id_exhibicion: int,
+    dist_id: int = Query(...),
+    payload=Depends(verify_auth),
+):
+    """Resuelve vendedor desde la exhibición y envía la guía al grupo Telegram."""
+    check_dist_permission(payload, dist_id)
+    ex_r = (
+        sb.table("exhibiciones")
+        .select("id_exhibicion,id_distribuidor,id_integrante")
+        .eq("id_exhibicion", id_exhibicion)
+        .limit(1)
+        .execute()
+    )
+    if not ex_r.data:
+        raise HTTPException(status_code=404, detail="Exhibición no encontrada")
+    ex = ex_r.data[0]
+    if int(ex.get("id_distribuidor") or 0) != int(dist_id):
+        raise HTTPException(status_code=403, detail="Exhibición de otra distribuidora")
+
+    id_integrante = ex.get("id_integrante")
+    if id_integrante is None:
+        raise HTTPException(status_code=422, detail="Exhibición sin integrante Telegram")
+
+    ig_r = (
+        sb.table("integrantes_grupo")
+        .select("id_vendedor_v2,id_vendedor_erp")
+        .eq("id_distribuidor", dist_id)
+        .eq("id_integrante", int(id_integrante))
+        .limit(1)
+        .execute()
+    )
+    ig = (ig_r.data or [{}])[0]
+    id_vendedor = ig.get("id_vendedor_v2")
+    if id_vendedor is None and ig.get("id_vendedor_erp"):
+        t_v = tenant_table_name("vendedores_v2", dist_id)
+        vend_r = (
+            sb.table(t_v)
+            .select("id_vendedor")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_erp", str(ig.get("id_vendedor_erp")).strip())
+            .limit(1)
+            .execute()
+        )
+        if vend_r.data:
+            id_vendedor = vend_r.data[0].get("id_vendedor")
+
+    if id_vendedor is None:
+        raise HTTPException(
+            status_code=422,
+            detail="No se pudo identificar al vendedor de esta exhibición",
+        )
+    return _enviar_guia_exhibicion_response(dist_id, int(id_vendedor), payload)
+
+
 @router.get("/api/galeria/cliente/{id_cliente_pdv}/timeline", tags=["Galería"])
 def galeria_timeline_cliente(
     id_cliente_pdv: int,

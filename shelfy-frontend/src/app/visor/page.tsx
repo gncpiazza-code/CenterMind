@@ -52,6 +52,7 @@ import { PdvVitalidadBadges } from "@/components/visor/PdvVitalidadBadges";
 import { VisorPdvIdentityHeader } from "@/components/visor/VisorPdvIdentityHeader";
 import { VisorEvalBar } from "@/components/visor/VisorEvalBar";
 import { VisorEvalPanel } from "@/components/visor/VisorEvalPanel";
+import { VisorEnviarGuiaExhibicion } from "@/components/visor/VisorEnviarGuiaExhibicion";
 import { VisorObservacionesCard } from "@/components/visor/VisorObservacionesCard";
 import { FotoViewer, resolveVisorImageSrc, type FotoViewerHandle } from "@/components/visor/FotoViewer";
 import { VisorPhotoControls } from "@/components/visor/VisorPhotoControls";
@@ -370,6 +371,7 @@ export function VisorPageContent() {
 
   const totalGrupos = filtrados.length;
   const fotosGrupo = grupo?.fotos ?? [];
+  const idExhibicionActiva = fotosGrupo[currentFotoIdx]?.id_exhibicion ?? null;
   const totalFotos = fotosGrupo.length;
   const todasVistas = vistas.size >= totalFotos;
   const isValidacion = fotosGrupo.some((f) => f.estado === "VALIDACION");
@@ -1384,7 +1386,7 @@ export function VisorPageContent() {
                   </div>
 
                   {/* Evaluar (70%) | Observaciones (30%) — bajo la foto, misma altura */}
-                  <div className="shrink-0 px-4 pb-3 pt-2">
+                  <div className="shrink-0 px-4 pb-3 pt-2 space-y-2">
                     <div className="grid w-full grid-cols-[minmax(0,7fr)_minmax(0,3fr)] gap-2 min-h-[10.5rem] auto-rows-[1fr]">
                       <VisorEvalPanel className="min-w-0 h-full min-h-0">
                         <VisorEvalBar
@@ -1408,6 +1410,12 @@ export function VisorPageContent() {
                         frasesSlot={frasesPopover(false)}
                       />
                     </div>
+                    <VisorEnviarGuiaExhibicion
+                      distId={distId}
+                      idExhibicion={idExhibicionActiva}
+                      nombreVendedor={vendedorExhibicion}
+                      className="w-full"
+                    />
                   </div>
                 </div>
 
@@ -1582,6 +1590,16 @@ export function VisorPageContent() {
                             />
                           </>
                         )}
+
+                        <div className="flex justify-center pb-1">
+                          <VisorEnviarGuiaExhibicion
+                            distId={distId}
+                            idExhibicion={idExhibicionActiva}
+                            nombreVendedor={vendedorExhibicion}
+                            variant="compact"
+                            className="bg-white/10 border-white/20 text-white hover:bg-white/15 text-[10px]"
+                          />
+                        </div>
 
                         <div className="flex items-center gap-1.5 shrink-0 justify-center">
                           <button

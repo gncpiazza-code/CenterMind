@@ -16,6 +16,8 @@ import logging
 import os
 import re
 import unicodedata
+from pathlib import Path
+
 import requests
 from datetime import datetime
 from typing import Any
@@ -499,7 +501,12 @@ def resolve_integrante_for_objetivos(
         return None
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_SEND_PHOTO = "https://api.telegram.org/bot{token}/sendPhoto"
 TELEGRAM_DELETE_API = "https://api.telegram.org/bot{token}/deleteMessage"
+
+_GUIA_EXHIBICION_IMAGE = (
+    Path(__file__).resolve().parent.parent / "assets" / "guia_estandares_exhibicion.png"
+)
 
 TIPO_EMOJI = {
     "alteo":             "📍",
@@ -1561,6 +1568,94 @@ class ObjetivosNotificationService:
         except Exception as e:
             logger.error(f"[Notif] reevaluar cía exception: {e}")
             return False
+
+    @staticmethod
+    def _guia_exhibicion_caption(nombre_remitente: str | None = None) -> str:
+        remitente = ""
+        if nombre_remitente and str(nombre_remitente).strip():
+            remitente = (
+                f"\n👤 <b>Enviado desde Shelfy por:</b> "
+                f"{html.escape(str(nombre_remitente).strip(), quote=False)}\n"
+            )
+        return (
+            "📸 <b>Guía de estándares de exhibición</b>\n"
+            f"{remitente}\n"
+            "Te compartimos esta <b>imagen de referencia</b> para alinear criterios "
+            "al cargar fotos en el grupo.\n\n"
+            "✅ <b>Exhibición aprobada</b>\n"
+            "• Foto con contexto (zona visible)\n"
+            "• Nro. cliente / tipo (ventana o ingreso)\n"
+            "• Atados frenteados\n"
+            "• En caja, caramelera o góndola\n"
+            "• Precios visibles (máx. 30% margen)\n\n"
+            "⭐ <b>Exhibición destacada</b>\n"
+            "• Tienda perfecta (10 marquillas con precio)\n"
+            "• Zona caliente central\n"
+            "• Repetición del producto\n"
+            "• Máx. 20% margen\n"
+            "• Competencia marginada o vencida\n\n"
+            "ℹ️ La imagen adjunta resume ambos niveles. "
+            "Usá <code>/objetivos</code> para ver objetivos activos."
+        )
+
+    def notify_guia_exhibicion_telegram(
+        self,
+        dist_id: int,
+        id_vendedor: int,
+        nombre_remitente: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Envía al grupo Telegram del vendedor la guía visual de estándares de exhibición.
+        Retorna {ok, chat_id?, detail?}.
+        """
+        try:
+            token = self._get_bot_token(dist_id)
+            if not token:
+                return {"ok": False, "detail": "Distribuidor sin token de bot configurado"}
+
+            chat_id = self._get_vendor_group_chat_id(dist_id, int(id_vendedor))
+            if not chat_id:
+                return {
+                    "ok": False,
+                    "detail": "El vendedor no tiene grupo de Telegram vinculado",
+                }
+
+            if not _GUIA_EXHIBICION_IMAGE.is_file():
+                logger.error(f"[Notif] guía exhibición: archivo ausente {_GUIA_EXHIBICION_IMAGE}")
+                return {"ok": False, "detail": "Imagen de referencia no disponible en el servidor"}
+
+            caption = self._guia_exhibicion_caption(nombre_remitente)
+            with open(_GUIA_EXHIBICION_IMAGE, "rb") as img_f:
+                resp = requests.post(
+                    TELEGRAM_SEND_PHOTO.format(token=token),
+                    files={"photo": ("guia_estandares_exhibicion.png", img_f, "image/png")},
+                    data={
+                        "chat_id": str(chat_id),
+                        "caption": caption,
+                        "parse_mode": "HTML",
+                    },
+                    timeout=25,
+                )
+            if resp.ok:
+                msg_id = (resp.json().get("result") or {}).get("message_id")
+                logger.info(
+                    f"[Notif] guía exhibición enviada dist={dist_id} vend={id_vendedor} "
+                    f"chat={chat_id} msg_id={msg_id}"
+                )
+                return {"ok": True, "chat_id": chat_id, "message_id": msg_id}
+
+            logger.warning(
+                f"[Notif] guía exhibición error Telegram: {resp.status_code} {resp.text[:200]}"
+            )
+            detail = "Error al enviar por Telegram"
+            try:
+                detail = (resp.json().get("description") or detail)[:200]
+            except Exception:
+                pass
+            return {"ok": False, "detail": detail}
+        except Exception as e:
+            logger.error(f"[Notif] guía exhibición exception: {e}")
+            return {"ok": False, "detail": str(e)[:200]}
 
 
 # Singleton

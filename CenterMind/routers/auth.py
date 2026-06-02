@@ -113,6 +113,7 @@ def switch_context(dist_id: int, payload=Depends(verify_auth)):
 
     # Re-fetch permissions for this user's role
     rol = payload.get("rol", "superadmin")
+    rol = normalize_rol(rol)  # normalizar por si viene de JWT legacy
     permisos: dict = {}
     try:
         permisos_res = sb.table("roles_permisos").select("permiso_key, valor").eq("rol", rol).execute()

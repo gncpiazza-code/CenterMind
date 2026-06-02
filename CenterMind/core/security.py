@@ -50,6 +50,8 @@ def verify_auth(
             if scheme.lower() != "bearer" or not token:
                 raise HTTPException(status_code=401, detail="Formato inválido. Usa: Bearer <token>")
             payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            # Normalizar 'directorio' → 'compania' para compat con JWT legacy
+            payload["rol"] = normalize_rol(payload.get("rol") or "")
             payload["is_superadmin"] = payload.get("is_superadmin", False) or payload.get("rol") == "superadmin"
             return payload
         except JWTError:

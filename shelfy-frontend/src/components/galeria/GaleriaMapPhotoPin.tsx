@@ -41,7 +41,7 @@ export function GaleriaMapPhotoPin({
           "transition-all duration-150",
           bg,
           selected
-            ? "ring-2 ring-blue-500 ring-offset-1 scale-110"
+            ? "ring-2 ring-blue-500 ring-offset-2 shadow-xl"
             : "ring-0 hover:ring-2 hover:ring-blue-300 hover:ring-offset-1"
         )}
       >

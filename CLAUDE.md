@@ -97,7 +97,7 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 
 - API Key (`X-Api-Key`) para bots/RPA/scripts.
 - JWT para portal.
-- Roles: `superadmin`, `admin`, `directorio`, `supervisor`, `evaluador`.
+- Roles: `superadmin`, `admin`, `compania` (ex `directorio`), `supervisor`, `evaluador`.
 - `check_dist_permission(...)` valida acceso cross-tenant.
 
 ## 9) Que NO hacer
@@ -159,6 +159,73 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Componentes nuevos en `components/dashboard/`: `DashboardKpiCarousel`, `DashboardToolbar`, `DashboardPeriodPills`, `DashboardFullscreenButton`.
 - Util nuevo: `lib/dashboard-period.ts`.
 - FiltrosBar y ChartCarousel conservados pero NO usados en `page.tsx` (pueden eliminarse en limpieza futura).
+
+## 9.5) Galería Mapa Apple (implementado 2026-06-01)
+
+### Layout
+
+- `GaleriaToolbar` con toggle Mapa/Grid, dropdown vendedor, filtro estado y checkbox ocultar-sin-exhib.
+- Vista default: **Mapa**. Vista alternativa: **Grid** (tarjetas por PDV, pre-existente).
+
+### Mapa
+
+- Motor: **MapLibre GL JS** con tile style Carto Positron (light, sin key).
+- Clustering nativo: zoom < 12 → círculos WebGL (`GaleriaMapClusterPin`). zoom >= 12 → pins HTML individuales (`GaleriaMapPhotoPin`), cap 250 DOM.
+- Carga por viewport `bbox` con debounce 300 ms + React Query cache (staleTime 2 min).
+- `GaleriaMapPhotoPin`: thumbnail cover + badge conteo exhibiciones + tail estilo Apple Photos.
+- `GaleriaMapClusterPin`: círculo con conteo, escala por densidad.
+- `GaleriaSinCoordsPanel`: panel lateral que lista PDVs sin coordenadas cargables (lazy fetch).
+
+### Viewer IG (GaleriaExhibicionViewer)
+
+- Dialog fullscreen unificado (reemplaza `ExhibicionesTimelineDialog` como thin wrapper).
+- **Publicación** = 1 exhibición lógica por PDV + día AR. Agrupado via `core/galeria_publicaciones.py` (BE) y `lib/galeria-publicaciones.ts` (FE).
+- Fotos con dots de navegación + blur peek de publicaciones adyacentes (framer-motion).
+- Navegación al PDV geográficamente más cercano via haversine (`GET /api/galeria/mapa/vendedor/{id}/vecino`).
+- Accesible desde el mapa (click en pin) y desde el grid (click en card).
+- `GaleriaPublicationCarousel`: timelapse de fotos con dots y efecto blur en bordes del carousel.
+
+### Rol `compania` (reemplaza `directorio`)
+
+- **Nombre canónico nuevo:** `compania`. El nombre `directorio` queda deprecado.
+- `normalize_rol()` en `CenterMind/core/roles.py`: normaliza JWTs legacy (`directorio` → `compania`) para compatibilidad hacia atrás.
+- `verify_auth` en `security.py` llama a `normalize_rol()` en cada token decodificado.
+- 23 archivos FE + BE actualizados (guards, checks hasPermiso, labels UI).
+- **SQL PENDIENTE ejecutar en Supabase:** `CenterMind/migrations/20260601_rol_compania.sql`
+  ```sql
+  UPDATE usuarios SET rol = 'compania' WHERE rol = 'directorio';
+  UPDATE roles_permisos SET rol = 'compania' WHERE rol = 'directorio';
+  ```
+- `CLAUDE.md §8` actualizado: roles = `superadmin`, `admin`, `compania`, `supervisor`, `evaluador`.
+
+### Componentes clave (FE)
+
+- `components/galeria/GaleriaMapView.tsx` — mapa MapLibre fullscreen, gestiona lifecycle bbox + clustering.
+- `components/galeria/GaleriaMapPhotoPin.tsx` — pin Apple Photos HTML con thumbnail.
+- `components/galeria/GaleriaMapClusterPin.tsx` — cluster WebGL.
+- `components/galeria/GaleriaSinCoordsPanel.tsx` — panel PDVs sin coords.
+- `components/galeria/GaleriaToolbar.tsx` — filtros + toggle mapa/grid.
+- `components/galeria/GaleriaExhibicionViewer.tsx` — dialog viewer IG unificado.
+- `components/galeria/GaleriaPublicationCarousel.tsx` — carousel fotos + blur peek.
+- `hooks/useGaleriaMapaQuery.ts` — React Query para fetch pins bbox.
+- `hooks/useGaleriaMapClustering.ts` — supercluster + cap 250 DOM.
+- `lib/galeria-publicaciones.ts` — `groupTimelinePublicaciones()`.
+- `lib/galeria-url.ts` — `parseGaleriaSearchParams()` + `buildGaleriaUrl()`.
+- `store/useGaleriaStore.ts` — extendido con `viewMode`, `filtroEstado`, `hideSinExhib`, `vendedorId` (Zustand persist).
+
+### Módulo backend
+
+- `CenterMind/core/galeria_publicaciones.py` — `group_exhibiciones_publicaciones()`: agrupa exhibiciones por PDV+día AR.
+- Endpoints en `CenterMind/routers/fuerza_ventas.py`:
+  - `GET /api/galeria/mapa/vendedor/{id}` — pins dentro de bbox con coords válidas.
+  - `GET /api/galeria/mapa/vendedor/{id}/sin-coords` — PDVs sin coordenadas.
+  - `GET /api/galeria/mapa/vendedor/{id}/vecino` — PDV más cercano (haversine).
+
+### Tests
+
+- `CenterMind/test_galeria_mapa_bbox.py` — pytest bbox + clustering backend.
+- `CenterMind/test_rol_compania_migration.py` — pytest normalize_rol().
+- `shelfy-frontend/e2e/galeria-exhibiciones.spec.ts` — E2E Playwright mapa + viewer.
 
 ## 9.4) Binding Telegram ↔ Vendedor ERP (implementado 2026-05-30)
 

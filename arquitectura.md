@@ -20,6 +20,8 @@ Documento de referencia tecnica estable para agentes y desarrolladores.
 - `CenterMind/core/objetivos_compradores.py`: medicion canonica de compradores en periodo (fuente unica para watcher y supervision). **No tocar activacion ni conversion_estado desde este modulo.**
 - `CenterMind/core/telegram_group_matcher.py`: fuente única de scoring, drift detection y apply/unlink de bindings grupo↔vendedor. Funciones: `score_group_vendor_candidates`, `detect_group_drift`, `apply_group_binding`, `unlink_group`, `get_group_binding`, `create_suggestion`. **Usar siempre este módulo; nunca duplicar lógica de scoring.**
 - `CenterMind/services/telegram_binding_watcher_service.py`: cron diario 07:30 AR. `scan_distribuidor(dist_id)` — 3 fases (drift, semi-auto ≥0.95, sugerencias). `scan_all_distributors()` itera todos los dist activos.
+- `CenterMind/core/galeria_publicaciones.py`: agrupación de exhibiciones en publicaciones por `(pdv_key, dia_ar)`. Función principal: `group_exhibiciones_publicaciones(exhibiciones)`. Fuente canónica para los endpoints de galería mapa y para el viewer IG. No modificar la definición de "publicación lógica" sin actualizar también el equivalente FE en `lib/galeria-publicaciones.ts`.
+- `CenterMind/core/roles.py`: `ROL_COMPANIA = "compania"`, `normalize_rol(rol)` → normaliza `"directorio"` → `"compania"` para compatibilidad con JWTs legacy. **Usar siempre `normalize_rol()` al decodificar tokens; no comparar contra `"directorio"` directamente en código nuevo.**
 - `CenterMind/core/bot_cliente_cartera.py`: validacion de cartera del vendedor para el bot. `normalize_erp`, `cliente_en_cartera_vendedor(dist, vendedor_v2, erp, sb)`, `get_pdv_display_row`. **Fail-open**: error de infra → False (no bloquear al vendedor).
 - `CenterMind/services/bot_pdv_aviso_service.py`: avisos post-padron para PDVs nuevos declarados en el bot. `procesar_pendientes(dist_id)` — llamado al final de `_ingest_for_dist` tras reconcile.
 - `CenterMind/services/objetivos_launch_service.py`: lanzamiento de objetivos planificados (auto y manual). Funciones: `lanzar_un_objetivo(obj_id, dist_id)`, `lanzar_programados_fecha(dist_id?)`. Llamado por cron 08:00 AR (lifespan.py) y por endpoint `POST /api/supervision/objetivos/{id}/lanzar`.
@@ -75,6 +77,57 @@ Claves:
 - En `ultimas-evaluadas`, el PDV se muestra solo si `clientes_pdv_v2.id_ruta` pertenece al `id_vendedor` del integrante que subió la foto (`pdv_asignado_vendedor`). Fallback ERP sin validación de ruta queda deshabilitado.
 - `ciudad_dominante` en ranking se calcula por `id_vendedor` (no por nombre ERP) y se omite si hay homónimos en ciudades distintas.
 
+## Galería Mapa Apple Viewer (implementado 2026-06-01)
+
+### Flujo de carga
+
+```
+galeria/page.tsx
+  → GaleriaToolbar (filtros + toggle)
+  → [viewMode=mapa] GaleriaMapView
+      → useGaleriaMapaQuery (bbox debounce 300ms, React Query)
+          → GET /api/galeria/mapa/vendedor/{id}?bbox=N,S,E,W
+              → core/galeria_publicaciones.py → group_exhibiciones_publicaciones()
+      → useGaleriaMapClustering (supercluster, cap 250 DOM)
+      → zoom<12: GaleriaMapClusterPin (WebGL)
+      → zoom>=12: GaleriaMapPhotoPin (HTML, thumbnail + badge)
+      → click pin → GaleriaExhibicionViewer (Dialog fullscreen)
+          → GaleriaPublicationCarousel (fotos + blur peek)
+          → vecino: GET /api/galeria/mapa/vendedor/{id}/vecino?lat=&lng=
+  → [viewMode=grid] GaleriaClienteCard[] → GaleriaExhibicionViewer
+```
+
+### Publicación lógica
+
+- Una **publicación** = todas las fotos de un mismo PDV en el mismo día AR.
+- Equivalente a la exhibición lógica del ranking pero agrupada para el viewer.
+- Backend: `core/galeria_publicaciones.py` → `group_exhibiciones_publicaciones()`.
+- Frontend: `lib/galeria-publicaciones.ts` → `groupTimelinePublicaciones()`.
+- **Invariante:** no modificar la definición de publicación sin sincronizar BE y FE.
+
+### Rol `compania`
+
+- Reemplaza `directorio` como nombre canónico de rol de compañía.
+- `core/roles.py`: `normalize_rol("directorio") → "compania"` para JWTs legacy.
+- `core/security.py`: `verify_auth` aplica `normalize_rol()` en cada token decodificado.
+- **SQL PENDIENTE:** `migrations/20260601_rol_compania.sql` en Supabase.
+- Nunca comparar contra el string `"directorio"` en código nuevo; usar `ROL_COMPANIA`.
+
+### Endpoints galería mapa
+
+Registrados en `routers/fuerza_ventas.py`:
+
+| Método | Path | Descripción |
+|--------|------|-------------|
+| `GET` | `/api/galeria/mapa/vendedor/{id}` | Pins dentro del bbox (parámetros N/S/E/W); filtra por estado si se pasa `estado=`. Devuelve `GaleriaMapaResponse` (pins + sin_coords_count + total_vendedor). |
+| `GET` | `/api/galeria/mapa/vendedor/{id}/sin-coords` | Lista PDVs del vendedor sin coordenadas cargables. |
+| `GET` | `/api/galeria/mapa/vendedor/{id}/vecino` | PDV con coords más cercano al punto `lat`/`lng` dado (haversine). Devuelve `id_cliente_pdv`, `nombre`, `lat`, `lng`, `dist_km`. |
+
+### Persistencia de estado galería
+
+- URL sync: `lib/galeria-url.ts` sincroniza viewMode + vendedorId + filtros en searchParams.
+- Zustand persist: `useGaleriaStore` (clave `galeria-store`) persiste entre recargas.
+
 ## Re-evaluación Compañía (overlay paralelo)
 
 - Tabla global: `exhibicion_reevaluacion_compania` (no por tenant, con `id_distribuidor`).
@@ -96,6 +149,7 @@ Claves:
 - Tickets portal: `/api/portal-feedback/messages` (filtros), `/api/portal-feedback/messages/export` (JSON), `/api/portal-feedback/messages/{id}/pre-resolucion` (IA opcional)
 - Revisión Compañía: `POST /api/compania/reevaluar`, `GET /api/compania/reevaluaciones/{id_exhibicion}`, `GET /api/dashboard/ranking-compania/{dist_id}` (solo roles Compañía)
 - Objetivos planificados: `POST /api/supervision/objetivos/{id}/lanzar` (lanzar manualmente), `POST /api/supervision/objetivos/preview-telegram` (preview mensaje)
+- Galería mapa: `GET /api/galeria/mapa/vendedor/{id}?bbox=N,S,E,W[&estado=]` (pins con coords dentro de bbox), `GET /api/galeria/mapa/vendedor/{id}/sin-coords` (PDVs sin coordenadas), `GET /api/galeria/mapa/vendedor/{id}/vecino?lat=&lng=` (PDV más cercano haversine)
 
 ## Invariantes Operativas
 

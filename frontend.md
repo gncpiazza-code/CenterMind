@@ -151,6 +151,39 @@ Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
 - `pickLensStrategy()` — Chromium→`"canvas"`, Firefox+WebGL→`"webgl"`, Safari→`"none"`.
 - Fechas compra/padrón (`YYYY-MM-DD`): usar `lib/fecha-ar.ts` (`parseFechaShelf`, `formatFechaDiaAR`, `daysSinceFechaAR`) — **no** `new Date("2026-05-29")` (UTC −1 día en AR).
 
+### Galería Mapa Apple Viewer (2026-06-01)
+
+#### Componentes en `components/galeria/`
+
+- `GaleriaMapView.tsx` — mapa MapLibre GL fullscreen con estilo Carto Positron. Gestiona lifecycle de bbox (debounce 300ms), clustering, y apertura del viewer al hacer click en pin. Parámetro `viewMode` desde Zustand.
+- `GaleriaMapPhotoPin.tsx` — pin HTML individual estilo Apple Photos: thumbnail cover cuadrado, badge conteo de exhibiciones, tail triangular. Solo montado en zoom >= 12 (cap 250 DOM).
+- `GaleriaMapClusterPin.tsx` — cluster de puntos WebGL con conteo y escala por densidad. Usado en zoom < 12.
+- `GaleriaSinCoordsPanel.tsx` — panel lateral colapsable que lista PDVs del vendedor sin coordenadas. Fetch lazy al expandir.
+- `GaleriaToolbar.tsx` — barra de filtros: dropdown de vendedor, filtro de estado (Pendiente/Aprobado/Destacado/Rechazado/Todos), checkbox ocultar sin exhibición, toggle Mapa/Grid.
+- `GaleriaExhibicionViewer.tsx` — Dialog fullscreen unificado estilo Instagram viewer. Muestra publicaciones (1 pub = 1 PDV + día AR), navega entre fotos del mismo PDV/día, y navega al PDV geográficamente más cercano. Reemplaza a `ExhibicionesTimelineDialog` como implementación activa.
+- `GaleriaPublicationCarousel.tsx` — carousel de fotos dentro del viewer: dots de navegación, blur peek de publicaciones adyacentes (animado con framer-motion), indicador de fecha AR.
+
+#### Hooks en `hooks/`
+
+- `useGaleriaMapaQuery.ts` — `useQuery` para `GET /api/galeria/mapa/vendedor/{id}?bbox=...`. React Query cache staleTime 2 min. Parámetros: `vendedorId`, `bbox` (N/S/E/W), `filtroEstado`, habilitado solo cuando hay bbox.
+- `useGaleriaMapClustering.ts` — supercluster para agrupar pins client-side. Devuelve lista renderizable cap 250 DOM. Recalcula al cambiar zoom o bbox.
+
+#### Libs en `lib/`
+
+- `galeria-publicaciones.ts` — `groupTimelinePublicaciones(items)`: agrupa ítems de timeline por `(pdv_key, dia_ar)` formando publicaciones con array de fotos. Fuente FE equivalente al módulo BE `galeria_publicaciones.py`.
+- `galeria-url.ts` — `parseGaleriaSearchParams(params)`: restaura viewMode/vendedorId/filtros desde URL. `buildGaleriaUrl(state)`: serializa estado a searchParams para persistencia en navegación.
+
+#### Store extendido
+
+- `useGaleriaStore` (Zustand persist) extendido con: `viewMode: "mapa" | "grid"`, `filtroEstado`, `hideSinExhib: boolean`, `vendedorId: string | null`. Persistido en localStorage bajo clave `galeria-store`.
+
+#### Reglas y restricciones
+
+- En el mapa, **nunca usar `transform: scale()` para animar pins** (regla global de mapas, `CLAUDE.md §6`).
+- La animación de blur-peek del viewer usa `framer-motion` solo en `opacity`/`x` — no aplicar `transform` que rompa `backdrop-filter`.
+- `GaleriaExhibicionViewer` es el único punto de entrada al viewer; no crear variantes paralelas.
+- La navegación por vecino haversine requiere que el PDV tenga coords (`lat`/`lng` no nulos).
+
 ### `galeria/ReevaluarCompaniaSheet.tsx` + `SlideToConfirm.tsx`
 
 - Solo visible si `canReevaluarCompania` (superadmin / directorio).

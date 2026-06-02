@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 31 de Mayo, 2026 (v8)  
+**Ultima actualizacion:** 2 de Junio, 2026 (v9)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -20,9 +20,12 @@
 - 🟢 Bot Telegram: carga exhibiciones, comando `/objetivos`, reglas QA.
 - 🟢 RPA: padron y cuentas corrientes en scheduler operativo.
 - 🟢 Padrón RPA (2026-05-28): scheduler con **1 job por tenant** (escalonado 8 min), lock Consolido, catch-up por `motor_runs`; orden chicos→tabaco/aloma. Ver `ShelfMind-RPA/lib/padron_schedule.py`.
-- 🟡 Pendiente: tenant `extra`, clusters en mapa para zoom out masivo.
+- 🟢 Galería: mapa Apple Photos (MapLibre), viewer IG unificado, rol `compania` (ex `directorio`).
+- 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+30. Galería Mapa Apple Viewer + rol `compania` (2026-06-01/02): Vista mapa MapLibre Carto Positron como default en galería. Clustering nativo zoom<12 (WebGL) / pins HTML zoom>=12 con cap 250 DOM. `GaleriaExhibicionViewer` unificado (Dialog IG fullscreen) con publicaciones por PDV+día AR, blur peek framer-motion y navegación por vecino haversine. `ExhibicionesTimelineDialog` deprecado como thin wrapper. Rol `directorio` renombrado a `compania` en 23 archivos BE+FE; `normalize_rol()` en `core/roles.py` normaliza JWTs legacy; `verify_auth` lo llama en cada token. Nuevos endpoints en `routers/fuerza_ventas.py`: mapa bbox, sin-coords, vecino. Nuevo módulo `core/galeria_publicaciones.py`. Persistencia: URL sync (`galeria-url.ts`) + Zustand persist extendido. Tests: `test_galeria_mapa_bbox.py`, `test_rol_compania_migration.py`, E2E `galeria-exhibiciones.spec.ts`. **SQL PENDIENTE:** `CenterMind/migrations/20260601_rol_compania.sql` (UPDATE usuarios + roles_permisos SET rol='compania' WHERE rol='directorio').
 
 29. Supervisión CC + bundle tests + Estadísticas (2026-05-31): migración 100% — `useSupervisionPanelQueries` usa bundle sucursal-wide; invalidación FE al cambiar `sync-status` CC; `prefetchCuentasSupervision` → bundle; `TabSupervision` carga bundle si panel CC visible en mapOnly; `GET /api/supervision/cuentas` header `Deprecation`. Estadísticas: bundle + badge ERP sync + render progresivo cartas + `coerceBundleList` en FE. Tests: `test_snapshot_dashboard_bundle.py`, `test_estadisticas_erp_sync_alert.py`, suite T1–T4 (dashboard/estad/supervision/visor/refresh), Vitest `api.bundle.test.ts`, bench `scripts/bench_bundle_vs_legacy.py`. Plan cerrado: `plans/plan-supervision-bundle-migracion-100-2026-05-31.md`.
 

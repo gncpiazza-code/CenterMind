@@ -2638,8 +2638,15 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <>
                 <button
-                  onClick={() => cuentasFiltradas && openCuentasCorrientesPrintWindow(cuentasFiltradas)}
-                  title="Hoja A4 para imprimir y entregar al vendedor"
+                  onClick={() => {
+                    if (!selectedDist || !cuentasFiltradas?.vendedores.length) return;
+                    void openCuentasCorrientesPrintWindow({
+                      distId: selectedDist,
+                      sucursal: selectedSucursal ?? undefined,
+                      fecha: cuentasFiltradas.fecha ?? undefined,
+                    });
+                  }}
+                  title="PDF de cuentas corrientes (mismo formato que difusión)"
                   className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-amber-500/40 transition-colors"
                 >
                   <Printer className="w-3 h-3" />

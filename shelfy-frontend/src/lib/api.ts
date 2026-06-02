@@ -2185,6 +2185,34 @@ export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
   return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
 }
 
+/** PDF de CC (mismo formato que difusión Telegram). Varios vendedores → ZIP. */
+export async function downloadCuentasSupervisionPdf(
+  distId: number,
+  opts?: {
+    sucursal?: string;
+    fecha?: string;
+    vendedor?: string;
+    idVendedor?: number | null;
+  },
+): Promise<Blob> {
+  const qp = new URLSearchParams();
+  if (opts?.sucursal) qp.set("sucursal", opts.sucursal);
+  if (opts?.fecha) qp.set("fecha", opts.fecha);
+  if (opts?.vendedor) qp.set("vendedor", opts.vendedor);
+  if (opts?.idVendedor != null) qp.set("id_vendedor", String(opts.idVendedor));
+  const params = qp.toString() ? `?${qp.toString()}` : "";
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API_URL}/api/supervision/cuentas/${distId}/pdf${params}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    handleSessionExpired401(`/api/supervision/cuentas/${distId}/pdf`, res.status);
+    const err = await res.json().catch(() => ({ detail: "Error al generar PDF" }));
+    throw new Error(err.detail ?? "Error al generar PDF de cuentas corrientes");
+  }
+  return res.blob();
+}
+
 export async function fetchCuentasSupervision(
   distId: number,
   sucursal?: string,
@@ -4001,6 +4029,36 @@ export async function fetchGaleriaMeses(
     `/api/galeria/meses/${distId}${q ? `?${q}` : ""}`,
   );
   return data.meses ?? [];
+}
+
+export interface EnviarGuiaExhibicionResult {
+  ok: boolean;
+  chat_id?: number;
+  message_id?: number;
+  detail?: string;
+}
+
+export async function enviarGuiaExhibicionTelegram(
+  distId: number,
+  idVendedor: number,
+): Promise<EnviarGuiaExhibicionResult> {
+  const qs = new URLSearchParams({ dist_id: String(distId) });
+  return apiFetch<EnviarGuiaExhibicionResult>(
+    `/api/galeria/vendedor/${idVendedor}/enviar-guia-exhibicion?${qs.toString()}`,
+    { method: "POST" },
+  );
+}
+
+/** Visor de evaluación: resuelve vendedor desde id_exhibicion. */
+export async function enviarGuiaExhibicionPorExhibicion(
+  distId: number,
+  idExhibicion: number,
+): Promise<EnviarGuiaExhibicionResult> {
+  const qs = new URLSearchParams({ dist_id: String(distId) });
+  return apiFetch<EnviarGuiaExhibicionResult>(
+    `/api/galeria/exhibicion/${idExhibicion}/enviar-guia-exhibicion?${qs.toString()}`,
+    { method: "POST" },
+  );
 }
 
 export async function fetchGaleriaMapaVendedor(

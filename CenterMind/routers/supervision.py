@@ -2000,6 +2000,41 @@ def supervision_cuentas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/supervision/cuentas/{dist_id}/pdf", tags=["Supervisión"])
+def supervision_cuentas_pdf(
+    dist_id: int,
+    sucursal: Optional[str] = Query(None),
+    fecha: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
+    id_vendedor: Optional[int] = Query(None, description="Filtrar por PK vendedores_v2"),
+    user_payload=Depends(verify_auth),
+):
+    """PDF de CC (mismo formato que difusión Telegram). Un vendedor → PDF; varios → ZIP."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        from services.cc_difusion_service import export_cc_pdf_supervision
+
+        content, media_type, filename = export_cc_pdf_supervision(
+            dist_id,
+            id_vendedor=id_vendedor,
+            sucursal=sucursal,
+            vendedor=vendedor,
+            fecha=fecha,
+        )
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error en supervision_cuentas_pdf dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _enrich_clientes_contact(d_id: int, vendors_result: list[dict]) -> None:
     """
     Agrega telefono, celular, dia_visita, ruta_nombre al dict de cada cliente.

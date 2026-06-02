@@ -521,7 +521,16 @@ export default function SupervisionPage() {
                               !cuentasData?.vendedores?.length
                             }
                             title="Abre hoja A4 para imprimir y entregar al vendedor"
-                            onClick={() => cuentasData && openCuentasCorrientesPrintWindow(cuentasData)}
+                            onClick={() => {
+                              if (!distId || !cuentasData?.vendedores?.length) return;
+                              void openCuentasCorrientesPrintWindow({
+                                distId,
+                                sucursal: selectedSucursal ?? undefined,
+                                fecha: cuentasData.fecha ?? undefined,
+                                vendedor: selectedVendedorNombre ?? undefined,
+                                idVendedor: selectedVendedorId ?? undefined,
+                              });
+                            }}
                           >
                             <Printer size={10} />
                             Hoja vendedor

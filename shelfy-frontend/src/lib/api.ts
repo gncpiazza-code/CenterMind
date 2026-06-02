@@ -3923,3 +3923,125 @@ export async function fetchRecapExcelBlob(distId: number, mes: string): Promise<
   if (!res.ok) throw new Error(`recap export error ${res.status}`);
   return res.blob();
 }
+
+// ── Galería Mapa ─────────────────────────────────────────────────────────────
+
+export interface GaleriaMapaPin {
+  id_cliente: number;
+  nombre_cliente: string;
+  latitud: number;
+  longitud: number;
+  total_exhibiciones: number;
+  cover_url?: string | null;
+  estado_cover: string;
+}
+
+export interface GaleriaMapaResponse {
+  pins: GaleriaMapaPin[];
+  sin_coords_count: number;
+  total_vendedor: number;
+}
+
+export interface GaleriaFotoPublicacionMapa {
+  id_exhibicion: number;
+  url_foto: string;
+  estado: string;
+  timestamp_subida: string;
+  comentario?: string | null;
+  supervisor?: string | null;
+}
+
+export interface GaleriaPublicacionMapa {
+  dia_ar: string;
+  fotos: GaleriaFotoPublicacionMapa[];
+  estado_dia: string;
+  total_fotos: number;
+}
+
+export interface GaleriaSinCoordsItem {
+  id_cliente: number;
+  nombre_cliente: string;
+  total_exhibiciones: number;
+}
+
+export interface GaleriaVecinoResponse {
+  id_cliente: number;
+  nombre_cliente: string;
+  latitud: number;
+  longitud: number;
+  distancia_km: number;
+  publicaciones: GaleriaPublicacionMapa[];
+}
+
+export async function fetchGaleriaMapaVendedor(
+  idVendedor: number,
+  params: {
+    distId: number;
+    latMin: number;
+    lngMin: number;
+    latMax: number;
+    lngMax: number;
+    zoom?: number;
+    desde?: string;
+    hasta?: string;
+    estado?: string;
+  },
+): Promise<GaleriaMapaResponse> {
+  const qs = new URLSearchParams();
+  qs.set("dist_id", String(params.distId));
+  qs.set("lat_min", String(params.latMin));
+  qs.set("lng_min", String(params.lngMin));
+  qs.set("lat_max", String(params.latMax));
+  qs.set("lng_max", String(params.lngMax));
+  if (params.zoom != null) qs.set("zoom", String(params.zoom));
+  if (params.desde) qs.set("desde", params.desde);
+  if (params.hasta) qs.set("hasta", params.hasta);
+  if (params.estado) qs.set("estado", params.estado);
+  return apiFetch<GaleriaMapaResponse>(
+    `/api/galeria/mapa/vendedor/${idVendedor}?${qs.toString()}`,
+  );
+}
+
+export async function fetchGaleriaSinCoords(
+  idVendedor: number,
+  params: {
+    distId: number;
+    desde?: string;
+    hasta?: string;
+    estado?: string;
+  },
+): Promise<GaleriaSinCoordsItem[]> {
+  const qs = new URLSearchParams();
+  qs.set("dist_id", String(params.distId));
+  if (params.desde) qs.set("desde", params.desde);
+  if (params.hasta) qs.set("hasta", params.hasta);
+  if (params.estado) qs.set("estado", params.estado);
+  return apiFetch<GaleriaSinCoordsItem[]>(
+    `/api/galeria/mapa/vendedor/${idVendedor}/sin-coords?${qs.toString()}`,
+  );
+}
+
+export async function fetchGaleriaVecino(
+  idVendedor: number,
+  params: {
+    distId: number;
+    fromCliente: number;
+    lat: number;
+    lng: number;
+    desde?: string;
+    hasta?: string;
+    estado?: string;
+  },
+): Promise<GaleriaVecinoResponse> {
+  const qs = new URLSearchParams();
+  qs.set("dist_id", String(params.distId));
+  qs.set("from_cliente", String(params.fromCliente));
+  qs.set("lat", String(params.lat));
+  qs.set("lng", String(params.lng));
+  if (params.desde) qs.set("desde", params.desde);
+  if (params.hasta) qs.set("hasta", params.hasta);
+  if (params.estado) qs.set("estado", params.estado);
+  return apiFetch<GaleriaVecinoResponse>(
+    `/api/galeria/mapa/vendedor/${idVendedor}/vecino?${qs.toString()}`,
+  );
+}

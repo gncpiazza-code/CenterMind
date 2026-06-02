@@ -8,26 +8,29 @@ export interface GaleriaMapCluster {
   pins: GaleriaMapaPin[];
 }
 
-/** Solo a este zoom o más: pins con foto. Por debajo, siempre tarjeta de grupo. */
-export const ZOOM_SHOW_PINS = 17;
+/** Solo a este zoom o más: todos los PDVs como pin con foto (sin agrupación). */
+export const ZOOM_SHOW_PINS = 14;
 
 /** Vista inicial / fitBounds: no acercar más que esto (mantiene agrupaciones visibles). */
 export const ZOOM_MAX_CLUSTER_VIEW = 9;
 
-/** Cada clic en cluster sube como máximo 1 nivel de zoom. */
-export const ZOOM_CLUSTER_CLICK_STEP = 1;
+/** Cada clic en tarjeta de grupo avanza este many niveles de zoom. */
+export const ZOOM_CLUSTER_CLICK_STEP = 2;
+
+/** Tarjetas de grupo solo si hay al menos N PDVs; debajo → pins con foto sueltos. */
+export const MIN_CLUSTER_CARD_COUNT = 5;
 
 function cellSizeDeg(zoom: number): number {
   const z = Math.floor(zoom);
-  // Celdas más grandes → menos desglose prematuro
-  return 0.55 / Math.pow(2, Math.max(0, z - 3));
+  // Celdas más chicas → los grupos se desgranan antes al acercar
+  return 0.22 / Math.pow(2, Math.max(0, z - 4));
 }
 
 export function shouldShowPinMarkers(zoom: number): boolean {
   return Math.floor(zoom) >= ZOOM_SHOW_PINS;
 }
 
-/** Agrupa PDVs; por debajo de ZOOM_SHOW_PINS no hay singles con foto. */
+/** Agrupa PDVs; tarjetas solo si count ≥ MIN_CLUSTER_CARD_COUNT, resto como pins con foto. */
 export function clusterGaleriaPins(
   pins: GaleriaMapaPin[],
   zoom: number,
@@ -54,8 +57,13 @@ export function clusterGaleriaPins(
   }
 
   const clusters: GaleriaMapCluster[] = [];
+  const singles: GaleriaMapaPin[] = [];
 
   buckets.forEach((group, key) => {
+    if (group.length < MIN_CLUSTER_CARD_COUNT) {
+      singles.push(...group);
+      return;
+    }
     let lat = 0;
     let lng = 0;
     for (const p of group) {
@@ -71,7 +79,7 @@ export function clusterGaleriaPins(
     });
   });
 
-  return { clusters, singles: [] };
+  return { clusters, singles };
 }
 
 /** Centro y zoom sugerido para encuadrar todos los pins del vendedor. */

@@ -150,12 +150,11 @@ export function GaleriaGoogleMapView({
     if (!map || clusterPins.length === 0) return;
     const bounds = new google.maps.LatLngBounds();
     clusterPins.forEach((p) => bounds.extend({ lat: p.latitud, lng: p.longitud }));
-    map.fitBounds(bounds, 96);
+    map.fitBounds(bounds, 72);
     google.maps.event.addListenerOnce(map, "idle", () => {
       const z = map.getZoom();
       if (z == null) return;
-      const capped = Math.min(z, ZOOM_SHOW_PINS - 1);
-      const next = Math.min(capped + ZOOM_CLUSTER_CLICK_STEP, ZOOM_SHOW_PINS - 1);
+      const next = Math.min(z + ZOOM_CLUSTER_CLICK_STEP, ZOOM_SHOW_PINS - 1);
       if (next > z) map.setZoom(next);
     });
   }, []);
@@ -409,7 +408,7 @@ export function GaleriaGoogleMapView({
       {showZoomHint && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
           <div className="rounded-full bg-white/95 backdrop-blur-md shadow-md border border-indigo-100 px-4 py-1.5 text-[11px] font-semibold text-indigo-900">
-            Tocá un grupo para acercar de a poco · zoom {ZOOM_SHOW_PINS}+ para ver fotos
+            Grupos de 5+ PDVs · tocá para acercar · zoom {ZOOM_SHOW_PINS}+ fotos individuales
           </div>
         </div>
       )}

@@ -16,15 +16,13 @@ export function GaleriaMapClusterPin({
   onClick,
   onDoubleClick,
 }: GaleriaMapClusterPinProps) {
-  const size = count >= 50 ? "lg" : count >= 15 ? "md" : count >= 2 ? "sm" : "xs";
+  const size = count >= 50 ? "lg" : count >= 15 ? "md" : "sm";
   const dim =
     size === "lg"
       ? "w-[88px] h-[88px]"
       : size === "md"
         ? "w-[72px] h-[72px]"
-        : size === "sm"
-          ? "w-[58px] h-[58px]"
-          : "w-[48px] h-[48px]";
+        : "w-[58px] h-[58px]";
   return (
     <button
       type="button"
@@ -46,7 +44,7 @@ export function GaleriaMapClusterPin({
         e.stopPropagation();
         onDoubleClick?.();
       }}
-      title="Doble clic para acercar y ver PDVs"
+      title="Tocá para acercar y desgranar el grupo"
     >
       <Layers className="w-4 h-4 opacity-90 mb-0.5 drop-shadow" />
       <span className="text-2xl font-black leading-none tabular-nums drop-shadow-sm">{count}</span>

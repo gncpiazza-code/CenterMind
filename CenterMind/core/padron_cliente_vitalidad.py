@@ -35,12 +35,16 @@ def activo_comercial_por_fecha(
     fecha_ultima_compra: str | None,
     *,
     dias_umbral: int = DIAS_ACTIVO_COMERCIAL,
+    ref_iso: str | None = None,
 ) -> bool:
-    """Activo comercial = compra en los últimos N días calendario (AR/UTC fecha ISO)."""
+    """Activo comercial = compra en los últimos N días calendario respecto a `ref_iso` (default: hoy)."""
     fuc = _parse_fuc_iso(fecha_ultima_compra)
     if fuc is None:
         return False
-    umbral = datetime.now(timezone.utc).date() - timedelta(days=max(1, dias_umbral))
+    ref = _parse_fuc_iso(ref_iso) if ref_iso else None
+    if ref is None:
+        ref = datetime.now(timezone.utc).date()
+    umbral = ref - timedelta(days=max(1, dias_umbral))
     return fuc >= umbral
 
 

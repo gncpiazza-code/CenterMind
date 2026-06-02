@@ -341,7 +341,8 @@ function ClienteList({
 
   const hintByList: Partial<Record<CrrListKey, string>> = {
     perdidos: "Activos al inicio del período que quedaron inactivos sin recompra. Fechas con antigüedad respecto al cierre del período.",
-    proximos_caer: "Compra activa (<30 días) pero cerca del umbral de inactividad. «Cae en N días» = días restantes antes de quedar inactivo.",
+    proximos_caer:
+      "Compra activa (<30 días respecto a hoy) pero cerca del umbral. «Cae en N días» = días hasta quedar inactivo sin nueva compra.",
     reactivados: "Solo clientes con compra actual activa y penúltima compra en DB que demuestre inactividad previa (>30 días sin comprar).",
     inactivos: "PDVs de la cartera sin compra en los últimos 30 días o sin fecha de última compra. Ordenados por mayor antigüedad sin comprar.",
   };

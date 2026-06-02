@@ -1836,6 +1836,11 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
                     continue
                 pdvs_by_ruta[int(rid)].append(_pdv_detalle_row(row))
 
+    if pdv_raw_rows:
+        from core.compras_fechas import enrich_supervision_fechas_compra
+
+        enrich_supervision_fechas_compra(dist_id, pdv_raw_rows)
+
     rutas = []
     for r in rutas_base:
         rid = int(r["id_ruta"])

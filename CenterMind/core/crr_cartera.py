@@ -20,6 +20,16 @@ from core.padron_cliente_vitalidad import DIAS_ACTIVO_COMERCIAL, activo_comercia
 DIAS_PROXIMO_CAER_MIN = 23
 
 
+def ref_cartera_viva(hasta: str | None) -> str:
+    """
+    Fecha de referencia para badges «hace N días» y próximos a caer.
+    No proyecta al fin de mes futuro: min(cierre período, hoy).
+    """
+    h = _iso(hasta) or date.today().isoformat()
+    today = date.today().isoformat()
+    return h if h <= today else today
+
+
 def _parse_iso(d: str | None) -> date | None:
     s = _iso(d)
     if not s:
@@ -58,7 +68,7 @@ def es_reactivado_en_periodo(
         return False
     if fuc < desde or fuc > hasta:
         return False
-    if not activo_comercial_por_fecha(fuc):
+    if not activo_comercial_por_fecha(fuc, ref_iso=hasta):
         return False
     return es_activacion_en_periodo(fuc, fca, desde, hasta)
 
@@ -91,7 +101,9 @@ def es_proximo_caer(
     dias_min: int = DIAS_PROXIMO_CAER_MIN,
 ) -> bool:
     """Activo comercial pero con compra en los últimos días antes del umbral de inactividad."""
-    if not activo_comercial_por_fecha(fecha_ultima_compra, dias_umbral=dias_umbral):
+    if not activo_comercial_por_fecha(
+        fecha_ultima_compra, dias_umbral=dias_umbral, ref_iso=ref_iso
+    ):
         return False
     fuc = _parse_iso(fecha_ultima_compra)
     ref = _parse_iso(ref_iso)
@@ -125,7 +137,7 @@ def _cliente_row(
     ref = _iso(ref_iso) or date.today().isoformat()
     dias_sin = dias_desde(fuc, ref)
     dias_para_caer = None
-    if fuc and dias_sin is not None and activo_comercial_por_fecha(fuc):
+    if fuc and dias_sin is not None and activo_comercial_por_fecha(fuc, ref_iso=ref):
         dias_para_caer = max(0, DIAS_ACTIVO_COMERCIAL - dias_sin)
     tel = str(row.get("telefono") or "").strip()
     cel = str(row.get("celular") or "").strip()
@@ -196,7 +208,7 @@ def build_crr_cartera(
     Calcula resumen CRR y listas de clientes para un vendedor.
     `pdvs`: filas de clientes_pdv_v2 del vendedor (con fechas de compra).
     """
-    ref_pc = _iso(ref_proximo_caer) or _iso(hasta) or date.today().isoformat()
+    ref_pc = _iso(ref_proximo_caer) or ref_cartera_viva(hasta)
     ruta_lookup = ruta_meta_by_id or {}
 
     reactivados: list[dict] = []
@@ -229,7 +241,7 @@ def build_crr_cartera(
             ruta_meta=ruta_meta,
         )
 
-        if activo_comercial_por_fecha(fuc):
+        if activo_comercial_por_fecha(fuc, ref_iso=ref_pc):
             activos += 1
         else:
             inactivos += 1

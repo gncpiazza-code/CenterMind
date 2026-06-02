@@ -26,7 +26,7 @@ import {
   type Supervisor, type SupervisorVendedor,
 } from "@/lib/api";
 
-const ALLOWED_ROLES = ["superadmin", "admin", "directorio"];
+const ALLOWED_ROLES = ["superadmin", "admin", "directorio", "compania"];
 
 // ─── SupervisorCard ───────────────────────────────────────────────────────────
 

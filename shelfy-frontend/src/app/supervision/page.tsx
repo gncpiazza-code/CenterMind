@@ -66,7 +66,7 @@ import {
   SUPERVISION_PANELS_VIEWPORT_CLASS,
 } from "@/components/supervision/supervisionLayout";
 
-const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
+const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio", "compania"];
 
 function fmt$$(n: number): string {
   return new Intl.NumberFormat("es-AR", {

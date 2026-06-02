@@ -18,6 +18,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from core.config import WEBHOOK_URL
 from core.lifespan import bots, manager
 from core.security import verify_auth, check_dist_permission
+from core.roles import normalize_rol
 from core.tenant_tables import (
     tenant_table_name,
     load_dist_ids,
@@ -533,7 +534,7 @@ def list_distribuidores(solo_activas: bool = False, user_payload=Depends(verify_
     is_superadmin = bool(user_payload.get("is_superadmin"))
     permisos = user_payload.get("permisos", {}) or {}
     rol = str(user_payload.get("rol") or "").lower()
-    can_switch_tenant = bool(permisos.get("action_switch_tenant")) or rol == "directorio"
+    can_switch_tenant = bool(permisos.get("action_switch_tenant")) or normalize_rol(rol) == "compania"
     if not is_superadmin and not can_switch_tenant:
         raise HTTPException(status_code=403, detail="Acceso denegado")
     try:
@@ -860,7 +861,7 @@ def _check_match_center_access(user_payload: dict, dist_id: int) -> None:
     is_super = user_payload.get("is_superadmin", False) or rol == "superadmin"
     if is_super:
         return
-    if rol == "directorio":
+    if normalize_rol(rol) == "compania":
         check_dist_permission(user_payload, dist_id)
         return
     if dist_id == 4 and rol in ("admin", "supervisor"):
@@ -1032,7 +1033,7 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
     can_access_modo_oficina = (
         is_superadmin
         or bool(permisos.get("menu_modo_oficina"))
-        or rol in {"directorio", "admin", "supervisor"}
+        or normalize_rol(rol) in {"compania", "admin", "supervisor"}
     )
     if not can_access_modo_oficina:
         raise HTTPException(status_code=403, detail="Acceso denegado a Modo Oficina")

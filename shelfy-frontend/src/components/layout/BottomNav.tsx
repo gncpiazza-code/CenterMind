@@ -17,11 +17,11 @@ interface MobileNavItem {
 }
 
 const ALL_NAV: MobileNavItem[] = [
-  { href: "/visor",                label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
-  { href: "/dashboard",            label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_dashboard" },
-  { href: "/supervision",          label: "Supervisión",  icon: BarChart2,        roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_supervision" },
-  { href: "/estadisticas",         label: "Estadísticas", icon: TrendingUp,       roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"] },
-  { href: "/objetivos",            label: "Objetivos",    icon: Target,           roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_objetivos" },
+  { href: "/visor",                label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "compania"], permisoKey: "action_evaluar_exhibiciones" },
+  { href: "/dashboard",            label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor", "compania"],               permisoKey: "menu_dashboard" },
+  { href: "/supervision",          label: "Supervisión",  icon: BarChart2,        roles: ["superadmin", "admin", "supervisor", "compania"],               permisoKey: "menu_supervision" },
+  { href: "/estadisticas",         label: "Estadísticas", icon: TrendingUp,       roles: ["superadmin", "admin", "supervisor", "compania", "evaluador"] },
+  { href: "/objetivos",            label: "Objetivos",    icon: Target,           roles: ["superadmin", "admin", "supervisor", "compania"],               permisoKey: "menu_objetivos" },
 ];
 
 export function BottomNav() {

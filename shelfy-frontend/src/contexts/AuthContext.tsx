@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const canSwitchDistribuidor = React.useMemo(() => {
     if (!user) return false;
     if (user.is_superadmin) return true;
-    if (String(user.rol || "").toLowerCase() === "directorio") return true;
+    if (["directorio", "compania"].includes(String(user.rol || "").toLowerCase())) return true;
     return !!(user.permisos?.action_switch_tenant);
   }, [user]);
 

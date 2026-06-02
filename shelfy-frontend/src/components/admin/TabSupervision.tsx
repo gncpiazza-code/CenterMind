@@ -3558,7 +3558,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 {/* (Phrase builder preview hidden per v12 plan) */}
 
                 {/* Origen: Distribuidora / Compañía — solo para directorio o superadmin */}
-                {(user?.is_superadmin || user?.rol === 'directorio') && (
+                {(user?.is_superadmin || ['directorio', 'compania'].includes(user?.rol ?? '')) && (
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">Origen</p>
                     <div className="flex gap-1.5">

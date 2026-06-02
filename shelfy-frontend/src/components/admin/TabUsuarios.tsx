@@ -20,6 +20,7 @@ const ROL_LABEL: Record<string, string> = {
   admin: "Admin",
   supervisor: "Supervisor",
   directorio: "Directorio",
+  compania: "Compañía",
   evaluador: "Evaluador",
 };
 
@@ -31,6 +32,7 @@ export function RolBadge({ rol }: { rol: string }) {
     admin: "bg-blue-100 text-blue-700",
     supervisor: "bg-green-100 text-green-700",
     directorio: "bg-slate-100 text-slate-700",
+    compania: "bg-indigo-100 text-indigo-700",
     evaluador: "bg-amber-100 text-amber-700",
   };
   return (
@@ -60,7 +62,7 @@ export default function TabUsuarios({ isSuperadmin, distId }: TabUsuariosProps) 
   const [changingUserId, setChangingUserId] = useState<number | null>(null);
 
   const rolesDisponibles = isSuperadmin 
-    ? ["supervisor", "admin", "superadmin", "directorio", "evaluador"] 
+    ? ["supervisor", "admin", "superadmin", "compania", "evaluador"]
     : ["supervisor", "admin", "evaluador"];
 
   const load = () => {

@@ -30,6 +30,7 @@ from core.helpers import (
 from core.exhibicion_aggregate import count_logical_per_client
 from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
+from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from core.tenant_tables import (
     tenant_table_name,
     load_dist_ids,
@@ -2982,8 +2983,8 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     if body.origen == "compania":
         rol = user_payload.get("rol", "")
         is_superadmin = user_payload.get("is_superadmin", False)
-        if not is_superadmin and rol not in ("directorio", "superadmin"):
-            raise HTTPException(status_code=403, detail="Solo directorio y superadmin pueden crear objetivos de compañía")
+        if not is_superadmin and normalize_rol(rol) not in ROLES_COMPANIA_SCOPE:
+            raise HTTPException(status_code=403, detail="Solo usuarios de Compañía pueden crear objetivos de compañía")
         if not body.mes_referencia:
             raise HTTPException(status_code=422, detail="mes_referencia requerido para objetivos de compañía")
         # Validar unicidad de objetivo de compañía activo para ese vendedor/tipo/mes

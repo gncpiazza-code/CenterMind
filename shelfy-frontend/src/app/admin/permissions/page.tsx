@@ -16,12 +16,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const ROLES = ["superadmin", "directorio", "admin", "supervisor", "evaluador"] as const;
+const ROLES = ["superadmin", "compania", "admin", "supervisor", "evaluador"] as const;
 type Role = (typeof ROLES)[number];
 
 const ROLE_LABELS: Record<Role, string> = {
   superadmin: "Super Admin",
-  directorio: "Directorio",
+  compania: "Compañía",
   admin: "Admin",
   supervisor: "Supervisor",
   evaluador: "Evaluador",

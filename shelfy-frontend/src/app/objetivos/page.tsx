@@ -1061,7 +1061,7 @@ interface NuevoObjetivoModalProps {
 }
 
 function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, userRol, isSuperadmin }: NuevoObjetivoModalProps) {
-  const canCrearCompania = isSuperadmin || userRol === "directorio" || userRol === "superadmin";
+  const canCrearCompania = isSuperadmin || ["directorio", "compania"].includes(userRol) || userRol === "superadmin";
   const [origenMode, setOrigenMode] = useState<"distribuidora" | "compania">("distribuidora");
   const [mesReferencia, setMesReferencia] = useState<string>(() => {
     const d = new Date();

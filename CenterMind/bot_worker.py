@@ -1546,7 +1546,7 @@ class BotWorker:
                 await m.reply_text(
                     "⚠️ No encontré candidatos para este grupo.\n"
                     "Asegurate de que el nombre del grupo incluya el nombre del vendedor, "
-                    "o contactá al directorio."
+                    "o contactá a la compañía."
                 )
                 return
 

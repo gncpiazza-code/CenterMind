@@ -2351,7 +2351,7 @@ def binding_list_grupos(
 
 @router.post("/api/fuerza-ventas/binding/apply/{dist_id}", tags=["Binding"])
 def binding_apply_direct(dist_id: int, req: GroupBindingApplyRequest, payload=Depends(verify_auth)):
-    """Aplica un binding directo grupo↔vendedor (acción de directorio/superadmin)."""
+    """Aplica un binding directo grupo↔vendedor (acción de compania/superadmin)."""
     _check_fv_access(payload, dist_id)
     try:
         from core.telegram_group_matcher import apply_group_binding

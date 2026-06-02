@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Re-evaluación de exhibiciones por Compañía (superadmin / directorio).
+Re-evaluación de exhibiciones por Compañía (superadmin / compania).
 
 Rutas:
   POST /api/compania/reevaluar

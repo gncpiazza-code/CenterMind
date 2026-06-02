@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 
 type SectionKey = "compania" | "distribuidora";
-type UserRol = "superadmin" | "directorio" | "admin" | "supervisor" | "evaluador" | string;
+type UserRol = "superadmin" | "directorio" | "compania" | "admin" | "supervisor" | "evaluador" | string;
 
 interface IdealConfigModalProps {
   open: boolean;
@@ -80,7 +80,7 @@ function normalizeKpisMensuales(km: KpisMensualesIdeal | undefined): KpisMensual
 function canEditSection(section: SectionKey, rol: UserRol): boolean {
   const r = rol?.toLowerCase?.() ?? "";
   if (r === "superadmin") return true;
-  if (section === "compania") return r === "directorio";
+  if (section === "compania") return r === "directorio" || r === "compania";
   return ["admin", "supervisor"].includes(r);
 }
 

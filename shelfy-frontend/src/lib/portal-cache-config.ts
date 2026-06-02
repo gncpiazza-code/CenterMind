@@ -29,11 +29,11 @@ export const MODULE_ACCESS: Record<
   PortalModuleId,
   { roles: string[]; permisoKey?: string }
 > = {
-  dashboard: { roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_dashboard" },
-  supervision: { roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_supervision" },
-  estadisticas: { roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"] },
+  dashboard: { roles: ["superadmin", "admin", "supervisor", "directorio", "compania"], permisoKey: "menu_dashboard" },
+  supervision: { roles: ["superadmin", "admin", "supervisor", "directorio", "compania"], permisoKey: "menu_supervision" },
+  estadisticas: { roles: ["superadmin", "admin", "supervisor", "directorio", "compania", "evaluador"] },
   visor: {
-    roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"],
+    roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio", "compania"],
     permisoKey: "action_evaluar_exhibiciones",
   },
 };

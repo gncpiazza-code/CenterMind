@@ -27,7 +27,7 @@ from db import sb
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
-ROLES_SUPERVISORES = {"superadmin", "admin", "directorio"}
+ROLES_SUPERVISORES = {"superadmin", "admin", "directorio", "compania"}
 
 
 def _require_role(user_payload: dict, dist_id: int):

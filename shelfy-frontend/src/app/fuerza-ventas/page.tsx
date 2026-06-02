@@ -39,7 +39,7 @@ import { GrupoBindingSheet } from "@/components/fuerza-ventas/GrupoBindingSheet"
 
 function canAccessFV(user: AuthResponse): boolean {
   if (user.is_superadmin || user.rol === "superadmin") return true;
-  if (user.rol === "directorio") return true;
+  if (["directorio", "compania"].includes(user.rol)) return true;
   if (user.id_distribuidor === 4 && ["admin", "supervisor"].includes(user.rol)) return true;
   return false;
 }

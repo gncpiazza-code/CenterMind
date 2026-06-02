@@ -97,7 +97,7 @@ export default function DashboardPage() {
   const enabled   = !!user && distId > 0;
   const isCompania =
     isSuper ||
-    (user?.rol ?? "").toLowerCase() === "directorio" ||
+    ["directorio", "compania"].includes((user?.rol ?? "").toLowerCase()) ||
     (user?.rol ?? "").toLowerCase() === "superadmin";
 
   function handlePeriodChange(preset: PeriodPreset, year?: number, month?: number) {

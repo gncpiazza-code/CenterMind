@@ -1260,7 +1260,7 @@ def dashboard_ranking_compania(
 ):
     """
     Ranking de compañía: aplica overlay de re-evaluaciones sobre el ranking oficial.
-    Solo visible para roles Compañía (superadmin / directorio).
+    Solo visible para roles Compañía (superadmin / compania).
     El ranking oficial del distribuidor NO se modifica.
     """
     require_compania_role(payload)

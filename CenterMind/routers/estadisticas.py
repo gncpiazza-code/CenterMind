@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from core.security import verify_auth, check_dist_permission
 from core.estadisticas_ideal import validate_pesos, repartir_pesos, KPI_KEYS
+from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from services.estadisticas_service import (
     fetch_meses_disponibles,
     fetch_sucursales_disponibles,
@@ -109,8 +110,8 @@ def estadisticas_ideal_compania_get(user_payload=Depends(verify_auth)):
 @router.put("/api/estadisticas/ideal/compania", tags=["Estadísticas"])
 def estadisticas_ideal_compania_put(body: IdealInput, user_payload=Depends(verify_auth)):
     rol = user_payload.get("rol", "")
-    if rol not in ("superadmin", "directorio") and not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Solo superadmin o directorio puede editar el ideal compañía")
+    if normalize_rol(rol) not in ROLES_COMPANIA_SCOPE and not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo usuarios de Compañía pueden editar el ideal")
     ok, err = validate_pesos(body.pesos.model_dump())
     if not ok:
         raise HTTPException(status_code=400, detail=err)

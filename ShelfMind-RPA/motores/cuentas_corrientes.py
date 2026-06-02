@@ -111,7 +111,9 @@ async def _cerrar_popup_actualizacion(page: Page) -> None:
         await btn.wait_for(state="visible", timeout=5_000)
         logger.info("  ⚠️  Popup de actualización — cerrando...")
         await btn.click()
-        await page.wait_for_load_state("networkidle", timeout=15_000)
+        from lib.playwright_nav import wait_dom_ready
+
+        await wait_dom_ready(page, timeout_ms=15_000)
         logger.info("  Popup cerrado ✅")
     except Exception:
         pass
@@ -218,9 +220,11 @@ async def _seleccionar_opcion_sucursal(page: Page, sucursal_objetivo: str) -> No
 # ─────────────────────────────────────────────────────────────────
 
 async def _hacer_login(page: Page, tenant: dict) -> None:
+    from lib.playwright_nav import goto_dom
+
     url_login = f"{tenant['url_base']}/#/login"
     logger.info(f"  Navegando a: {url_login}")
-    await page.goto(url_login, wait_until="networkidle")
+    await goto_dom(page, url_login, timeout_ms=TIMEOUT_MS)
     await _cerrar_popup_actualizacion(page)
     await page.wait_for_timeout(2000) # Estabilización post-popup
 
@@ -324,9 +328,11 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
     ⚠️ Diferencia con ventas: el botón usa 'button.btn.btn-primary'
     sin la clase 'margin-boton'. No confundir.
     """
+    from lib.playwright_nav import goto_dom
+
     url_reporte = f"{tenant['url_base']}/#/cuentas-por-cobrar/reportes/saldos-totales"
     logger.info(f"  Navegando al reporte...")
-    await page.goto(url_reporte, wait_until="networkidle")
+    await goto_dom(page, url_reporte, timeout_ms=TIMEOUT_MS)
 
     # Puede aparecer el dialog de accesos al navegar
     await _cerrar_accesos_concurrentes(page)

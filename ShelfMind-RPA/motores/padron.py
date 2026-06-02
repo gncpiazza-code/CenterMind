@@ -274,9 +274,11 @@ async def _navegar_y_login(page: Page, tenant: dict, usuario: str, password: str
     La empresa/distribuidora se elige después en el checkbox «Empresas» del reporteador
     (igual que en Informe de Ventas). `tenant` solo se usa para logging/screenshots.
     """
+    from lib.playwright_nav import goto_dom, wait_dom_ready
+
     url_base = "https://consolido.nextbyn.com"
     logger.info(f"  Navegando a {url_base}")
-    await page.goto(url_base, wait_until="networkidle", timeout=TIMEOUT_MS)
+    await goto_dom(page, url_base, timeout_ms=TIMEOUT_MS)
 
     # Esperar formulario de login
     await page.locator('input[type="text"]').first.wait_for(state="visible", timeout=TIMEOUT_MS)
@@ -326,7 +328,7 @@ async def _navegar_y_login(page: Page, tenant: dict, usuario: str, password: str
                 "() => !window.location.href.includes('/login')",
                 timeout=45_000,
             )
-            await page.wait_for_load_state("networkidle", timeout=20_000)
+            await wait_dom_ready(page, timeout_ms=20_000)
             logger.info(f"  Login intento {num_intento} OK. URL actual: {page.url}")
             return True
         except Exception:

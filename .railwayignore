@@ -1,0 +1,4 @@
+# CLI `railway up` desde raíz del monorepo — solo desplegar ShelfMind-RPA (servicio engines)
+*
+!ShelfMind-RPA
+!ShelfMind-RPA/**

@@ -35,6 +35,7 @@ export interface GaleriaMapViewWrapperProps {
   sinCoordsCount?: number;
   onOpenSinCoords?: () => void;
   onPinsChange?: (pins: GaleriaMapaPin[]) => void;
+  disableMapKeyboard?: boolean;
   className?: string;
 }
 

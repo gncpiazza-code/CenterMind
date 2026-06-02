@@ -29,6 +29,8 @@ interface GaleriaGoogleMapViewProps {
   sinCoordsCount?: number;
   onOpenSinCoords?: () => void;
   onPinsChange?: (pins: GaleriaMapaPin[]) => void;
+  /** Con el visor abierto: desactiva flechas de pan en Google Maps */
+  disableMapKeyboard?: boolean;
   className?: string;
 }
 
@@ -47,11 +49,19 @@ function overlayLayoutKey(pins: GaleriaMapaPin[], zoom: number): string {
   const z = Math.floor(zoom);
   const { clusters, singles } = clusterGaleriaPins(pins, z);
   const clusterPart = clusters
-    .map((c) => `${c.id}:${c.count}:${c.lat.toFixed(6)},${c.lng.toFixed(6)}`)
+    .map((c) => {
+      const ids = c.pins
+        .map((p) => p.id_cliente)
+        .sort((a, b) => a - b)
+        .join(",");
+      return `${c.count}:${ids}`;
+    })
+    .sort()
     .join("|");
   const singlePart = singles
-    .map((p) => `${p.id_cliente}:${p.latitud.toFixed(6)},${p.longitud.toFixed(6)}`)
-    .join("|");
+    .map((p) => p.id_cliente)
+    .sort((a, b) => a - b)
+    .join(",");
   return `z${z}|c[${clusterPart}]|s[${singlePart}]`;
 }
 
@@ -89,6 +99,7 @@ export function GaleriaGoogleMapView({
   sinCoordsCount,
   onOpenSinCoords,
   onPinsChange,
+  disableMapKeyboard = false,
   className,
 }: GaleriaGoogleMapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -96,6 +107,7 @@ export function GaleriaGoogleMapView({
   const fitBoundsDoneRef = useRef(false);
   const mountedOverlaysRef = useRef<MountedOverlay[]>([]);
   const layoutKeyRef = useRef("");
+  const zoomFloorRef = useRef(-1);
   const pinScaleZoomRef = useRef(-1);
   const rebuildScheduledRef = useRef<number | null>(null);
   const qc = useQueryClient();
@@ -285,15 +297,28 @@ export function GaleriaGoogleMapView({
       bearing: 0,
       pitch: 0,
     });
+    // No remontar overlays al panear: Google redibuja posiciones en draw().
+  }, [onViewportChange, applyPinScaleCss]);
+
+  const onZoomFloorChange = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const z = Math.floor(map.getZoom() ?? DEFAULT_ZOOM);
+    if (z === zoomFloorRef.current) return;
+    zoomFloorRef.current = z;
+    applyPinScaleCss(map.getZoom() ?? z);
     scheduleRebuildOverlays();
-  }, [onViewportChange, scheduleRebuildOverlays, applyPinScaleCss]);
+  }, [scheduleRebuildOverlays, applyPinScaleCss]);
 
   const reportViewportRef = useRef(reportViewport);
   reportViewportRef.current = reportViewport;
+  const onZoomFloorChangeRef = useRef(onZoomFloorChange);
+  onZoomFloorChangeRef.current = onZoomFloorChange;
 
   useEffect(() => {
     setSelectedPinId(null);
     fitBoundsDoneRef.current = false;
+    zoomFloorRef.current = -1;
     disposeAllOverlays();
   }, [vendedorId, desde, hasta, estado, disposeAllOverlays]);
 
@@ -322,11 +347,14 @@ export function GaleriaGoogleMapView({
             zoomControl: true,
             gestureHandling: "greedy",
             clickableIcons: false,
+            keyboardShortcuts: !disableMapKeyboard,
           });
           mapRef.current.addListener("idle", () => reportViewportRef.current());
+          mapRef.current.addListener("zoom_changed", () => onZoomFloorChangeRef.current());
         }
 
         google.maps.event.trigger(mapRef.current, "resize");
+        zoomFloorRef.current = Math.floor(mapRef.current.getZoom() ?? DEFAULT_ZOOM);
         reportViewportRef.current();
         setMapReady(true);
       })
@@ -347,6 +375,10 @@ export function GaleriaGoogleMapView({
       disposeAllOverlays();
     };
   }, [disposeAllOverlays]);
+
+  useEffect(() => {
+    mapRef.current?.setOptions({ keyboardShortcuts: !disableMapKeyboard });
+  }, [disableMapKeyboard, mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || pins.length === 0 || fitBoundsDoneRef.current) return;

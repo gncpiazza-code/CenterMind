@@ -50,6 +50,7 @@ import { useGaleriaStore } from "@/store/useGaleriaStore";
 import { parseGaleriaSearchParams, buildGaleriaUrl, resolveGaleriaEstadoFilter } from "@/lib/galeria-url";
 import { galeriaMonthBounds } from "@/lib/galeria-month";
 import { galeriaKeys } from "@/lib/galeria-queries";
+import { buildGaleriaViewerNavPins } from "@/lib/galeria-pdv-insights";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
@@ -324,6 +325,11 @@ export default function GaleriaExhibicionesPage() {
     [setMapPins],
   );
 
+  const viewerNavPins = useMemo(
+    () => buildGaleriaViewerNavPins(mapPins, filteredClientes),
+    [mapPins, filteredClientes],
+  );
+
   // GaleriaMapView sinCoordsCount: se obtiene del hook interno, lo exponemos via callback
   const [sinCoordsCount, setSinCoordsCount] = useState<number>(0);
 
@@ -513,6 +519,7 @@ export default function GaleriaExhibicionesPage() {
                     estado={resolveGaleriaEstadoFilter(filtroEstado)}
                     onPinSelect={handlePinSelect}
                     onPinsChange={handleMapPinsChange}
+                    disableMapKeyboard={viewerOpen}
                     sinCoordsCount={sinCoordsCount}
                     onOpenSinCoords={() => setSinCoordsOpen(true)}
                   />
@@ -662,7 +669,7 @@ export default function GaleriaExhibicionesPage() {
             fechaDesde={fechaDesde || undefined}
             fechaHasta={fechaHasta || undefined}
             mesGaleria={mesGaleria}
-            mapPins={mapPins}
+            mapPins={viewerNavPins}
           />
 
           {/* ── GaleriaSinCoordsPanel ── */}

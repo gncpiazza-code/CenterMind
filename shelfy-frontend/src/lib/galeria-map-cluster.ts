@@ -17,13 +17,12 @@ export const ZOOM_MAX_CLUSTER_VIEW = 9;
 /** Cada clic en tarjeta de grupo avanza este many niveles de zoom. */
 export const ZOOM_CLUSTER_CLICK_STEP = 2;
 
-/** Tarjetas de grupo solo si hay al menos N PDVs; debajo → pins con foto sueltos. */
+/** Tarjeta grande solo si hay al menos N PDVs en el grupo. */
 export const MIN_CLUSTER_CARD_COUNT = 5;
 
 function cellSizeDeg(zoom: number): number {
   const z = Math.floor(zoom);
-  // Celdas más chicas → los grupos se desgranan antes al acercar
-  return 0.22 / Math.pow(2, Math.max(0, z - 4));
+  return 0.28 / Math.pow(2, Math.max(0, z - 3));
 }
 
 function distDeg(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -44,41 +43,74 @@ function recomputeClusterCenter(cluster: GaleriaMapCluster): void {
   cluster.count = cluster.pins.length;
 }
 
-/** Evita pin suelto + tarjeta de grupo encimados en celdas vecinas. */
-function mergeNearbySingletonClusters(
+function dedupePins(pins: GaleriaMapaPin[]): GaleriaMapaPin[] {
+  const byId = new Map<number, GaleriaMapaPin>();
+  for (const p of pins) {
+    byId.set(p.id_cliente, p);
+  }
+  return [...byId.values()];
+}
+
+/** Une clusters vecinos (incl. varios de count=1) para evitar muchos puntitos "1". */
+function consolidateClustersByProximity(
   clusters: GaleriaMapCluster[],
   maxDistDeg: number,
 ): GaleriaMapCluster[] {
-  const multis = clusters.filter((c) => c.count > 1);
-  const singles = clusters.filter((c) => c.count === 1);
-  if (singles.length === 0 || multis.length === 0) return clusters;
+  const n = clusters.length;
+  if (n <= 1) return clusters;
 
-  const absorbed = new Set<string>();
-  for (const single of singles) {
-    const pin = single.pins[0];
-    let target: GaleriaMapCluster | null = null;
-    let best = maxDistDeg;
-    for (const multi of multis) {
-      const d = distDeg(pin.latitud, pin.longitud, multi.lat, multi.lng);
-      if (d < best) {
-        best = d;
-        target = multi;
-      }
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (i: number): number => {
+    if (parent[i] === i) return i;
+    parent[i] = find(parent[i]);
+    return parent[i];
+  };
+  const union = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  };
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const d = distDeg(clusters[i].lat, clusters[i].lng, clusters[j].lat, clusters[j].lng);
+      if (d <= maxDistDeg) union(i, j);
     }
-    if (!target) continue;
-    target.pins.push(pin);
-    recomputeClusterCenter(target);
-    absorbed.add(single.id);
   }
 
-  return clusters.filter((c) => !absorbed.has(c.id));
+  const groups = new Map<number, { pins: GaleriaMapaPin[]; id: string }>();
+  for (let i = 0; i < n; i++) {
+    const root = find(i);
+    const prev = groups.get(root);
+    if (prev) {
+      prev.pins.push(...clusters[i].pins);
+    } else {
+      groups.set(root, { pins: [...clusters[i].pins], id: clusters[i].id });
+    }
+  }
+
+  const out: GaleriaMapCluster[] = [];
+  groups.forEach(({ pins, id }) => {
+    const unique = dedupePins(pins);
+    const cluster: GaleriaMapCluster = {
+      id,
+      lat: 0,
+      lng: 0,
+      count: unique.length,
+      pins: unique,
+    };
+    recomputeClusterCenter(cluster);
+    out.push(cluster);
+  });
+
+  return out.sort((a, b) => b.count - a.count);
 }
 
 export function shouldShowPinMarkers(zoom: number): boolean {
   return Math.floor(zoom) >= ZOOM_SHOW_PINS;
 }
 
-/** Agrupa PDVs por celda geográfica; pins sueltos solo en zoom alto (fotos individuales). */
+/** Agrupa PDVs por celda + fusión por proximidad; fotos sueltas solo en zoom alto. */
 export function clusterGaleriaPins(
   pins: GaleriaMapaPin[],
   zoom: number,
@@ -122,7 +154,8 @@ export function clusterGaleriaPins(
     });
   });
 
-  const merged = mergeNearbySingletonClusters(clusters, cell * 1.35);
+  const mergeDist = Math.max(cell * 2.2, 0.004);
+  const merged = consolidateClustersByProximity(clusters, mergeDist);
   return { clusters: merged, singles: [] };
 }
 

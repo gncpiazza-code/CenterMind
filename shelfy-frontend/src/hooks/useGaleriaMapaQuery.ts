@@ -3,10 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type MapViewport } from "@/components/ui/map";
 import { fetchGaleriaMapaVendedor, type GaleriaMapaPin } from "@/lib/api";
 import { galeriaKeys, galeriaFiltrosHash } from "@/lib/galeria-queries";
-import {
-  GALERIA_MAP_QUERY_BBOX_AR,
-  useWideMapQueryBbox,
-} from "@/lib/galeria-map-bounds";
+import { GALERIA_MAP_QUERY_BBOX_AR } from "@/lib/galeria-map-bounds";
 
 /** Viewport inicial (Argentina) para disparar la primera carga sin esperar pan/zoom. */
 const DEFAULT_MAP_VIEWPORT: MapViewport = {
@@ -23,38 +20,6 @@ interface UseGaleriaMapaQueryParams {
   hasta?: string;
   estado?: string;
 }
-
-/** Calcular un bbox expandido 20% en cada eje lat/lng */
-function expandBbox(viewport: MapViewport): {
-  latMin: number;
-  lngMin: number;
-  latMax: number;
-  lngMax: number;
-} {
-  const zoom = viewport.zoom;
-  // Aproximación: a zoom 10, un tile cubre ~0.35° lat. Usamos una expansion fija del viewport.
-  // Asumimos ±latDelta / ±lngDelta basado en zoom.
-  const latDelta = 360 / Math.pow(2, zoom);
-  const lngDelta = 360 / Math.pow(2, zoom);
-
-  const expand = 0.2;
-  const lat = viewport.center[1];
-  const lng = viewport.center[0];
-
-  return {
-    latMin: lat - latDelta * (1 + expand),
-    latMax: lat + latDelta * (1 + expand),
-    lngMin: lng - lngDelta * (1 + expand),
-    lngMax: lng + lngDelta * (1 + expand),
-  };
-}
-
-function bboxKey(bbox: ReturnType<typeof expandBbox>): string {
-  // Redondear a 3 decimales para estabilizar la key
-  const r = (n: number) => Math.round(n * 1000) / 1000;
-  return `${r(bbox.latMin)}_${r(bbox.lngMin)}_${r(bbox.latMax)}_${r(bbox.lngMax)}`;
-}
-
 
 export interface UseGaleriaMapaQueryResult {
   pins: GaleriaMapaPin[];
@@ -87,13 +52,10 @@ export function useGaleriaMapaQuery(
   }, []);
 
   const zoom = viewport?.zoom ?? 8;
-  const bbox = viewport
-    ? useWideMapQueryBbox(zoom)
-      ? GALERIA_MAP_QUERY_BBOX_AR
-      : expandBbox(viewport)
-    : null;
-  const zoomBucket = Math.floor(zoom / 2);
-  const bboxKeyStr = bbox ? bboxKey(bbox) : "none";
+  // Bbox fijo: evita refetch al panear y el parpadeo de overlays al cambiar el set de pins.
+  const bbox = GALERIA_MAP_QUERY_BBOX_AR;
+  const bboxKeyStr = "ar-wide";
+  const zoomBucket = Math.floor(zoom);
   const fHash = galeriaFiltrosHash(params.desde, params.hasta, params.estado);
 
   const query = useQuery({

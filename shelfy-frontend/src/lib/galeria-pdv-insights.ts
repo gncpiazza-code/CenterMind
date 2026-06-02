@@ -1,4 +1,10 @@
-import type { DeudorComprobante, DeudorDetalle, DeudorPerfil } from "@/lib/api";
+import type {
+  DeudorComprobante,
+  DeudorDetalle,
+  DeudorPerfil,
+  GaleriaClienteCard,
+  GaleriaMapaPin,
+} from "@/lib/api";
 import { formatBultosCantidad } from "@/lib/bultos-display";
 
 export interface CompraArticuloMes {
@@ -245,4 +251,25 @@ export function sortMapPinsForNav<T extends { latitud: number; longitud: number;
     if (Math.abs(lngDiff) > 0.0001) return lngDiff;
     return a.nombre_cliente.localeCompare(b.nombre_cliente, "es");
   });
+}
+
+/** Lista de PDVs para ↑/↓ en el visor: mapa si hay pins, si no grilla del vendedor. */
+export function buildGaleriaViewerNavPins(
+  mapPins: GaleriaMapaPin[],
+  clientes: GaleriaClienteCard[],
+): GaleriaMapaPin[] {
+  if (mapPins.length > 0) return sortMapPinsForNav(mapPins);
+
+  const fromGrid = clientes.map((c) => ({
+    id_cliente: c.id_cliente,
+    nombre_cliente: (c.nombre_fantasia || c.nombre_cliente || "Cliente").trim(),
+    latitud: 0,
+    longitud: 0,
+    total_exhibiciones: c.total_exhibiciones,
+    cover_url: c.ultima_exhibicion_url,
+    estado_cover: c.ultimo_estado || "Pendiente",
+    id_cliente_erp: c.id_cliente_erp,
+  }));
+
+  return fromGrid.sort((a, b) => a.nombre_cliente.localeCompare(b.nombre_cliente, "es"));
 }

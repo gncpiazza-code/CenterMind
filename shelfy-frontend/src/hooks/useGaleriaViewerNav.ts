@@ -31,15 +31,23 @@ export function useGaleriaViewerNav({
 }: UseGaleriaViewerNavParams) {
   const orderedPins = useMemo(() => sortMapPinsForNav(mapPins), [mapPins]);
 
-  const activeIndex = useMemo(
-    () => orderedPins.findIndex((p) => p.id_cliente === activeClienteId),
-    [orderedPins, activeClienteId],
-  );
+  const activeIndex = useMemo(() => {
+    if (activeClienteId == null) return -1;
+    const idx = orderedPins.findIndex((p) => p.id_cliente === activeClienteId);
+    return idx;
+  }, [orderedPins, activeClienteId]);
+
+  const resolvedIndex = activeIndex >= 0 ? activeIndex : orderedPins.length > 0 ? 0 : -1;
 
   const goPdv = useCallback(
     (delta: -1 | 1) => {
-      if (orderedPins.length === 0 || activeIndex < 0) return;
-      const next = activeIndex + delta;
+      if (orderedPins.length === 0) return;
+      let idx = activeIndex;
+      if (idx < 0 && activeClienteId != null) {
+        idx = orderedPins.findIndex((p) => p.id_cliente === activeClienteId);
+      }
+      if (idx < 0) idx = 0;
+      const next = idx + delta;
       if (next < 0 || next >= orderedPins.length) return;
       const pin = orderedPins[next];
       onSelectPdv({
@@ -50,7 +58,7 @@ export function useGaleriaViewerNav({
         idClienteErp: pin.id_cliente_erp,
       });
     },
-    [orderedPins, activeIndex, onSelectPdv],
+    [orderedPins, activeIndex, activeClienteId, onSelectPdv],
   );
 
   useEffect(() => {
@@ -63,18 +71,22 @@ export function useGaleriaViewerNav({
       switch (e.key) {
         case "ArrowLeft":
           e.preventDefault();
+          e.stopPropagation();
           onPhotoPrev();
           break;
         case "ArrowRight":
           e.preventDefault();
+          e.stopPropagation();
           onPhotoNext();
           break;
         case "ArrowUp":
           e.preventDefault();
+          e.stopPropagation();
           goPdv(-1);
           break;
         case "ArrowDown":
           e.preventDefault();
+          e.stopPropagation();
           goPdv(1);
           break;
         case "Escape":
@@ -84,8 +96,8 @@ export function useGaleriaViewerNav({
       }
     };
 
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [open, onPhotoPrev, onPhotoNext, goPdv]);
 
   return {
@@ -94,7 +106,7 @@ export function useGaleriaViewerNav({
     totalPdvs: orderedPins.length,
     goPdvPrev: () => goPdv(-1),
     goPdvNext: () => goPdv(1),
-    canGoPdvPrev: activeIndex > 0,
-    canGoPdvNext: activeIndex >= 0 && activeIndex < orderedPins.length - 1,
+    canGoPdvPrev: resolvedIndex > 0,
+    canGoPdvNext: resolvedIndex >= 0 && resolvedIndex < orderedPins.length - 1,
   };
 }

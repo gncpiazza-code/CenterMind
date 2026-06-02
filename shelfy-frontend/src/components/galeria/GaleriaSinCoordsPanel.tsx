@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Loader2, MapPinOff } from "lucide-react";
 import { fetchGaleriaSinCoords } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface GaleriaSinCoordsPanelProps {
   open: boolean;
@@ -19,6 +20,7 @@ interface GaleriaSinCoordsPanelProps {
   desde?: string;
   hasta?: string;
   estado?: string;
+  onClienteClick?: (idCliente: number, nombreCliente: string) => void;
 }
 
 export function GaleriaSinCoordsPanel({
@@ -29,6 +31,7 @@ export function GaleriaSinCoordsPanel({
   desde,
   hasta,
   estado,
+  onClienteClick,
 }: GaleriaSinCoordsPanelProps) {
   const { data, isLoading } = useQuery({
     queryKey: ["galeria-sin-coords", vendedorId, distId, desde, hasta, estado],
@@ -67,7 +70,11 @@ export function GaleriaSinCoordsPanel({
             {data.map((item) => (
               <li
                 key={item.id_cliente}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5 bg-slate-50"
+                className={cn(
+                  "flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5 bg-slate-50",
+                  onClienteClick && "cursor-pointer hover:bg-slate-100 transition-colors"
+                )}
+                onClick={() => onClienteClick?.(item.id_cliente, item.nombre_cliente)}
               >
                 <span className="text-sm text-slate-700 leading-tight line-clamp-2 flex-1">
                   {item.nombre_cliente}

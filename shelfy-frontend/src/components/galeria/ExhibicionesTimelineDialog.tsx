@@ -1,26 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Flame, Clock, ExternalLink, Loader2, Images, X, Building2, RotateCcw } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
-import {
-  fetchGaleriaTimelineCliente,
-  type GaleriaTimelineItem,
-  type GaleriaTimelineResponse,
-} from "@/lib/api";
-import { ReevaluarCompaniaSheet } from "./ReevaluarCompaniaSheet";
+/**
+ * ExhibicionesTimelineDialog — thin wrapper deprecado.
+ *
+ * Redirige al viewer unificado GaleriaExhibicionViewer.
+ * Mantiene las mismas props para no romper imports existentes.
+ */
+
+import type { GaleriaTimelineItem } from "@/lib/api";
+import { GaleriaExhibicionViewer } from "./GaleriaExhibicionViewer";
 
 interface Props {
   idClientePdv: number | null;
@@ -29,433 +17,39 @@ interface Props {
   fechaDesde?: string;
   fechaHasta?: string;
   nombreCliente: string;
+  /** @deprecated no usado en el nuevo viewer */
   motivoNoReferencia?: string | null;
+  /** @deprecated no usado en el nuevo viewer */
   directItems?: GaleriaTimelineItem[];
+  /** @deprecated no usado en el nuevo viewer */
   pageSize?: number;
   open: boolean;
   onClose: () => void;
   canReevaluarCompania?: boolean;
 }
 
-const ESTADO_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; border: string }> = {
-  Aprobada:  { icon: CheckCircle2, color: "text-green-700", bg: "bg-green-50",  border: "border-green-200" },
-  Rechazada: { icon: XCircle,      color: "text-red-700",   bg: "bg-red-50",    border: "border-red-200" },
-  Destacada: { icon: Flame,        color: "text-amber-700", bg: "bg-amber-50",  border: "border-amber-200" },
-  Pendiente: { icon: Clock,        color: "text-slate-600", bg: "bg-slate-50",  border: "border-slate-200" },
-};
-
-function getTipoPdvTone(tipo: string | null | undefined): string {
-  const t = (tipo || "").toLowerCase();
-  if (t.includes("con ingreso")) return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (t.includes("sin ingreso")) return "bg-rose-50 text-rose-700 border-rose-200";
-  return "bg-slate-50 text-slate-600 border-slate-200";
-}
-
-function getImagenesTone(count: number): string {
-  if (count >= 5) return "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200";
-  if (count >= 3) return "bg-sky-50 text-sky-700 border-sky-200";
-  return "bg-slate-50 text-slate-600 border-slate-200";
-}
-
-function formatDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("es-AR", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatDateHeader(isoDate: string): string {
-  try {
-    const d = new Date(`${isoDate}T00:00:00`);
-    return d.toLocaleDateString("es-AR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return isoDate;
-  }
-}
-
-type TimelineGroup = {
-  dateKey: string;
-  items: GaleriaTimelineItem[];
-};
-
-const REEVAL_ESTADO_CONFIG: Record<string, { color: string; bg: string }> = {
-  Aprobada:  { color: "text-green-700",  bg: "bg-green-50" },
-  Rechazada: { color: "text-red-700",    bg: "bg-red-50" },
-  Destacada: { color: "text-amber-700",  bg: "bg-amber-50" },
-};
-
-function formatDateTimeShort(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("es-AR", {
-      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function TimelineGroupCard({
-  group,
-  index,
-  total,
-  onOpenImage,
-  canReevaluarCompania,
-  distId,
-}: {
-  group: TimelineGroup;
-  index: number;
-  total: number;
-  onOpenImage: (url: string, exhibicionId: number) => void;
-  canReevaluarCompania?: boolean;
-  distId: number;
-}) {
-  const first = group.items[0];
-  const cfg = ESTADO_CONFIG[first?.estado] ?? ESTADO_CONFIG.Pendiente;
-  const Icon = cfg.icon;
-  const isLast = index === total - 1;
-
-  // Re-evaluaciones del primer item de este grupo (el que tiene el estado definitivo)
-  const reevaluaciones = first?.reevaluaciones ?? [];
-  const [reevalSheetOpen, setReevalSheetOpen] = useState(false);
-  const puedeReevaluar = canReevaluarCompania && first?.estado !== "Pendiente";
-
-  return (
-    <div className="flex gap-3">
-      {/* Línea temporal */}
-      <div className="flex flex-col items-center shrink-0">
-        <div className={cn("size-8 rounded-full flex items-center justify-center border-2 shrink-0", cfg.bg, cfg.border)}>
-          <Icon size={14} className={cfg.color} />
-        </div>
-        {!isLast && <div className="w-0.5 flex-1 mt-1" style={{ background: "var(--shelfy-border)" }} />}
-      </div>
-
-      {/* Contenido */}
-      <div className={cn("flex-1 rounded-2xl border overflow-hidden mb-4", cfg.border)} style={{ background: "var(--shelfy-panel)" }}>
-        {/* Fotos del mismo día (1 exhibición lógica) */}
-        {group.items.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 p-1 bg-slate-100">
-            {group.items.map((item) => (
-              <div key={item.id_exhibicion} className="relative h-36 overflow-hidden rounded-lg">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.url_foto}
-                  alt={`Exhibición del ${item.timestamp_subida?.slice(0, 10) ?? "sin fecha"}`}
-                  className="w-full h-full object-cover cursor-zoom-in"
-                  loading="lazy"
-                  onClick={() => onOpenImage(item.url_foto, item.id_exhibicion)}
-                />
-                <button
-                  type="button"
-                  className="absolute top-1.5 right-1.5 flex items-center gap-1 bg-black/35 backdrop-blur-sm text-white/80 text-[9px] font-medium px-1.5 py-0.5 rounded-md hover:bg-black/55 transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenImage(item.url_foto, item.id_exhibicion);
-                  }}
-                >
-                  <ExternalLink size={9} />
-                  Ver original
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Meta */}
-        <div className="p-3 space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Badge className={cn("text-[10px] font-bold px-2 border", cfg.bg, cfg.color, cfg.border)}>
-              {first?.estado ?? "Pendiente"}
-            </Badge>
-            {first?.tipo_pdv && (
-              <span
-                className={cn(
-                  "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
-                  getTipoPdvTone(first.tipo_pdv),
-                )}
-              >
-                {first.tipo_pdv}
-              </span>
-            )}
-            <Badge
-              variant="outline"
-              className={cn("text-[10px] font-semibold", getImagenesTone(group.items.length))}
-            >
-              {group.items.length} {group.items.length === 1 ? "imagen" : "imágenes"}
-            </Badge>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 ml-auto">
-              {formatDateHeader(group.dateKey)}
-            </span>
-          </div>
-
-          {first?.fecha_evaluacion && (
-            <p className="text-[11px]" style={{ color: "var(--shelfy-muted)" }}>
-              Evaluado: {formatDateTime(first.fecha_evaluacion)}
-              {first.supervisor && <span> · {first.supervisor}</span>}
-            </p>
-          )}
-
-          {first?.comentario && (
-            <p className="text-[11px] italic rounded-lg px-2 py-1.5" style={{ background: "var(--shelfy-border)", color: "var(--shelfy-text)" }}>
-              "{first.comentario}"
-            </p>
-          )}
-
-          {/* Historial de re-evaluaciones compañía */}
-          {reevaluaciones.length > 0 && (
-            <div className="mt-2 border-t pt-2" style={{ borderColor: "var(--shelfy-border)" }}>
-              <div className="flex items-center gap-1 mb-1.5">
-                <Building2 size={11} style={{ color: "var(--shelfy-muted)" }} />
-                <span className="text-[10px] font-semibold" style={{ color: "var(--shelfy-muted)" }}>
-                  Revisión Compañía
-                </span>
-              </div>
-              <div className="space-y-1">
-                {reevaluaciones.map((rev) => {
-                  const rCfg = REEVAL_ESTADO_CONFIG[rev.estado_nuevo] ?? { color: "text-slate-600", bg: "bg-slate-50" };
-                  return (
-                    <div key={rev.id} className={cn("flex items-start gap-1.5 rounded-lg px-2 py-1.5", rCfg.bg)}>
-                      <span className={cn("text-[10px] font-bold shrink-0", rCfg.color)}>{rev.estado_nuevo}</span>
-                      <span className="text-[9px] text-slate-400 shrink-0">·</span>
-                      <span className="text-[10px] text-slate-500 flex-1 leading-tight">{rev.motivo}</span>
-                      <span className="text-[9px] text-slate-400 shrink-0 ml-auto">
-                        {rev.nombre_usuario} · {formatDateTimeShort(rev.created_at)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Botón re-evaluar compañía */}
-          {puedeReevaluar && (
-            <div className="mt-2 pt-2 border-t" style={{ borderColor: "var(--shelfy-border)" }}>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-[11px] gap-1.5 h-8"
-                onClick={() => setReevalSheetOpen(true)}
-              >
-                <RotateCcw size={12} />
-                Re-evaluar (Compañía)
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {puedeReevaluar && (
-        <ReevaluarCompaniaSheet
-          open={reevalSheetOpen}
-          onClose={() => setReevalSheetOpen(false)}
-          idExhibicion={first.id_exhibicion}
-          estadoActual={first.estado}
-          distId={distId}
-        />
-      )}
-    </div>
-  );
-}
-
 export function ExhibicionesTimelineDialog({
   idClientePdv,
   distId,
-  idVendedor = null,
+  idVendedor,
   fechaDesde,
   fechaHasta,
   nombreCliente,
-  motivoNoReferencia,
-  directItems,
-  pageSize = 30,
   open,
   onClose,
-  canReevaluarCompania = false,
+  canReevaluarCompania,
 }: Props) {
-  const [zoomedImage, setZoomedImage] = useState<{ url: string; id: number } | null>(null);
-  const useEmbeddedTimeline = (directItems?.length ?? 0) > 0;
-
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-    isFetchingNextPage,
-    hasNextPage,
-    fetchNextPage,
-  } = useInfiniteQuery<GaleriaTimelineResponse>({
-    queryKey: ["galeria-timeline", distId, idClientePdv, idVendedor ?? "all", fechaDesde ?? "", fechaHasta ?? ""],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      fetchGaleriaTimelineCliente(idClientePdv!, distId, {
-        offset: pageParam as number,
-        limit: pageSize,
-        idVendedor,
-        desde: fechaDesde,
-        hasta: fechaHasta,
-      }),
-    getNextPageParam: (lastPage) =>
-      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
-    enabled: open && !useEmbeddedTimeline && idClientePdv != null,
-    staleTime: 30_000,
-    refetchOnMount: "always",
-  });
-
-  const timeline = useMemo(
-    () => (useEmbeddedTimeline ? (directItems ?? []) : (data?.pages.flatMap((p) => p.items) ?? [])),
-    [data, directItems, useEmbeddedTimeline]
-  );
-
-  const groupedTimeline = useMemo<TimelineGroup[]>(() => {
-    // Dedupe global por URL para evitar repetir la misma foto en fechas distintas.
-    const seenUrl = new Set<string>();
-    const clean: GaleriaTimelineItem[] = [];
-    for (const item of timeline) {
-      const urlKey = item.url_foto?.trim();
-      if (urlKey) {
-        if (seenUrl.has(urlKey)) continue;
-        seenUrl.add(urlKey);
-      }
-      clean.push(item);
-    }
-
-    const groups = new Map<string, GaleriaTimelineItem[]>();
-    for (const item of clean) {
-      const day = item.timestamp_subida?.slice(0, 10) || "sin-fecha";
-      if (!groups.has(day)) groups.set(day, []);
-      groups.get(day)!.push(item);
-    }
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([dateKey, items]) => ({ dateKey, items }));
-  }, [timeline]);
-
-  // Stats from grouped timeline (1 fecha = 1 exhibición lógica)
-  const stats = {
-    total: groupedTimeline.length,
-    aprobadas: groupedTimeline.filter((g) => g.items[0]?.estado === "Aprobada").length,
-    rechazadas: groupedTimeline.filter((g) => g.items[0]?.estado === "Rechazada").length,
-    destacadas: groupedTimeline.filter((g) => g.items[0]?.estado === "Destacada").length,
-  };
-
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl h-[90dvh] max-h-[90dvh] flex flex-col p-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0" style={{ borderColor: "var(--shelfy-border)" }}>
-          <DialogTitle className="font-black text-base" style={{ color: "var(--shelfy-text)" }}>
-            {nombreCliente}
-          </DialogTitle>
-          <DialogDescription asChild>
-            <div className="flex flex-wrap gap-1.5 mt-1 items-center">
-              <Badge variant="outline" className="text-[10px]">{stats.total} exhibiciones</Badge>
-              {stats.aprobadas > 0 && <Badge className="text-[10px] bg-green-100 text-green-700 border border-green-200">{stats.aprobadas} aprobadas</Badge>}
-              {stats.destacadas > 0 && <Badge className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200">{stats.destacadas} destacadas</Badge>}
-              {stats.rechazadas > 0 && <Badge className="text-[10px] bg-red-100 text-red-700 border border-red-200">{stats.rechazadas} rechazadas</Badge>}
-              {motivoNoReferencia && (
-                <Badge className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
-                  Sin referencia de PDV
-                </Badge>
-              )}
-              {motivoNoReferencia && (
-                <span className="text-[10px] text-amber-700">{motivoNoReferencia}</span>
-              )}
-            </div>
-          </DialogDescription>
-        </DialogHeader>
-
-        <ScrollArea className="flex-1 min-h-0 h-full px-6 py-4">
-          {isLoading && !useEmbeddedTimeline ? (
-            <div className="space-y-4">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex gap-3">
-                  <Skeleton className="size-8 rounded-full shrink-0" />
-                  <Skeleton className="flex-1 h-48 rounded-2xl" />
-                </div>
-              ))}
-            </div>
-          ) : isError && !useEmbeddedTimeline ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 px-4 text-center">
-              <Images size={40} style={{ color: "var(--shelfy-muted)" }} />
-              <p className="text-sm font-semibold text-red-600">
-                No se pudo cargar el historial
-              </p>
-              <p className="text-xs" style={{ color: "var(--shelfy-muted)" }}>
-                {error instanceof Error ? error.message : "Error de red o servidor"}
-              </p>
-            </div>
-          ) : timeline.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <Images size={40} style={{ color: "var(--shelfy-muted)" }} />
-              <p className="text-sm font-semibold" style={{ color: "var(--shelfy-muted)" }}>
-                Sin exhibiciones registradas
-              </p>
-            </div>
-          ) : (
-            <div className="pt-2">
-              {groupedTimeline.map((group, idx) => (
-                <TimelineGroupCard
-                  key={group.dateKey}
-                  group={group}
-                  index={idx}
-                  total={groupedTimeline.length}
-                  onOpenImage={(url, exhibicionId) => setZoomedImage({ url, id: exhibicionId })}
-                  canReevaluarCompania={canReevaluarCompania}
-                  distId={distId}
-                />
-              ))}
-              {hasNextPage && (
-                <div className="flex justify-center pt-2 pb-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fetchNextPage()}
-                    disabled={isFetchingNextPage}
-                  >
-                    {isFetchingNextPage ? (
-                      <>
-                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                        Cargando...
-                      </>
-                    ) : (
-                      "Cargar más"
-                    )}
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-        </ScrollArea>
-
-        {zoomedImage && (
-          <div
-            className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-            onClick={() => setZoomedImage(null)}
-          >
-            <button
-              type="button"
-              onClick={() => setZoomedImage(null)}
-              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 text-white/80 hover:text-white hover:bg-black/80 flex items-center justify-center transition-colors"
-              title="Cerrar imagen"
-            >
-              <X size={16} />
-            </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={zoomedImage.url}
-              alt={`Vista ampliada de exhibición`}
-              className="max-w-full max-h-[82vh] object-contain rounded-xl shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+    <GaleriaExhibicionViewer
+      open={open}
+      onClose={onClose}
+      idCliente={idClientePdv}
+      nombreCliente={nombreCliente}
+      distId={distId}
+      idVendedor={idVendedor}
+      canReevaluarCompania={canReevaluarCompania}
+      fechaDesde={fechaDesde}
+      fechaHasta={fechaHasta}
+    />
   );
 }

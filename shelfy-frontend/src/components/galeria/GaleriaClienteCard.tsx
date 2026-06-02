@@ -8,6 +8,7 @@ import { daysSinceFechaAR, parseFechaShelf, TZ_AR } from "@/lib/fecha-ar";
 interface Props {
   cliente: GaleriaClienteCardType;
   onClick: () => void;
+  onOpenViewer?: (idCliente: number, nombreCliente: string) => void;
 }
 
 const ESTADO_CONFIG: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
@@ -49,7 +50,7 @@ function DaysChip({ days }: { days: number }) {
   return <span className={cls}>hace {days}d</span>;
 }
 
-export function GaleriaClienteCard({ cliente, onClick }: Props) {
+export function GaleriaClienteCard({ cliente, onClick, onOpenViewer }: Props) {
   const cfg = ESTADO_CONFIG[cliente.ultimo_estado ?? ""] ?? ESTADO_CONFIG.Pendiente;
   const { Icon } = cfg;
   const dias = daysSince(cliente.ultima_exhibicion_fecha);
@@ -59,9 +60,18 @@ export function GaleriaClienteCard({ cliente, onClick }: Props) {
   const hasExhib = cliente.total_exhibiciones > 0;
   const isSinReferencia = !!cliente.es_sin_referencia;
 
+  const handleClick = () => {
+    if (onOpenViewer) {
+      const nombre = (cliente.nombre_fantasia || cliente.nombre_cliente || "").trim() || "Cliente sin nombre";
+      onOpenViewer(cliente.id_cliente, nombre);
+    } else {
+      onClick();
+    }
+  };
+
   return (
     <button
-      onClick={onClick}
+      onClick={handleClick}
       className={cn(
         "group w-full text-left rounded-2xl border overflow-hidden transition-all duration-200",
         "hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98]",

@@ -11,7 +11,6 @@ import type { GaleriaMapaPin } from "@/lib/api";
 import { loadGoogleMapsLibrary } from "@/lib/googleMapsLoader";
 import {
   clusterGaleriaPins,
-  MIN_CLUSTER_CARD_COUNT,
   ZOOM_CLUSTER_CLICK_STEP,
   ZOOM_MAX_CLUSTER_VIEW,
   ZOOM_SHOW_PINS,
@@ -254,16 +253,11 @@ export function GaleriaGoogleMapView({
 
     for (const cluster of clusters) {
       const openCluster = () => zoomToCluster(cluster.pins);
-      const variant =
-        cluster.count >= MIN_CLUSTER_CARD_COUNT
-          ? "full"
-          : "compact";
-
       mount(
         cluster.lat,
         cluster.lng,
         <GaleriaMapClusterPin
-          variant={variant}
+          variant="full"
           count={cluster.count}
           onClick={openCluster}
           onDoubleClick={openCluster}

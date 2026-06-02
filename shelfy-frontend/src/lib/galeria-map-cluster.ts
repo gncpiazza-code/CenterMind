@@ -17,8 +17,8 @@ export const ZOOM_MAX_CLUSTER_VIEW = 9;
 /** Cada clic en tarjeta de grupo avanza este many niveles de zoom. */
 export const ZOOM_CLUSTER_CLICK_STEP = 2;
 
-/** Tarjeta grande solo si hay al menos N PDVs en el grupo. */
-export const MIN_CLUSTER_CARD_COUNT = 5;
+/** Mínimo para mostrar tarjeta; debajo de esto se fusiona con el cluster más cercano. */
+export const MIN_CLUSTER_CARD_COUNT = 6;
 
 function cellSizeDeg(zoom: number): number {
   const z = Math.floor(zoom);
@@ -32,15 +32,17 @@ function distDeg(lat1: number, lng1: number, lat2: number, lng2: number): number
 }
 
 function recomputeClusterCenter(cluster: GaleriaMapCluster): void {
+  const unique = dedupePins(cluster.pins);
+  cluster.pins = unique;
   let lat = 0;
   let lng = 0;
-  for (const p of cluster.pins) {
+  for (const p of unique) {
     lat += p.latitud;
     lng += p.longitud;
   }
-  cluster.lat = lat / cluster.pins.length;
-  cluster.lng = lng / cluster.pins.length;
-  cluster.count = cluster.pins.length;
+  cluster.lat = lat / unique.length;
+  cluster.lng = lng / unique.length;
+  cluster.count = unique.length;
 }
 
 function dedupePins(pins: GaleriaMapaPin[]): GaleriaMapaPin[] {
@@ -51,7 +53,40 @@ function dedupePins(pins: GaleriaMapaPin[]): GaleriaMapaPin[] {
   return [...byId.values()];
 }
 
-/** Une clusters vecinos (incl. varios de count=1) para evitar muchos puntitos "1". */
+function cloneCluster(c: GaleriaMapCluster): GaleriaMapCluster {
+  return {
+    id: c.id,
+    lat: c.lat,
+    lng: c.lng,
+    count: c.count,
+    pins: [...c.pins],
+  };
+}
+
+function mergeInto(target: GaleriaMapCluster, source: GaleriaMapCluster): void {
+  target.pins.push(...source.pins);
+  recomputeClusterCenter(target);
+  target.id = `${target.id}|${source.id}`;
+}
+
+function findNearestCluster(
+  from: GaleriaMapCluster,
+  others: GaleriaMapCluster[],
+): GaleriaMapCluster | null {
+  if (others.length === 0) return null;
+  let best: GaleriaMapCluster | null = null;
+  let bestD = Infinity;
+  for (const c of others) {
+    const d = distDeg(from.lat, from.lng, c.lat, c.lng);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/** Une celdas vecinas en el grid inicial. */
 function consolidateClustersByProximity(
   clusters: GaleriaMapCluster[],
   maxDistDeg: number,
@@ -91,26 +126,57 @@ function consolidateClustersByProximity(
 
   const out: GaleriaMapCluster[] = [];
   groups.forEach(({ pins, id }) => {
-    const unique = dedupePins(pins);
     const cluster: GaleriaMapCluster = {
       id,
       lat: 0,
       lng: 0,
-      count: unique.length,
-      pins: unique,
+      count: 0,
+      pins,
     };
     recomputeClusterCenter(cluster);
     out.push(cluster);
   });
 
-  return out.sort((a, b) => b.count - a.count);
+  return out;
+}
+
+/**
+ * Grupos con count < minCount se absorben SIEMPRE en el cluster más cercano
+ * (sin límite de distancia). Repite hasta que no queden tarjetas 1–5 sueltas.
+ */
+export function absorbSmallClustersIntoNearest(
+  clusters: GaleriaMapCluster[],
+  minCount: number = MIN_CLUSTER_CARD_COUNT,
+): GaleriaMapCluster[] {
+  let list = clusters.map(cloneCluster);
+
+  for (let guard = 0; guard < 500; guard++) {
+    const small = list.filter((c) => c.count < minCount);
+    if (small.length === 0) return list.sort((a, b) => b.count - a.count);
+
+    if (list.length === 1) return list;
+
+    const pick =
+      small.length === list.length
+        ? small.reduce((a, b) => (a.count <= b.count ? a : b))
+        : small[0];
+
+    const others = list.filter((c) => c.id !== pick.id);
+    const nearest = findNearestCluster(pick, others);
+    if (!nearest) return list;
+
+    mergeInto(nearest, pick);
+    list = list.filter((c) => c.id !== pick.id);
+  }
+
+  return list;
 }
 
 export function shouldShowPinMarkers(zoom: number): boolean {
   return Math.floor(zoom) >= ZOOM_SHOW_PINS;
 }
 
-/** Agrupa PDVs por celda + fusión por proximidad; fotos sueltas solo en zoom alto. */
+/** Agrupa PDVs por celda + fusión; sin tarjetas de 1–5 PDVs sueltas. */
 export function clusterGaleriaPins(
   pins: GaleriaMapaPin[],
   zoom: number,
@@ -139,24 +205,21 @@ export function clusterGaleriaPins(
   const clusters: GaleriaMapCluster[] = [];
 
   buckets.forEach((group, key) => {
-    let lat = 0;
-    let lng = 0;
-    for (const p of group) {
-      lat += p.latitud;
-      lng += p.longitud;
-    }
-    clusters.push({
+    const cluster: GaleriaMapCluster = {
       id: key,
-      lat: lat / group.length,
-      lng: lng / group.length,
+      lat: 0,
+      lng: 0,
       count: group.length,
       pins: group,
-    });
+    };
+    recomputeClusterCenter(cluster);
+    clusters.push(cluster);
   });
 
-  const mergeDist = Math.max(cell * 2.2, 0.004);
+  const mergeDist = Math.max(cell * 2.5, 0.006);
   const merged = consolidateClustersByProximity(clusters, mergeDist);
-  return { clusters: merged, singles: [] };
+  const final = absorbSmallClustersIntoNearest(merged, MIN_CLUSTER_CARD_COUNT);
+  return { clusters: final, singles: [] };
 }
 
 /** Centro y zoom sugerido para encuadrar todos los pins del vendedor. */

@@ -1868,12 +1868,16 @@ def galeria_mapa_vendedor_bbox(
 
     # 3. Contar exhibiciones por id_cliente_pdv (cliente_key resolution simple)
     count_by_pdv: dict[int, int] = defaultdict(int)
+    seen_days_by_pdv: dict[int, set] = defaultdict(set)
     cover_by_pdv: dict[int, dict] = {}
     for ex in ex_rows:
         pdv_id = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
         if pdv_id is None:
             continue
-        count_by_pdv[pdv_id] += 1
+        day_ar = (ex.get("timestamp_subida") or "")[:10]
+        if day_ar not in seen_days_by_pdv[pdv_id]:
+            seen_days_by_pdv[pdv_id].add(day_ar)
+            count_by_pdv[pdv_id] += 1
         existing = cover_by_pdv.get(pdv_id)
         score = _ESTADO_SCORE_MAP.get(ex.get("estado") or "Pendiente", 0)
         if existing is None or score > existing["score"]:
@@ -1957,10 +1961,14 @@ def galeria_sin_coords_vendedor(
         ex_rows = [ex for ex in ex_rows if ex.get("estado") == estado]
 
     count_by_pdv: dict[int, int] = defaultdict(int)
+    seen_days_by_pdv: dict[int, set] = defaultdict(set)
     for ex in ex_rows:
         pdv_id = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
         if pdv_id is not None:
-            count_by_pdv[pdv_id] += 1
+            day_ar = (ex.get("timestamp_subida") or "")[:10]
+            if day_ar not in seen_days_by_pdv[pdv_id]:
+                seen_days_by_pdv[pdv_id].add(day_ar)
+                count_by_pdv[pdv_id] += 1
 
     pdv_ids = list(count_by_pdv.keys())
     if not pdv_ids:

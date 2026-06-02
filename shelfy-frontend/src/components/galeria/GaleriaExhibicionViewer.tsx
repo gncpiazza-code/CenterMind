@@ -268,6 +268,7 @@ export function GaleriaExhibicionViewer({
               </div>
             ) : (
               <GaleriaPublicationCarousel
+                key={idCliente ?? 0}
                 publicaciones={publicaciones}
                 onPublicacionChange={handlePublicacionChange}
               />

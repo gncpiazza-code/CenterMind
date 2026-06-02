@@ -30,7 +30,7 @@ export function shouldShowPinMarkers(zoom: number): boolean {
   return Math.floor(zoom) >= ZOOM_SHOW_PINS;
 }
 
-/** Agrupa PDVs; tarjetas solo si count ≥ MIN_CLUSTER_CARD_COUNT, resto como pins con foto. */
+/** Agrupa PDVs por celda geográfica; pins sueltos solo en zoom alto (fotos individuales). */
 export function clusterGaleriaPins(
   pins: GaleriaMapaPin[],
   zoom: number,
@@ -57,13 +57,8 @@ export function clusterGaleriaPins(
   }
 
   const clusters: GaleriaMapCluster[] = [];
-  const singles: GaleriaMapaPin[] = [];
 
   buckets.forEach((group, key) => {
-    if (group.length < MIN_CLUSTER_CARD_COUNT) {
-      singles.push(...group);
-      return;
-    }
     let lat = 0;
     let lng = 0;
     for (const p of group) {
@@ -79,7 +74,7 @@ export function clusterGaleriaPins(
     });
   });
 
-  return { clusters, singles };
+  return { clusters, singles: [] };
 }
 
 /** Centro y zoom sugerido para encuadrar todos los pins del vendedor. */

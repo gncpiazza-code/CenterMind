@@ -58,3 +58,51 @@ export function daysSinceFechaAR(
   const b = Date.UTC(y1, m1 - 1, d1);
   return Math.max(0, Math.round((b - a) / 86_400_000));
 }
+
+/** "Hace N horas" / "Hace N días" / "Hoy" (calendario AR). */
+export function formatFechaRelativaAR(
+  iso: string | null | undefined,
+  ref: Date = new Date(),
+): string {
+  const raw = (iso ?? "").trim();
+  if (!raw) return "";
+
+  const d = parseFechaShelf(iso);
+  if (!d) return "";
+
+  const isDateOnly = DATE_ONLY_RE.test(raw.slice(0, 10));
+  if (isDateOnly) {
+    const days = daysSinceFechaAR(iso, ref);
+    if (days == null) return "";
+    if (days === 0) return "Hoy";
+    if (days === 1) return "Hace 1 día";
+    return `Hace ${days} días`;
+  }
+
+  const diffMs = ref.getTime() - d.getTime();
+  if (diffMs < 0) return "";
+
+  if (calendarDayAR(d) === calendarDayAR(ref)) {
+    const hours = Math.floor(diffMs / 3_600_000);
+    if (hours < 1) return "Hace menos de 1 hora";
+    if (hours === 1) return "Hace 1 hora";
+    return `Hace ${hours} horas`;
+  }
+
+  const days = daysSinceFechaAR(iso, ref);
+  if (days == null) return "";
+  if (days === 0) return "Hoy";
+  if (days === 1) return "Hace 1 día";
+  return `Hace ${days} días`;
+}
+
+/** Fecha de visita galería: DD/MM/AAAA + relativo. */
+export function formatGaleriaFechaVisita(
+  diaAr: string,
+  timestamp?: string | null,
+): { fecha: string; relativo: string } {
+  const source = timestamp?.trim() ? timestamp : diaAr;
+  const fecha = formatFechaDiaAR(source);
+  const relativo = formatFechaRelativaAR(source);
+  return { fecha, relativo };
+}

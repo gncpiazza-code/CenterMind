@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 
 interface GaleriaMapClusterPinProps {
   count: number;
+  /** compact = grupos 2–4 PDVs; full = tarjeta grande (5+) */
+  variant?: "compact" | "full";
   selected?: boolean;
   onClick?: () => void;
   onDoubleClick?: () => void;
@@ -12,10 +14,39 @@ interface GaleriaMapClusterPinProps {
 
 export function GaleriaMapClusterPin({
   count,
+  variant = "full",
   selected,
   onClick,
   onDoubleClick,
 }: GaleriaMapClusterPinProps) {
+  if (variant === "compact") {
+    return (
+      <button
+        type="button"
+        className={cn(
+          "flex items-center justify-center rounded-full border-2 shadow-lg transition-transform duration-200 origin-bottom",
+          "bg-indigo-600 text-white border-white/90 ring-2 ring-indigo-400/40",
+          "w-11 h-11 hover:scale-110 active:scale-95 font-black text-sm tabular-nums",
+          selected && "ring-violet-300",
+        )}
+        style={{
+          transform: `scale(calc(var(--galeria-map-pin-scale, 1) * ${selected ? 1.05 : 1}))`,
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.();
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onDoubleClick?.();
+        }}
+        title={`${count} PDVs — tocá para acercar`}
+      >
+        {count}
+      </button>
+    );
+  }
+
   const size = count >= 50 ? "lg" : count >= 15 ? "md" : "sm";
   const dim =
     size === "lg"

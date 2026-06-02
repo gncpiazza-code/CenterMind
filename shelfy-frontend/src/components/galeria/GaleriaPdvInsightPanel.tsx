@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { fetchGaleriaPdvInsight } from "@/lib/api";
 import { galeriaKeys } from "@/lib/galeria-queries";
 import { listComprasMesRemitos, listComprobantesDeuda } from "@/lib/galeria-pdv-insights";
+import { formatFechaDiaAR, formatGaleriaFechaVisita } from "@/lib/fecha-ar";
 import { BultosCantidadText } from "@/components/shared/BultosCantidadText";
 import { GaleriaComprasRemitosList } from "./GaleriaComprasRemitosList";
 import type { GaleriaPublicacion } from "@/lib/galeria-publicaciones";
@@ -43,20 +44,6 @@ const ESTADO_COLOR: Record<string, string> = {
   Destacado: "bg-amber-500/20 text-amber-100 border-amber-500/40",
   Pendiente: "bg-white/10 text-white/80 border-white/20",
 };
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
-    return d.toLocaleDateString("es-AR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 function formatMoney(n: number): string {
   if (!n) return "$0";
@@ -114,6 +101,9 @@ export function GaleriaPdvInsightPanel({
   const deuda = detalle?.deuda;
   const tieneDeuda = Boolean(deuda && deuda.total_deuda > 0);
   const activeFoto = currentPub?.fotos[0];
+  const visitaFecha = currentPub
+    ? formatGaleriaFechaVisita(currentPub.dia_ar, activeFoto?.timestamp_subida)
+    : null;
   const ultimaCompraFueraMes =
     perfil?.fecha_ultima_compra &&
     (comprasMes.comprobantesEnMes === 0 ||
@@ -163,7 +153,9 @@ export function GaleriaPdvInsightPanel({
               {currentPub.estado_dia}
             </Badge>
             <span className="text-white/60 text-xs self-center">
-              {formatDate(currentPub.dia_ar)} · {currentPub.total_fotos} foto
+              {visitaFecha?.fecha ?? "—"}
+              {visitaFecha?.relativo ? ` · ${visitaFecha.relativo}` : ""} · {currentPub.total_fotos}{" "}
+              foto{currentPub.total_fotos !== 1 ? "s" : ""}
               {currentPub.total_fotos !== 1 ? "s" : ""}
             </span>
           </div>
@@ -278,7 +270,7 @@ export function GaleriaPdvInsightPanel({
                 <p className="text-xs text-white/70 rounded-lg bg-black/25 px-2.5 py-2">
                   Última compra registrada:{" "}
                   <span className="font-semibold text-white">
-                    {formatDate(perfil.fecha_ultima_compra)}
+                    {formatFechaDiaAR(perfil.fecha_ultima_compra)}
                   </span>
                 </p>
               )}
@@ -290,7 +282,7 @@ export function GaleriaPdvInsightPanel({
                   <Receipt size={12} className="text-emerald-300/80 shrink-0" />
                   Última compra:{" "}
                   <span className="font-semibold text-white">
-                    {formatDate(perfil.fecha_ultima_compra)}
+                    {formatFechaDiaAR(perfil.fecha_ultima_compra)}
                   </span>
                   {ultimaCompraFueraMes && (
                     <span className="text-white/40 text-[10px]">(fuera del mes filtrado)</span>

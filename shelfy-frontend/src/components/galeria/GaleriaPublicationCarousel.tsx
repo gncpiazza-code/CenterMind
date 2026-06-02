@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { GaleriaPublicacion } from "@/lib/galeria-publicaciones";
+import { formatGaleriaFechaVisita } from "@/lib/fecha-ar";
 
 export interface GaleriaCarouselHandle {
   photoPrev: () => void;
@@ -70,6 +71,10 @@ export const GaleriaPublicationCarousel = forwardRef<
   const pub = publicaciones[pubIdx];
   const totalPubs = publicaciones.length;
   const totalFotos = pub?.fotos.length ?? 0;
+  const currentFoto = pub?.fotos[fotoIdx];
+  const visitaFecha = pub
+    ? formatGaleriaFechaVisita(pub.dia_ar, currentFoto?.timestamp_subida)
+    : { fecha: "—", relativo: "" };
 
   const goToPub = useCallback(
     (nextIdx: number) => {
@@ -119,7 +124,6 @@ export const GaleriaPublicationCarousel = forwardRef<
     );
   }
 
-  const currentFoto = pub.fotos[fotoIdx];
   const prevPub = pubIdx > 0 ? publicaciones[pubIdx - 1] : null;
   const nextPub = pubIdx < totalPubs - 1 ? publicaciones[pubIdx + 1] : null;
 
@@ -156,7 +160,12 @@ export const GaleriaPublicationCarousel = forwardRef<
           >
             {pub.estado_dia}
           </Badge>
-          <span className="text-white/80 text-xs font-semibold drop-shadow">{pub.dia_ar}</span>
+          <span className="text-white/80 text-xs font-semibold drop-shadow tabular-nums">
+            {visitaFecha.fecha}
+            {visitaFecha.relativo ? (
+              <span className="text-white/55 font-medium"> · {visitaFecha.relativo}</span>
+            ) : null}
+          </span>
         </div>
         {totalPubs > 1 && (
           <span className="text-[10px] font-bold text-white/50 tabular-nums">

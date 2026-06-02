@@ -11,7 +11,7 @@ import type { GaleriaMapaPin } from "@/lib/api";
 import { loadGoogleMapsLibrary } from "@/lib/googleMapsLoader";
 import {
   clusterGaleriaPins,
-  shouldShowPinMarkers,
+  MIN_CLUSTER_CARD_COUNT,
   ZOOM_CLUSTER_CLICK_STEP,
   ZOOM_MAX_CLUSTER_VIEW,
   ZOOM_SHOW_PINS,
@@ -227,16 +227,38 @@ export function GaleriaGoogleMapView({
     };
 
     for (const cluster of clusters) {
-      mount(
-        cluster.lat,
-        cluster.lng,
-        <GaleriaMapClusterPin
-          count={cluster.count}
-          onClick={() => zoomToCluster(cluster.pins)}
-          onDoubleClick={() => zoomToCluster(cluster.pins)}
-        />,
-        { key: `cluster:${cluster.id}`, kind: "cluster" },
-      );
+      if (cluster.count >= MIN_CLUSTER_CARD_COUNT) {
+        mount(
+          cluster.lat,
+          cluster.lng,
+          <GaleriaMapClusterPin
+            variant="full"
+            count={cluster.count}
+            onClick={() => zoomToCluster(cluster.pins)}
+            onDoubleClick={() => zoomToCluster(cluster.pins)}
+          />,
+          { key: `cluster:${cluster.id}`, kind: "cluster" },
+        );
+      } else if (cluster.count > 1) {
+        mount(
+          cluster.lat,
+          cluster.lng,
+          <GaleriaMapClusterPin
+            variant="compact"
+            count={cluster.count}
+            onClick={() => zoomToCluster(cluster.pins)}
+            onDoubleClick={() => zoomToCluster(cluster.pins)}
+          />,
+          { key: `cluster:${cluster.id}`, kind: "cluster" },
+        );
+      } else {
+        const pin = cluster.pins[0];
+        mount(pin.latitud, pin.longitud, renderPinNode(pin), {
+          key: `pin:${pin.id_cliente}`,
+          kind: "pin",
+          pinId: pin.id_cliente,
+        });
+      }
     }
 
     for (const pin of singles) {
@@ -381,10 +403,6 @@ export function GaleriaGoogleMapView({
 
   const resolvedSinCoordsCount = sinCoordsCount ?? querySinCoordsCount;
   const emptyPins = !isLoading && pins.length === 0 && Boolean(desde && hasta);
-  const zoomFloor = Math.floor(currentZoom);
-  const showZoomHint =
-    mapReady && pins.length > 0 && !shouldShowPinMarkers(zoomFloor) && !isLoading;
-
   if (mapError) {
     return (
       <div
@@ -404,14 +422,6 @@ export function GaleriaGoogleMapView({
       style={{ ["--galeria-map-pin-scale" as string]: "1" }}
     >
       <div ref={mapContainerRef} className="absolute inset-0" />
-
-      {showZoomHint && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="rounded-full bg-white/95 backdrop-blur-md shadow-md border border-indigo-100 px-4 py-1.5 text-[11px] font-semibold text-indigo-900">
-            Grupos de 5+ PDVs · tocá para acercar · zoom {ZOOM_SHOW_PINS}+ fotos individuales
-          </div>
-        </div>
-      )}
 
       {isLoading && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 bg-white/90 backdrop-blur-sm rounded-full px-3 py-1 shadow text-xs text-slate-600">

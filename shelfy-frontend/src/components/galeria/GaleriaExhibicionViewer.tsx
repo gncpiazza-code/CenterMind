@@ -20,6 +20,7 @@ import { ReevaluarCompaniaSheet } from "./ReevaluarCompaniaSheet";
 import { GaleriaPdvInsightPanel } from "./GaleriaPdvInsightPanel";
 import { useGaleriaViewerNav, type GaleriaViewerNavTarget } from "@/hooks/useGaleriaViewerNav";
 import type { GaleriaMapaPin } from "@/lib/api";
+import { formatGaleriaFechaVisita } from "@/lib/fecha-ar";
 
 export interface GaleriaExhibicionViewerProps {
   open: boolean;
@@ -168,6 +169,15 @@ export function GaleriaExhibicionViewer({
     });
 
   const activeFoto = currentPub?.fotos[0] ?? null;
+  const visitaTsHeader = currentPub?.fotos.reduce<string | null>((acc, f) => {
+    const ts = f.timestamp_subida?.trim();
+    if (!ts) return acc;
+    if (!acc || ts > acc) return ts;
+    return acc;
+  }, null);
+  const visitaFechaHeader = currentPub
+    ? formatGaleriaFechaVisita(currentPub.dia_ar, visitaTsHeader)
+    : null;
   const needsReevaluar =
     canReevaluarCompania && activeFoto && activeFoto.estado !== "Pendiente";
 
@@ -228,8 +238,11 @@ export function GaleriaExhibicionViewer({
                     PDV {activeIndex + 1} de {totalPdvs} · ←→ fotos · ↑↓ PDVs
                   </p>
                 )}
-                {currentPub && (
-                  <p className="text-white/60 text-[10px] drop-shadow">{currentPub.dia_ar}</p>
+                {visitaFechaHeader && (
+                  <p className="text-white/60 text-[10px] drop-shadow tabular-nums">
+                    {visitaFechaHeader.fecha}
+                    {visitaFechaHeader.relativo ? ` · ${visitaFechaHeader.relativo}` : ""}
+                  </p>
                 )}
               </div>
             </div>
@@ -309,7 +322,7 @@ export function GaleriaExhibicionViewer({
                         : "text-white/50 hover:bg-white/10",
                     )}
                   >
-                    {p.dia_ar} · {p.total_fotos}f
+                    {formatGaleriaFechaVisita(p.dia_ar).fecha} · {p.total_fotos}f
                   </button>
                 ))}
               </div>
@@ -332,7 +345,7 @@ export function GaleriaExhibicionViewer({
                         : "border-white/15 text-white/50",
                     )}
                   >
-                    {p.dia_ar}
+                    {formatGaleriaFechaVisita(p.dia_ar).fecha}
                   </button>
                 ))}
               </div>

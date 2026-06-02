@@ -26,6 +26,54 @@ function cellSizeDeg(zoom: number): number {
   return 0.22 / Math.pow(2, Math.max(0, z - 4));
 }
 
+function distDeg(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dlat = lat1 - lat2;
+  const dlng = lng1 - lng2;
+  return Math.sqrt(dlat * dlat + dlng * dlng);
+}
+
+function recomputeClusterCenter(cluster: GaleriaMapCluster): void {
+  let lat = 0;
+  let lng = 0;
+  for (const p of cluster.pins) {
+    lat += p.latitud;
+    lng += p.longitud;
+  }
+  cluster.lat = lat / cluster.pins.length;
+  cluster.lng = lng / cluster.pins.length;
+  cluster.count = cluster.pins.length;
+}
+
+/** Evita pin suelto + tarjeta de grupo encimados en celdas vecinas. */
+function mergeNearbySingletonClusters(
+  clusters: GaleriaMapCluster[],
+  maxDistDeg: number,
+): GaleriaMapCluster[] {
+  const multis = clusters.filter((c) => c.count > 1);
+  const singles = clusters.filter((c) => c.count === 1);
+  if (singles.length === 0 || multis.length === 0) return clusters;
+
+  const absorbed = new Set<string>();
+  for (const single of singles) {
+    const pin = single.pins[0];
+    let target: GaleriaMapCluster | null = null;
+    let best = maxDistDeg;
+    for (const multi of multis) {
+      const d = distDeg(pin.latitud, pin.longitud, multi.lat, multi.lng);
+      if (d < best) {
+        best = d;
+        target = multi;
+      }
+    }
+    if (!target) continue;
+    target.pins.push(pin);
+    recomputeClusterCenter(target);
+    absorbed.add(single.id);
+  }
+
+  return clusters.filter((c) => !absorbed.has(c.id));
+}
+
 export function shouldShowPinMarkers(zoom: number): boolean {
   return Math.floor(zoom) >= ZOOM_SHOW_PINS;
 }
@@ -74,7 +122,8 @@ export function clusterGaleriaPins(
     });
   });
 
-  return { clusters, singles: [] };
+  const merged = mergeNearbySingletonClusters(clusters, cell * 1.35);
+  return { clusters: merged, singles: [] };
 }
 
 /** Centro y zoom sugerido para encuadrar todos los pins del vendedor. */

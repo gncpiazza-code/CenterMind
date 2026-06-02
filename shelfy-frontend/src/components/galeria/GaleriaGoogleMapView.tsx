@@ -62,17 +62,19 @@ function pinScaleForZoom(zoom: number): number {
   return 0.82;
 }
 
-function scheduleDisposeOverlays(batch: MountedOverlay[]) {
+/** Quita overlays del mapa al instante; unmount React en microtask (evita warning sync). */
+function detachOverlays(batch: MountedOverlay[]) {
+  for (const m of batch) {
+    m.overlay.setMap(null);
+  }
+  if (batch.length === 0) return;
   queueMicrotask(() => {
     for (const m of batch) {
-      m.overlay.setMap(null);
-      queueMicrotask(() => {
-        try {
-          m.root.unmount();
-        } catch {
-          /* root ya desmontado */
-        }
-      });
+      try {
+        m.root.unmount();
+      } catch {
+        /* root ya desmontado */
+      }
     }
   });
 }
@@ -142,7 +144,7 @@ export function GaleriaGoogleMapView({
     const batch = mountedOverlaysRef.current;
     mountedOverlaysRef.current = [];
     layoutKeyRef.current = "";
-    if (batch.length > 0) scheduleDisposeOverlays(batch);
+    if (batch.length > 0) detachOverlays(batch);
   }, []);
 
   const zoomToCluster = useCallback((clusterPins: GaleriaMapaPin[]) => {
@@ -202,9 +204,10 @@ export function GaleriaGoogleMapView({
     const prev = mountedOverlaysRef.current;
     mountedOverlaysRef.current = [];
     layoutKeyRef.current = layoutKey;
-    if (prev.length > 0) scheduleDisposeOverlays(prev);
+    if (prev.length > 0) detachOverlays(prev);
 
     const { clusters, singles } = clusterGaleriaPins(pins, z);
+    const showPhotoPins = z >= ZOOM_SHOW_PINS;
 
     const mount = (
       lat: number,
@@ -226,47 +229,35 @@ export function GaleriaGoogleMapView({
       });
     };
 
-    for (const cluster of clusters) {
-      if (cluster.count >= MIN_CLUSTER_CARD_COUNT) {
-        mount(
-          cluster.lat,
-          cluster.lng,
-          <GaleriaMapClusterPin
-            variant="full"
-            count={cluster.count}
-            onClick={() => zoomToCluster(cluster.pins)}
-            onDoubleClick={() => zoomToCluster(cluster.pins)}
-          />,
-          { key: `cluster:${cluster.id}`, kind: "cluster" },
-        );
-      } else if (cluster.count > 1) {
-        mount(
-          cluster.lat,
-          cluster.lng,
-          <GaleriaMapClusterPin
-            variant="compact"
-            count={cluster.count}
-            onClick={() => zoomToCluster(cluster.pins)}
-            onDoubleClick={() => zoomToCluster(cluster.pins)}
-          />,
-          { key: `cluster:${cluster.id}`, kind: "cluster" },
-        );
-      } else {
-        const pin = cluster.pins[0];
+    if (showPhotoPins) {
+      for (const pin of singles) {
         mount(pin.latitud, pin.longitud, renderPinNode(pin), {
           key: `pin:${pin.id_cliente}`,
           kind: "pin",
           pinId: pin.id_cliente,
         });
       }
+      return;
     }
 
-    for (const pin of singles) {
-      mount(pin.latitud, pin.longitud, renderPinNode(pin), {
-        key: `pin:${pin.id_cliente}`,
-        kind: "pin",
-        pinId: pin.id_cliente,
-      });
+    for (const cluster of clusters) {
+      const openCluster = () => zoomToCluster(cluster.pins);
+      const variant =
+        cluster.count >= MIN_CLUSTER_CARD_COUNT
+          ? "full"
+          : "compact";
+
+      mount(
+        cluster.lat,
+        cluster.lng,
+        <GaleriaMapClusterPin
+          variant={variant}
+          count={cluster.count}
+          onClick={openCluster}
+          onDoubleClick={openCluster}
+        />,
+        { key: `cluster:${cluster.id}:${cluster.count}`, kind: "cluster" },
+      );
     }
   }, [mapReady, pins, currentZoom, applyPinScaleCss, renderPinNode, zoomToCluster]);
 

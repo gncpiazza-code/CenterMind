@@ -1,14 +1,16 @@
-// Schema URL: /galeria-exhibiciones?vendedor=42&modo=mapa&desde=2026-05-01&hasta=2026-06-01&estado=Aprobada&pub=2026-05-28
+// Schema URL: /galeria-exhibiciones?vendedor=42&modo=mapa&mes=2026-05&estado=Aprobada&pub=2026-05-28
 
 const BASE_PATH = "/galeria-exhibiciones";
+
+/** Sentinel para Select de Radix (no admite value=""). */
+export const GALERIA_FILTER_ALL = "__all__";
 
 const VALID_VIEW_MODES = new Set(["mapa", "grid"]);
 
 export interface GaleriaUrlState {
   vendedorId?: number;
   viewMode?: "mapa" | "grid";
-  desde?: string;
-  hasta?: string;
+  mes?: string;
   estado?: string;
   clienteSearch?: string;
   pubDia?: string; // YYYY-MM-DD del dia_ar abierto en viewer
@@ -20,8 +22,7 @@ export interface GaleriaUrlState {
  * Params esperados:
  *   vendedor → number
  *   modo     → "mapa" | "grid"
- *   desde    → string YYYY-MM-DD
- *   hasta    → string YYYY-MM-DD
+ *   mes      → string YYYY-MM
  *   estado   → string (Aprobada, Rechazada, Destacada, Pendiente …)
  *   cliente  → string (búsqueda libre)
  *   pub      → string YYYY-MM-DD (dia_ar abierto en viewer)
@@ -42,11 +43,15 @@ export function parseGaleriaSearchParams(searchParams: URLSearchParams): Galeria
     state.viewMode = modoRaw as "mapa" | "grid";
   }
 
-  const desdeRaw = searchParams.get("desde");
-  if (desdeRaw) state.desde = desdeRaw;
-
-  const hastaRaw = searchParams.get("hasta");
-  if (hastaRaw) state.hasta = hastaRaw;
+  const mesRaw = searchParams.get("mes");
+  if (mesRaw && /^\d{4}-\d{2}$/.test(mesRaw)) {
+    state.mes = mesRaw;
+  } else {
+    const desdeRaw = searchParams.get("desde");
+    const hastaRaw = searchParams.get("hasta");
+    const legacy = (desdeRaw || hastaRaw || "").slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(legacy)) state.mes = legacy;
+  }
 
   const estadoRaw = searchParams.get("estado");
   if (estadoRaw) state.estado = estadoRaw;
@@ -58,6 +63,12 @@ export function parseGaleriaSearchParams(searchParams: URLSearchParams): Galeria
   if (pubRaw) state.pubDia = pubRaw;
 
   return state;
+}
+
+/** Convierte filtro UI a query param / API (undefined = sin filtro). */
+export function resolveGaleriaEstadoFilter(estado?: string | null): string | undefined {
+  if (!estado || estado === GALERIA_FILTER_ALL) return undefined;
+  return estado;
 }
 
 /**
@@ -75,15 +86,11 @@ export function buildGaleriaUrl(state: GaleriaUrlState): string {
     qs.set("modo", state.viewMode);
   }
 
-  if (state.desde) {
-    qs.set("desde", state.desde);
+  if (state.mes) {
+    qs.set("mes", state.mes);
   }
 
-  if (state.hasta) {
-    qs.set("hasta", state.hasta);
-  }
-
-  if (state.estado) {
+  if (state.estado && state.estado !== GALERIA_FILTER_ALL) {
     qs.set("estado", state.estado);
   }
 

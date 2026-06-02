@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -21,7 +21,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectContent,
@@ -33,20 +32,25 @@ import {
 import { GaleriaVendedorCard } from "@/components/galeria/GaleriaVendedorCard";
 import { GaleriaClienteCard } from "@/components/galeria/GaleriaClienteCard";
 import { GaleriaToolbar } from "@/components/galeria/GaleriaToolbar";
-import { GaleriaMapView } from "@/components/galeria/GaleriaMapView";
+import { GaleriaMesSelect } from "@/components/galeria/GaleriaMesSelect";
+import { GaleriaMapViewWrapper } from "@/components/galeria/GaleriaMapViewWrapper";
 import { GaleriaSinCoordsPanel } from "@/components/galeria/GaleriaSinCoordsPanel";
 import { GaleriaExhibicionViewer } from "@/components/galeria/GaleriaExhibicionViewer";
 import { useAuth } from "@/hooks/useAuth";
 import {
   fetchGaleriaVendedores,
   fetchGaleriaClientesPorVendedor,
+  fetchGaleriaMeses,
   type GaleriaVendedorStats,
   type GaleriaClienteCard as GaleriaClienteCardType,
   type GaleriaMapaPin,
   fetchGaleriaSinCoords,
 } from "@/lib/api";
 import { useGaleriaStore } from "@/store/useGaleriaStore";
-import { parseGaleriaSearchParams, buildGaleriaUrl } from "@/lib/galeria-url";
+import { parseGaleriaSearchParams, buildGaleriaUrl, resolveGaleriaEstadoFilter } from "@/lib/galeria-url";
+import { galeriaMonthBounds } from "@/lib/galeria-month";
+import { galeriaKeys } from "@/lib/galeria-queries";
+import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
@@ -69,6 +73,7 @@ export default function GaleriaExhibicionesPage() {
   const [viewerCliente, setViewerCliente] = useState<{
     idCliente: number;
     nombreCliente: string;
+    idClienteErp?: string | null;
     lat?: number | null;
     lng?: number | null;
   } | null>(null);
@@ -87,15 +92,13 @@ export default function GaleriaExhibicionesPage() {
     setSearchCliente,
     filtroSucursal,
     setFiltroSucursal,
-    fechaDesde,
-    setFechaDesde,
-    fechaHasta,
-    setFechaHasta,
+    mesGaleria,
+    setMesGaleria,
     sortField,
     setSortField,
     sortDir,
     setSortDir,
-    clearDateRange,
+    clearMesGaleria,
     clearClientSearch,
     viewMode,
     setViewMode,
@@ -104,6 +107,8 @@ export default function GaleriaExhibicionesPage() {
     filtroEstado,
     hideSinExhib,
     setHideSinExhib,
+    mapPins,
+    setMapPins,
   } = useGaleriaStore();
 
   // Hydrate store desde URL en mount
@@ -115,8 +120,7 @@ export default function GaleriaExhibicionesPage() {
     const urlState = parseGaleriaSearchParams(new URLSearchParams(window.location.search));
     if (urlState.vendedorId != null) setVendedorId(urlState.vendedorId);
     if (urlState.viewMode) setViewMode(urlState.viewMode);
-    if (urlState.desde) setFechaDesde(urlState.desde);
-    if (urlState.hasta) setFechaHasta(urlState.hasta);
+    if (urlState.mes) setMesGaleria(urlState.mes);
     if (urlState.clienteSearch) setSearchCliente(urlState.clienteSearch);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -127,13 +131,12 @@ export default function GaleriaExhibicionesPage() {
     const url = buildGaleriaUrl({
       vendedorId: vendedorId ?? undefined,
       viewMode,
-      desde: fechaDesde || undefined,
-      hasta: fechaHasta || undefined,
-      estado: filtroEstado || undefined,
+      mes: mesGaleria || undefined,
+      estado: resolveGaleriaEstadoFilter(filtroEstado),
     });
     router.replace(url, { scroll: false });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendedorId, viewMode, fechaDesde, fechaHasta, filtroEstado]);
+  }, [vendedorId, viewMode, mesGaleria, filtroEstado]);
 
   // Resetear al cambiar tenant
   useEffect(() => {
@@ -142,36 +145,58 @@ export default function GaleriaExhibicionesPage() {
       setLastDistId(distId);
       setSelectedVendedor(null);
       clearClientSearch();
-      clearDateRange();
+      clearMesGaleria();
       setSearchVendedor("");
       setFiltroSucursal("todas");
       setVendedorId(null);
     }
-  }, [distId, lastDistId, clearClientSearch, clearDateRange, setSearchVendedor, setFiltroSucursal, setVendedorId]);
+  }, [distId, lastDistId, clearClientSearch, clearMesGaleria, setSearchVendedor, setFiltroSucursal, setVendedorId]);
+
+  const mesesScopeVendedorId = selectedVendedor?.id_vendedor ?? vendedorId ?? undefined;
+
+  const { data: mesesDisponibles = [], isLoading: loadingMeses } = useQuery<string[]>({
+    queryKey: galeriaKeys.meses(distId, mesesScopeVendedorId ?? null),
+    queryFn: () => fetchGaleriaMeses(distId, mesesScopeVendedorId ?? null),
+    enabled: distId > 0,
+    staleTime: 120_000,
+  });
+
+  const mesesKey = mesesDisponibles.join(",");
+  useEffect(() => {
+    if (!mesesKey) return;
+    if (mesGaleria && mesesDisponibles.includes(mesGaleria)) return;
+    setMesGaleria(mesesDisponibles[0]);
+  }, [mesesKey, mesGaleria, mesesDisponibles, setMesGaleria]);
+
+  const { desde: fechaDesde, hasta: fechaHasta } = useMemo(
+    () => (mesGaleria ? galeriaMonthBounds(mesGaleria) : { desde: "", hasta: "" }),
+    [mesGaleria],
+  );
 
   // Vista 1: vendedores
   const { data: vendedores = [], isLoading: loadingVendedores, error: errorVendedores } = useQuery<GaleriaVendedorStats[]>({
-    queryKey: ["galeria-vendedores", distId, filtroSucursal, fechaDesde, fechaHasta],
+    queryKey: galeriaKeys.vendedores(distId, filtroSucursal, mesGaleria),
     queryFn: () =>
       fetchGaleriaVendedores(distId, {
         sucursal: filtroSucursal === "todas" ? undefined : filtroSucursal,
         desde: fechaDesde || undefined,
         hasta: fechaHasta || undefined,
       }),
-    enabled: distId > 0 && selectedVendedor === null,
+    enabled: distId > 0 && Boolean(mesGaleria),
     staleTime: 60_000,
+    placeholderData: (prev) => prev,
   });
 
   // Vista 2: clientes del vendedor seleccionado (solo cuando viewMode=grid)
   const gridVendedorId = selectedVendedor?.id_vendedor ?? (vendedorId ?? null);
   const { data: clientes = [], isLoading: loadingClientes, error: errorClientes } = useQuery<GaleriaClienteCardType[]>({
-    queryKey: ["galeria-clientes", gridVendedorId, fechaDesde, fechaHasta],
+    queryKey: ["galeria-clientes", gridVendedorId, mesGaleria],
     queryFn: () =>
       fetchGaleriaClientesPorVendedor(gridVendedorId!, {
         desde: fechaDesde || undefined,
         hasta: fechaHasta || undefined,
       }),
-    enabled: gridVendedorId != null && viewMode === "grid" && selectedVendedor != null,
+    enabled: gridVendedorId != null && viewMode === "grid" && selectedVendedor != null && Boolean(mesGaleria),
     staleTime: 60_000,
   });
 
@@ -266,19 +291,38 @@ export default function GaleriaExhibicionesPage() {
   }, [errorClientes, selectedVendedor]);
 
   // Handlers viewer
-  const openViewer = (idCliente: number, nombreCliente: string, lat?: number | null, lng?: number | null) => {
-    setViewerCliente({ idCliente, nombreCliente, lat, lng });
+  const openViewer = (
+    idCliente: number,
+    nombreCliente: string,
+    opts?: { lat?: number | null; lng?: number | null; idClienteErp?: string | null },
+  ) => {
+    setViewerCliente({
+      idCliente,
+      nombreCliente,
+      lat: opts?.lat,
+      lng: opts?.lng,
+      idClienteErp: opts?.idClienteErp,
+    });
     setViewerOpen(true);
   };
 
   const handlePinSelect = (pin: GaleriaMapaPin) => {
-    openViewer(pin.id_cliente, pin.nombre_cliente, pin.latitud, pin.longitud);
+    openViewer(pin.id_cliente, pin.nombre_cliente, {
+      lat: pin.latitud,
+      lng: pin.longitud,
+      idClienteErp: pin.id_cliente_erp,
+    });
   };
 
   const handleSinCoordsClienteClick = (idCliente: number, nombreCliente: string) => {
     openViewer(idCliente, nombreCliente);
     setSinCoordsOpen(false);
   };
+
+  const handleMapPinsChange = useCallback(
+    (p: GaleriaMapaPin[]) => setMapPins(p),
+    [setMapPins],
+  );
 
   // GaleriaMapView sinCoordsCount: se obtiene del hook interno, lo exponemos via callback
   const [sinCoordsCount, setSinCoordsCount] = useState<number>(0);
@@ -355,20 +399,13 @@ export default function GaleriaExhibicionesPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="w-[180px]">
-                  <DatePicker value={fechaDesde} onChange={setFechaDesde} placeholder="Desde" />
-                </div>
-                <div className="w-[180px]">
-                  <DatePicker value={fechaHasta} onChange={setFechaHasta} placeholder="Hasta" minDate={fechaDesde || undefined} />
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs font-semibold"
-                  onClick={clearDateRange}
-                >
-                  Histórico
-                </Button>
+                <GaleriaMesSelect
+                  meses={mesesDisponibles}
+                  value={mesGaleria}
+                  onChange={setMesGaleria}
+                  loading={loadingMeses}
+                  className="w-[180px]"
+                />
               </div>
 
               {errorVendedores ? (
@@ -444,20 +481,38 @@ export default function GaleriaExhibicionesPage() {
               <GaleriaToolbar
                 vendedores={vendedores}
                 distId={distId}
+                meses={mesesDisponibles}
+                loadingMeses={loadingMeses}
                 sinCoordsCount={sinCoordsCount}
                 onOpenSinCoords={() => setSinCoordsOpen(true)}
+                activeVendedorId={selectedVendedor.id_vendedor}
+                onVendedorChange={(id) => {
+                  if (id == null) {
+                    setSelectedVendedor(null);
+                    clearClientSearch();
+                    return;
+                  }
+                  const v = vendedores.find((x) => x.id_vendedor === id);
+                  if (v) setSelectedVendedor(v);
+                }}
               />
 
               {/* Contenido condicional por viewMode */}
               {viewMode === "mapa" ? (
-                <div className="flex-1 min-h-0 relative">
-                  <GaleriaMapView
+                <div
+                  className={cn(
+                    "flex-1 min-h-0 relative transition-[filter] duration-300",
+                    viewerOpen && "blur-md scale-[1.01]",
+                  )}
+                >
+                  <GaleriaMapViewWrapper
                     vendedorId={selectedVendedor.id_vendedor}
                     distId={distId}
                     desde={fechaDesde || undefined}
                     hasta={fechaHasta || undefined}
-                    estado={filtroEstado || undefined}
+                    estado={resolveGaleriaEstadoFilter(filtroEstado)}
                     onPinSelect={handlePinSelect}
+                    onPinsChange={handleMapPinsChange}
                     sinCoordsCount={sinCoordsCount}
                     onOpenSinCoords={() => setSinCoordsOpen(true)}
                   />
@@ -505,20 +560,13 @@ export default function GaleriaExhibicionesPage() {
                       placeholder="Buscar cliente por nombre o código..."
                       className="border-0 shadow-none focus-visible:ring-0 h-8 text-sm p-0 bg-transparent min-w-[180px] flex-1"
                     />
-                    <div className="w-[180px]">
-                      <DatePicker value={fechaDesde} onChange={setFechaDesde} placeholder="Desde" />
-                    </div>
-                    <div className="w-[180px]">
-                      <DatePicker value={fechaHasta} onChange={setFechaHasta} placeholder="Hasta" minDate={fechaDesde || undefined} />
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs font-semibold"
-                      onClick={clearDateRange}
-                    >
-                      Histórico
-                    </Button>
+                    <GaleriaMesSelect
+                      meses={mesesDisponibles}
+                      value={mesGaleria}
+                      onChange={setMesGaleria}
+                      loading={loadingMeses}
+                      className="w-[180px]"
+                    />
                     <Button
                       variant={hideSinExhib ? "default" : "outline"}
                       size="sm"
@@ -573,8 +621,8 @@ export default function GaleriaExhibicionesPage() {
                       <Images size={48} style={{ color: "var(--shelfy-muted)" }} />
                       <p className="text-lg font-bold" style={{ color: "var(--shelfy-muted)" }}>
                         {clientes.length === 0
-                          ? (fechaDesde || fechaHasta)
-                            ? "Sin exhibiciones en el rango seleccionado"
+                          ? mesGaleria
+                            ? "Sin exhibiciones en el mes seleccionado"
                             : "Sin exhibiciones para este vendedor"
                           : "Sin resultados"}
                       </p>
@@ -587,7 +635,7 @@ export default function GaleriaExhibicionesPage() {
                           cliente={c}
                           onClick={() => {
                             const nombre = (c.nombre_fantasia || c.nombre_cliente || "").trim() || "Cliente sin nombre";
-                            openViewer(c.id_cliente, nombre);
+                            openViewer(c.id_cliente, nombre, { idClienteErp: c.id_cliente_erp });
                           }}
                           onOpenViewer={(idCliente, nombreCliente) => openViewer(idCliente, nombreCliente)}
                         />
@@ -605,6 +653,7 @@ export default function GaleriaExhibicionesPage() {
             onClose={() => { setViewerOpen(false); setViewerCliente(null); }}
             idCliente={viewerCliente?.idCliente ?? null}
             nombreCliente={viewerCliente?.nombreCliente ?? ""}
+            idClienteErp={viewerCliente?.idClienteErp}
             distId={distId}
             idVendedor={selectedVendedor?.id_vendedor ?? vendedorId}
             canReevaluarCompania={canReevaluarCompania}
@@ -612,7 +661,8 @@ export default function GaleriaExhibicionesPage() {
             lng={viewerCliente?.lng}
             fechaDesde={fechaDesde || undefined}
             fechaHasta={fechaHasta || undefined}
-            filtroEstado={filtroEstado || undefined}
+            mesGaleria={mesGaleria}
+            mapPins={mapPins}
           />
 
           {/* ── GaleriaSinCoordsPanel ── */}
@@ -623,7 +673,7 @@ export default function GaleriaExhibicionesPage() {
             distId={distId}
             desde={fechaDesde || undefined}
             hasta={fechaHasta || undefined}
-            estado={filtroEstado || undefined}
+            estado={resolveGaleriaEstadoFilter(filtroEstado)}
             onClienteClick={handleSinCoordsClienteClick}
           />
         </main>
@@ -636,7 +686,7 @@ export default function GaleriaExhibicionesPage() {
           distId={distId}
           desde={fechaDesde || undefined}
           hasta={fechaHasta || undefined}
-          estado={filtroEstado || undefined}
+          estado={resolveGaleriaEstadoFilter(filtroEstado)}
           enabled={selectedVendedor != null}
           onCount={setSinCoordsCount}
         />

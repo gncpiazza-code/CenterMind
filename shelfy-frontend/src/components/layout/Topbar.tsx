@@ -411,9 +411,12 @@ export function Topbar({ title, live = false }: TopbarProps) {
     enabled: !!user && canSwitchDistribuidor,
   });
 
+  const autoDistSwitchRef = useRef(false);
   useEffect(() => {
     if (!canSwitchDistribuidor || !distribuidoras.length) return;
     if (effectiveDistribuidorId != null) return;
+    if (autoDistSwitchRef.current) return;
+    autoDistSwitchRef.current = true;
     const d = distribuidoras[0];
     switchDistributor(d.id, d.nombre);
   }, [canSwitchDistribuidor, distribuidoras, effectiveDistribuidorId, switchDistributor]);

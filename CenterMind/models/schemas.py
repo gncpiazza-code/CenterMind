@@ -485,6 +485,7 @@ class GaleriaMapaPin(BaseModel):
     total_exhibiciones: int
     cover_url: Optional[str] = None
     estado_cover: str = "Pendiente"
+    id_cliente_erp: Optional[str] = None
 
 
 class GaleriaMapaResponse(BaseModel):

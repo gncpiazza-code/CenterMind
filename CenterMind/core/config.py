@@ -42,6 +42,8 @@ AR_OFFSET = "-3 hours"
 CORS_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
     "https://shelfycenter.vercel.app",
     "https://shelfy.vercel.app",
     # Alias estable de preview para branch development.

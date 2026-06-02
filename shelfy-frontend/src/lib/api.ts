@@ -401,13 +401,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     handleSessionExpired401(path, res.status);
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    if (typeof window !== "undefined" && path.includes("/api/galeria/")) {
+    if (typeof window !== "undefined" && path.includes("/api/galeria/") && res.status >= 500) {
       console.group("[Galeria Debug] HTTP error");
       console.error("URL:", url);
       console.error("Method:", options?.method ?? "GET");
       console.error("Status:", res.status);
       console.error("Path:", path);
-      console.error("Request options:", options);
       console.error("Response body:", err);
       console.groupEnd();
     }
@@ -2112,6 +2111,8 @@ export interface DeudorDetalle {
   confianza: "alta" | "baja" | null;
   /** Candidatos desde ventas_enriched (matcheo con deuda CHESS). */
   comprobantes: DeudorComprobante[];
+  /** Compras del período (galería) — todos los remitos en [desde, hasta]. */
+  comprobantes_mes?: DeudorComprobante[];
   comprobantes_adeuda_resumen?: string | null;
   fuente_deuda?: "cc_detalle";
   fuente_comprobantes?: "ventas_enriched_v2";
@@ -2131,6 +2132,21 @@ export async function fetchDeudorDetalle(
 ): Promise<DeudorDetalle> {
   return apiFetch<DeudorDetalle>(
     `/api/supervision/cliente/${distId}/${encodeURIComponent(idClienteErp)}/deuda-detalle`,
+  );
+}
+
+/** Insight PDV para galería: compras del mes + deuda opcional (no exige cc_detalle). */
+export async function fetchGaleriaPdvInsight(
+  distId: number,
+  idClienteErp: string,
+  params?: { desde?: string; hasta?: string },
+): Promise<DeudorDetalle> {
+  const qs = new URLSearchParams();
+  if (params?.desde) qs.set("desde", params.desde);
+  if (params?.hasta) qs.set("hasta", params.hasta);
+  const q = qs.toString();
+  return apiFetch<DeudorDetalle>(
+    `/api/galeria/pdv/${distId}/${encodeURIComponent(idClienteErp)}/insight${q ? `?${q}` : ""}`,
   );
 }
 
@@ -3934,6 +3950,7 @@ export interface GaleriaMapaPin {
   total_exhibiciones: number;
   cover_url?: string | null;
   estado_cover: string;
+  id_cliente_erp?: string | null;
 }
 
 export interface GaleriaMapaResponse {
@@ -3973,6 +3990,19 @@ export interface GaleriaVecinoResponse {
   publicaciones: GaleriaPublicacionMapa[];
 }
 
+export async function fetchGaleriaMeses(
+  distId: number,
+  idVendedor?: number | null,
+): Promise<string[]> {
+  const qs = new URLSearchParams();
+  if (idVendedor != null) qs.set("id_vendedor", String(idVendedor));
+  const q = qs.toString();
+  const data = await apiFetch<{ meses: string[] }>(
+    `/api/galeria/meses/${distId}${q ? `?${q}` : ""}`,
+  );
+  return data.meses ?? [];
+}
+
 export async function fetchGaleriaMapaVendedor(
   idVendedor: number,
   params: {
@@ -3993,7 +4023,7 @@ export async function fetchGaleriaMapaVendedor(
   qs.set("lng_min", String(params.lngMin));
   qs.set("lat_max", String(params.latMax));
   qs.set("lng_max", String(params.lngMax));
-  if (params.zoom != null) qs.set("zoom", String(params.zoom));
+  if (params.zoom != null) qs.set("zoom", String(Math.round(params.zoom)));
   if (params.desde) qs.set("desde", params.desde);
   if (params.hasta) qs.set("hasta", params.hasta);
   if (params.estado) qs.set("estado", params.estado);

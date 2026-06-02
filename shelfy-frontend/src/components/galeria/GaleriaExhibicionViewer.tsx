@@ -1,27 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { X, ChevronLeft, ChevronRight, RotateCcw, Loader2, Images } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { X, ChevronUp, ChevronDown, RotateCcw, Loader2, Images } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import {
-  fetchGaleriaTimelineCliente,
-  fetchGaleriaVecino,
-  type GaleriaVecinoResponse,
-} from "@/lib/api";
+import { fetchGaleriaTimelineCliente } from "@/lib/api";
 import {
   groupTimelinePublicaciones,
   type GaleriaPublicacion,
 } from "@/lib/galeria-publicaciones";
-import { GaleriaPublicationCarousel } from "./GaleriaPublicationCarousel";
+import { galeriaKeys, prefetchGaleriaTimeline, prefetchGaleriaPdvDetalle } from "@/lib/galeria-queries";
+import { formatGaleriaMesLabel } from "@/lib/galeria-month";
+import {
+  GaleriaPublicationCarousel,
+  type GaleriaCarouselHandle,
+} from "./GaleriaPublicationCarousel";
 import { ReevaluarCompaniaSheet } from "./ReevaluarCompaniaSheet";
+import { GaleriaPdvInsightPanel } from "./GaleriaPdvInsightPanel";
+import { useGaleriaViewerNav, type GaleriaViewerNavTarget } from "@/hooks/useGaleriaViewerNav";
+import type { GaleriaMapaPin } from "@/lib/api";
 
 export interface GaleriaExhibicionViewerProps {
   open: boolean;
@@ -30,38 +28,15 @@ export interface GaleriaExhibicionViewerProps {
   nombreCliente: string;
   distId: number;
   idVendedor?: number | null;
+  idClienteErp?: string | null;
   canReevaluarCompania?: boolean;
-  /** Coordenadas actuales para navegación vecino */
   lat?: number | null;
   lng?: number | null;
-  /** Fechas de filtro */
   fechaDesde?: string;
   fechaHasta?: string;
+  mesGaleria?: string;
   filtroEstado?: string;
-}
-
-const ESTADO_COLOR: Record<string, string> = {
-  Aprobada: "bg-green-100 text-green-700 border-green-200",
-  Aprobado: "bg-green-100 text-green-700 border-green-200",
-  Rechazada: "bg-red-100 text-red-700 border-red-200",
-  Rechazado: "bg-red-100 text-red-700 border-red-200",
-  Destacada: "bg-amber-100 text-amber-700 border-amber-200",
-  Destacado: "bg-amber-100 text-amber-700 border-amber-200",
-  Pendiente: "bg-slate-100 text-slate-600 border-slate-200",
-};
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  try {
-    const d = new Date(`${iso}T00:00:00`);
-    return d.toLocaleDateString("es-AR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
+  mapPins?: GaleriaMapaPin[];
 }
 
 export function GaleriaExhibicionViewer({
@@ -71,47 +46,52 @@ export function GaleriaExhibicionViewer({
   nombreCliente: initialNombreCliente,
   distId,
   idVendedor,
+  idClienteErp: initialIdClienteErp,
   canReevaluarCompania = false,
   lat: initialLat,
   lng: initialLng,
   fechaDesde,
   fechaHasta,
-  filtroEstado,
+  mesGaleria,
+  mapPins = [],
 }: GaleriaExhibicionViewerProps) {
-  // Estado interno para navegación vecino
+  const qc = useQueryClient();
+  const carouselRef = useRef<GaleriaCarouselHandle>(null);
+
   const [idCliente, setIdCliente] = useState<number | null>(initialIdCliente);
   const [nombreCliente, setNombreCliente] = useState(initialNombreCliente);
+  const [idClienteErp, setIdClienteErp] = useState<string | null>(initialIdClienteErp ?? null);
   const [lat, setLat] = useState<number | null>(initialLat ?? null);
   const [lng, setLng] = useState<number | null>(initialLng ?? null);
 
-  // Current pub + foto para el panel derecho
   const [currentPub, setCurrentPub] = useState<GaleriaPublicacion | null>(null);
   const [currentPubIdx, setCurrentPubIdx] = useState(0);
   const [reevalOpen, setReevalOpen] = useState(false);
 
-  // Navegación vecino
-  const [isLoadingVecino, setIsLoadingVecino] = useState(false);
-
-  // Sincronizar props cuando cambia desde afuera
   useEffect(() => {
     setIdCliente(initialIdCliente);
     setNombreCliente(initialNombreCliente);
+    setIdClienteErp(initialIdClienteErp ?? null);
     setLat(initialLat ?? null);
     setLng(initialLng ?? null);
     setCurrentPub(null);
     setCurrentPubIdx(0);
-  }, [initialIdCliente, initialNombreCliente, initialLat, initialLng]);
+  }, [
+    initialIdCliente,
+    initialNombreCliente,
+    initialIdClienteErp,
+    initialLat,
+    initialLng,
+  ]);
 
-  // Fetch publicaciones del cliente
   const { data, isLoading, isError } = useQuery({
-    queryKey: [
-      "galeria-viewer-timeline",
+    queryKey: galeriaKeys.timeline(
       distId,
-      idCliente,
-      idVendedor ?? "all",
+      idCliente ?? 0,
+      idVendedor,
       fechaDesde ?? "",
       fechaHasta ?? "",
-    ],
+    ),
     queryFn: () =>
       fetchGaleriaTimelineCliente(idCliente!, distId, {
         idVendedor,
@@ -119,288 +99,271 @@ export function GaleriaExhibicionViewer({
         hasta: fechaHasta,
       }),
     enabled: open && idCliente != null,
-    staleTime: 30_000,
+    staleTime: 60_000,
+    placeholderData: (prev) => prev,
   });
 
-  const publicaciones: GaleriaPublicacion[] = data
-    ? groupTimelinePublicaciones(data.items)
-    : [];
+  const publicaciones: GaleriaPublicacion[] = useMemo(
+    () => (data ? groupTimelinePublicaciones(data.items) : []),
+    [data],
+  );
 
-  // Cuando cargan publicaciones, inicializar publicación actual (la más reciente)
   useEffect(() => {
-    if (publicaciones.length > 0 && !currentPub) {
-      const lastIdx = publicaciones.length - 1;
-      setCurrentPub(publicaciones[lastIdx]);
-      setCurrentPubIdx(lastIdx);
+    if (idClienteErp?.trim()) return;
+    const pin = mapPins.find((p) => p.id_cliente === idCliente);
+    if (pin?.id_cliente_erp) setIdClienteErp(pin.id_cliente_erp);
+  }, [idCliente, idClienteErp, mapPins]);
+
+  useEffect(() => {
+    if (publicaciones.length === 0) {
+      setCurrentPub(null);
+      setCurrentPubIdx(0);
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [publicaciones.length]);
+    const lastIdx = publicaciones.length - 1;
+    setCurrentPub(publicaciones[lastIdx]);
+    setCurrentPubIdx(lastIdx);
+  }, [idCliente, data]);
 
   const handlePublicacionChange = (idx: number, pub: GaleriaPublicacion) => {
     setCurrentPub(pub);
     setCurrentPubIdx(idx);
   };
 
-  const handleLoadVecino = async (vecino: GaleriaVecinoResponse) => {
-    setIdCliente(vecino.id_cliente);
-    setNombreCliente(vecino.nombre_cliente);
-    setLat(vecino.latitud);
-    setLng(vecino.longitud);
-    setCurrentPub(null);
-    setCurrentPubIdx(0);
-  };
+  const handleSelectPdv = useCallback(
+    (target: GaleriaViewerNavTarget) => {
+      setIdCliente(target.idCliente);
+      setNombreCliente(target.nombreCliente);
+      setLat(target.lat);
+      setLng(target.lng);
+      if (target.idClienteErp) setIdClienteErp(target.idClienteErp);
+      setCurrentPub(null);
+      setCurrentPubIdx(0);
 
-  const handleNavVecino = async (direction: "prev" | "next") => {
-    if (!idVendedor || !lat || !lng || isLoadingVecino) return;
-    setIsLoadingVecino(true);
-    try {
-      const vecino = await fetchGaleriaVecino(idVendedor, {
+      void prefetchGaleriaTimeline(qc, {
         distId,
-        fromCliente: idCliente!,
-        lat,
-        lng,
+        idCliente: target.idCliente,
+        idVendedor,
         desde: fechaDesde,
         hasta: fechaHasta,
-        estado: filtroEstado || undefined,
       });
-      // direction es informativo — el backend retorna el vecino más cercano
-      // En una implementación completa se pasaría prev/next, por ahora solo next
-      void direction;
-      await handleLoadVecino(vecino);
-    } catch {
-      // silencioso si no hay vecino
-    } finally {
-      setIsLoadingVecino(false);
-    }
-  };
+      if (target.idClienteErp) {
+        void prefetchGaleriaPdvDetalle(qc, distId, target.idClienteErp, {
+          desde: fechaDesde,
+          hasta: fechaHasta,
+        });
+      }
+    },
+    [qc, distId, idVendedor, fechaDesde, fechaHasta],
+  );
 
-  // Panel derecho — info del cliente
-  const activeFoto = currentPub
-    ? currentPub.fotos[0]
-    : null;
+  const { activeIndex, totalPdvs, canGoPdvPrev, canGoPdvNext, goPdvPrev, goPdvNext } =
+    useGaleriaViewerNav({
+      open,
+      mapPins,
+      activeClienteId: idCliente,
+      onSelectPdv: handleSelectPdv,
+      onPhotoPrev: () => carouselRef.current?.photoPrev(),
+      onPhotoNext: () => carouselRef.current?.photoNext(),
+    });
 
+  const activeFoto = currentPub?.fotos[0] ?? null;
   const needsReevaluar =
-    canReevaluarCompania &&
-    activeFoto &&
-    activeFoto.estado !== "Pendiente";
+    canReevaluarCompania && activeFoto && activeFoto.estado !== "Pendiente";
+
+  const mesLabel = mesGaleria ? formatGaleriaMesLabel(mesGaleria) : undefined;
+
+  if (!open) return null;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="max-w-[100vw] h-[100dvh] p-0 gap-0 border-0 rounded-none bg-black"
-        aria-describedby={undefined}
-      >
-        {/* Header */}
-        <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-2">
-            {/* Navegación vecino — anterior */}
-            {idVendedor && lat && lng && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 text-white/80 hover:text-white hover:bg-white/15 rounded-full"
-                onClick={() => handleNavVecino("prev")}
-                disabled={isLoadingVecino}
-                title="PDV anterior"
-              >
-                <ChevronLeft size={18} />
-              </Button>
-            )}
-            <div className="flex flex-col">
-              <p className="text-white font-bold text-sm leading-tight line-clamp-1">
-                {nombreCliente}
-              </p>
-              {currentPub && (
-                <p className="text-white/60 text-[10px]">{formatDate(currentPub.dia_ar)}</p>
+    <div
+      className="fixed inset-0 z-[80] flex flex-col md:flex-row"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Galería de ${nombreCliente}`}
+    >
+      {/* Capa oscura semitransparente — el mapa difuminado queda detrás (page.tsx) */}
+      <div className="absolute inset-0 bg-black/45 pointer-events-none" aria-hidden />
+
+      <button
+        type="button"
+        className="absolute inset-0 z-0 cursor-default"
+        aria-label="Cerrar galería"
+        onClick={onClose}
+      />
+
+      <div className="relative z-10 flex flex-col md:flex-row w-full h-full pointer-events-none">
+        {/* Carrusel central */}
+        <div className="flex-1 min-w-0 h-full flex flex-col pointer-events-auto">
+          <div className="flex items-center justify-between px-4 py-3 shrink-0 bg-gradient-to-b from-black/50 to-transparent">
+            <div className="flex items-center gap-2 min-w-0">
+              {totalPdvs > 1 && (
+                <div className="flex flex-col gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={goPdvPrev}
+                    disabled={!canGoPdvPrev}
+                    className="w-7 h-7 rounded-full bg-white/15 text-white flex items-center justify-center hover:bg-white/25 disabled:opacity-30"
+                    title="PDV anterior (↑)"
+                  >
+                    <ChevronUp size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goPdvNext}
+                    disabled={!canGoPdvNext}
+                    className="w-7 h-7 rounded-full bg-white/15 text-white flex items-center justify-center hover:bg-white/25 disabled:opacity-30"
+                    title="PDV siguiente (↓)"
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+                </div>
               )}
-            </div>
-            {/* Navegación vecino — siguiente */}
-            {idVendedor && lat && lng && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 text-white/80 hover:text-white hover:bg-white/15 rounded-full"
-                onClick={() => handleNavVecino("next")}
-                disabled={isLoadingVecino}
-                title="PDV siguiente"
-              >
-                {isLoadingVecino ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <ChevronRight size={18} />
+              <div className="min-w-0">
+                <p className="text-white font-bold text-sm leading-tight truncate drop-shadow-md">
+                  {nombreCliente}
+                </p>
+                {totalPdvs > 1 && activeIndex >= 0 && (
+                  <p className="text-white/70 text-[10px] drop-shadow">
+                    PDV {activeIndex + 1} de {totalPdvs} · ←→ fotos · ↑↓ PDVs
+                  </p>
                 )}
-              </Button>
-            )}
+                {currentPub && (
+                  <p className="text-white/60 text-[10px] drop-shadow">{currentPub.dia_ar}</p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 shrink-0"
+              aria-label="Cerrar"
+            >
+              <X size={18} />
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="pointer-events-auto w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm text-white/80 hover:text-white hover:bg-black/70 flex items-center justify-center transition-colors"
-            aria-label="Cerrar"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Layout principal */}
-        <div className="flex w-full h-full">
-          {/* Carrusel — principal */}
-          <div className="flex-1 min-w-0 h-full relative">
+          <div className="flex-1 min-h-0 relative rounded-t-2xl md:rounded-none overflow-hidden mx-2 md:mx-4 mb-2 md:mb-4 shadow-2xl ring-1 ring-white/10 bg-black/30 backdrop-blur-sm">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full gap-4">
-                <Loader2 size={32} className="text-white/60 animate-spin" />
-                <p className="text-white/50 text-sm">Cargando exhibiciones...</p>
+                <Loader2 size={32} className="text-white/70 animate-spin" />
+                <p className="text-white/60 text-sm">Cargando exhibiciones...</p>
               </div>
             ) : isError ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 px-4">
-                <Images size={40} className="text-white/30" />
-                <p className="text-white/60 text-sm text-center">
-                  No se pudo cargar el historial
-                </p>
+                <Images size={40} className="text-white/40" />
+                <p className="text-white/70 text-sm text-center">No se pudo cargar el historial</p>
               </div>
             ) : publicaciones.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 px-4">
-                <Images size={40} className="text-white/30" />
-                <p className="text-white/60 text-sm text-center">
-                  Sin exhibiciones registradas
-                </p>
+                <Images size={40} className="text-white/40" />
+                <p className="text-white/70 text-sm text-center">Sin exhibiciones registradas</p>
               </div>
             ) : (
               <GaleriaPublicationCarousel
+                ref={carouselRef}
                 key={idCliente ?? 0}
                 publicaciones={publicaciones}
+                activePubIdx={currentPubIdx}
                 onPublicacionChange={handlePublicacionChange}
               />
             )}
           </div>
+        </div>
 
-          {/* Panel derecho — solo desktop (w-72) */}
-          {currentPub && (
-            <div className="hidden md:flex w-72 shrink-0 flex-col border-l border-white/10 bg-black/80 backdrop-blur-md overflow-y-auto">
-              <div className="p-5 space-y-4 pt-16">
-                {/* Nombre cliente */}
-                <div>
-                  <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-0.5">PDV</p>
-                  <p className="text-white font-bold text-sm leading-snug">{nombreCliente}</p>
-                </div>
+        {/* Panel insights — desktop siempre; mobile sheet inferior */}
+        <aside
+          className={cn(
+            "pointer-events-auto shrink-0 w-full md:w-[min(440px,38vw)] lg:w-[440px]",
+            "bg-black/60 backdrop-blur-xl border-t md:border-t-0 md:border-l border-white/10",
+            "max-h-[48vh] md:max-h-none md:h-full overflow-hidden",
+          )}
+        >
+          <GaleriaPdvInsightPanel
+            distId={distId}
+            idClienteErp={idClienteErp}
+            nombreCliente={nombreCliente}
+            currentPub={currentPub}
+            fechaDesde={fechaDesde}
+            fechaHasta={fechaHasta}
+            mesLabel={mesLabel}
+            totalVisitas={publicaciones.length}
+          />
 
-                {/* Estado del día */}
-                <div>
-                  <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-1">Estado</p>
-                  <Badge
+          {publicaciones.length > 1 && (
+            <div className="hidden md:block px-4 pb-3 border-t border-white/10 max-h-36 overflow-y-auto">
+              <p className="text-[10px] text-white/45 uppercase tracking-widest py-2">
+                Historial ({publicaciones.length})
+              </p>
+              <div className="space-y-1">
+                {publicaciones.map((p, i) => (
+                  <button
+                    key={p.dia_ar}
+                    type="button"
+                    onClick={() => handlePublicacionChange(i, p)}
                     className={cn(
-                      "text-[11px] font-bold px-2 border",
-                      ESTADO_COLOR[currentPub.estado_dia] ?? "bg-slate-100 text-slate-600 border-slate-200",
+                      "w-full text-left text-[11px] px-2 py-1.5 rounded-lg transition-colors",
+                      i === currentPubIdx
+                        ? "bg-white/15 text-white"
+                        : "text-white/50 hover:bg-white/10",
                     )}
                   >
-                    {currentPub.estado_dia}
-                  </Badge>
-                </div>
-
-                {/* Fecha */}
-                <div>
-                  <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-0.5">Fecha</p>
-                  <p className="text-white text-sm">{formatDate(currentPub.dia_ar)}</p>
-                </div>
-
-                {/* Fotos */}
-                <div>
-                  <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-0.5">
-                    Fotos del día
-                  </p>
-                  <p className="text-white text-sm">{currentPub.total_fotos}</p>
-                </div>
-
-                {/* Supervisor y comentario de la primera foto */}
-                {activeFoto?.supervisor && (
-                  <div>
-                    <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-0.5">Supervisor</p>
-                    <p className="text-white/80 text-sm">{activeFoto.supervisor}</p>
-                  </div>
-                )}
-                {activeFoto?.comentario && (
-                  <div>
-                    <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-0.5">Comentario</p>
-                    <p className="text-white/70 text-sm italic">"{activeFoto.comentario}"</p>
-                  </div>
-                )}
-
-                {/* Publicaciones resumen */}
-                {publicaciones.length > 1 && (
-                  <div>
-                    <p className="text-white/50 text-[10px] font-semibold uppercase tracking-widest mb-1.5">
-                      Historial ({publicaciones.length} visitas)
-                    </p>
-                    <div className="space-y-1">
-                      {publicaciones.map((p, i) => (
-                        <div
-                          key={p.dia_ar}
-                          className={cn(
-                            "flex items-center gap-2 rounded-lg px-2 py-1.5 text-[11px] transition-colors",
-                            i === currentPubIdx
-                              ? "bg-white/15 text-white"
-                              : "text-white/50 hover:bg-white/5",
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-2 h-2 rounded-full shrink-0",
-                              ESTADO_COLOR[p.estado_dia]?.includes("green")
-                                ? "bg-green-400"
-                                : ESTADO_COLOR[p.estado_dia]?.includes("amber")
-                                ? "bg-amber-400"
-                                : ESTADO_COLOR[p.estado_dia]?.includes("red")
-                                ? "bg-red-400"
-                                : "bg-slate-400",
-                            )}
-                          />
-                          <span>{formatDate(p.dia_ar)}</span>
-                          <span className="ml-auto opacity-60">{p.total_fotos}f</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Botón re-evaluar */}
-                {needsReevaluar && (
-                  <div className="pt-2 border-t border-white/10">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full gap-1.5 h-9 text-xs border-white/20 text-white hover:bg-white/10 hover:text-white bg-transparent"
-                      onClick={() => setReevalOpen(true)}
-                    >
-                      <RotateCcw size={13} />
-                      Re-evaluar (Compañía)
-                    </Button>
-                  </div>
-                )}
-
-                {/* Skeleton si hay más publicaciones */}
-                {isLoading && (
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-2/3 bg-white/10" />
-                    <Skeleton className="h-4 w-1/2 bg-white/10" />
-                  </div>
-                )}
+                    {p.dia_ar} · {p.total_fotos}f
+                  </button>
+                ))}
               </div>
             </div>
           )}
-        </div>
 
-        {/* ReevaluarCompaniaSheet */}
-        {needsReevaluar && activeFoto && (
-          <ReevaluarCompaniaSheet
-            open={reevalOpen}
-            onClose={() => setReevalOpen(false)}
-            idExhibicion={activeFoto.id_exhibicion}
-            estadoActual={activeFoto.estado}
-            distId={distId}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
+          {publicaciones.length > 1 && (
+            <div className="px-4 pb-4 md:hidden border-t border-white/10 max-h-24 overflow-y-auto">
+              <p className="text-[10px] text-white/45 uppercase tracking-widest py-2">Historial</p>
+              <div className="flex gap-2 overflow-x-auto">
+                {publicaciones.map((p, i) => (
+                  <button
+                    key={p.dia_ar}
+                    type="button"
+                    onClick={() => handlePublicacionChange(i, p)}
+                    className={cn(
+                      "shrink-0 text-[10px] px-2 py-1 rounded-full border",
+                      i === currentPubIdx
+                        ? "bg-white/20 border-white/40 text-white"
+                        : "border-white/15 text-white/50",
+                    )}
+                  >
+                    {p.dia_ar}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {needsReevaluar && (
+            <div className="px-4 pb-4 pt-0 border-t border-white/10 hidden md:block">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1.5 h-9 text-xs border-white/25 text-white hover:bg-white/10 bg-transparent mt-3"
+                onClick={() => setReevalOpen(true)}
+              >
+                <RotateCcw size={13} />
+                Re-evaluar (Compañía)
+              </Button>
+            </div>
+          )}
+        </aside>
+      </div>
+
+      {needsReevaluar && activeFoto && (
+        <ReevaluarCompaniaSheet
+          open={reevalOpen}
+          onClose={() => setReevalOpen(false)}
+          idExhibicion={activeFoto.id_exhibicion}
+          estadoActual={activeFoto.estado}
+          distId={distId}
+        />
+      )}
+    </div>
   );
 }

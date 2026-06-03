@@ -54,7 +54,21 @@ const TAP_MAX_MOVE_PX = 12;
 const TAP_MAX_MS = 350;
 const TAP_EDGE_RATIO = 0.34;
 
-type GestureMode = "idle" | "pending" | "pan" | "swipe-exhibicion";
+type GestureMode = "idle" | "pending" | "pan" | "swipe-exhibicion" | "pinch";
+
+function pointerDistance(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pointerMidpoint(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): { x: number; y: number } {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
 
 export function resolveVisorImageSrc(
   driveUrl: string | null | undefined,
@@ -127,6 +141,8 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     startTime: 0,
     mode: "idle" as GestureMode,
   });
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef({ lastDistance: 0 });
   const photoNavigationRef = useRef(photoNavigation);
   photoNavigationRef.current = photoNavigation;
   const userZoomRef = useRef(1);
@@ -386,6 +402,29 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     if (direction === "next" && nav.canNextExhibicion !== false) nav.onNextExhibicion?.();
   }, []);
 
+  const getActivePointerPair = useCallback(() => {
+    const pts = [...activePointersRef.current.values()];
+    if (pts.length < 2) return null;
+    return [pts[0], pts[1]] as const;
+  }, []);
+
+  const beginPinch = useCallback(() => {
+    const pair = getActivePointerPair();
+    if (!pair) return false;
+    const [p1, p2] = pair;
+    const dist = Math.max(pointerDistance(p1, p2), 1);
+    pinchRef.current = { lastDistance: dist };
+    gestureRef.current = {
+      pointerId: -1,
+      startX: 0,
+      startY: 0,
+      startTime: 0,
+      mode: "pinch",
+    };
+    setDragging(false);
+    return true;
+  }, [getActivePointerPair]);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const target = e.target;
@@ -393,6 +432,13 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         return;
       }
       trackPointer(e.clientX, e.clientY);
+      activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (photoNavigationRef.current && activePointersRef.current.size >= 2) {
+        beginPinch();
+        e.preventDefault();
+        return;
+      }
 
       if (photoNavigationRef.current) {
         gestureRef.current = {
@@ -411,14 +457,31 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [pan.x, pan.y, trackPointer, userZoom],
+    [beginPinch, pan.x, pan.y, trackPointer, userZoom],
   );
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       trackPointer(e.clientX, e.clientY);
+      if (activePointersRef.current.has(e.pointerId)) {
+        activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+
       const nav = photoNavigationRef.current;
       const g = gestureRef.current;
+
+      if (nav && g.mode === "pinch") {
+        const pair = getActivePointerPair();
+        if (!pair) return;
+        const [p1, p2] = pair;
+        const dist = Math.max(pointerDistance(p1, p2), 1);
+        const ratio = dist / Math.max(pinchRef.current.lastDistance, 1);
+        pinchRef.current.lastDistance = dist;
+        const mid = pointerMidpoint(p1, p2);
+        e.preventDefault();
+        applyUserZoom(userZoomRef.current * ratio, mid);
+        return;
+      }
 
       if (nav && g.mode !== "idle" && g.pointerId === e.pointerId) {
         const dx = e.clientX - g.startX;
@@ -431,6 +494,10 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         }
 
         if (g.mode === "pending") {
+          if (activePointersRef.current.size >= 2) {
+            beginPinch();
+            return;
+          }
           if (ady > 10 && ady > adx * SWIPE_DIRECTION_RATIO) {
             gestureRef.current = { ...g, mode: "swipe-exhibicion" };
             return;
@@ -459,13 +526,40 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       const dy = e.clientY - dragStartRef.current.y;
       setPan(clampPan(dragStartRef.current.panX + dx, dragStartRef.current.panY + dy, userZoom));
     },
-    [clampPan, dragging, pan.x, pan.y, trackPointer, userZoom],
+    [applyUserZoom, beginPinch, clampPan, dragging, getActivePointerPair, pan.x, pan.y, trackPointer, userZoom],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      activePointersRef.current.delete(e.pointerId);
+
       const g = gestureRef.current;
-      if (photoNavigationRef.current && g.pointerId === e.pointerId && g.mode !== "idle") {
+      if (photoNavigationRef.current && g.mode === "pinch") {
+        if (activePointersRef.current.size >= 2) {
+          beginPinch();
+        } else if (activePointersRef.current.size === 1) {
+          const remaining = [...activePointersRef.current.entries()][0];
+          if (remaining && userZoomRef.current > ZOOM_MIN + 0.02) {
+            const [pid, pt] = remaining;
+            gestureRef.current = {
+              pointerId: pid,
+              startX: pt.x,
+              startY: pt.y,
+              startTime: Date.now(),
+              mode: "pan",
+            };
+            setDragging(true);
+            dragStartRef.current = { x: pt.x, y: pt.y, panX: pan.x, panY: pan.y };
+          } else {
+            gestureRef.current = { ...g, mode: "idle", pointerId: -1 };
+          }
+        } else {
+          gestureRef.current = { ...g, mode: "idle", pointerId: -1 };
+        }
+      } else if (photoNavigationRef.current && g.pointerId === e.pointerId && g.mode !== "idle") {
+        if (g.mode === "pan") {
+          gestureRef.current = { ...g, mode: "idle", pointerId: -1 };
+        } else {
         const dx = e.clientX - g.startX;
         const dy = e.clientY - g.startY;
         const adx = Math.abs(dx);
@@ -490,6 +584,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         }
 
         gestureRef.current = { ...g, mode: "idle", pointerId: -1 };
+        }
       }
 
       setDragging(false);
@@ -497,13 +592,14 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
     },
-    [resolveExhibicionNav, resolvePhotoNav],
+    [beginPinch, pan.x, pan.y, resolveExhibicionNav, resolvePhotoNav],
   );
 
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell || !photoNavigation) return;
     const blockTouchScroll = (e: TouchEvent) => {
+      // 2+ dedos: pellizcar (zoom) — no bloquear aquí; lo manejan los pointer events.
       if (e.touches.length !== 1) return;
       e.preventDefault();
     };
@@ -583,7 +679,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       tabIndex={-1}
-      title="Doble clic para acercar (3 veces); el 4.º vuelve al tamaño inicial. Rueda o botones ±."
+      title="Doble clic para acercar. Mobile: pellizcar para zoom, arrastrar con zoom, deslizar ↑↓ exhibición, tap en bordes para fotos."
     >
       <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
         <div

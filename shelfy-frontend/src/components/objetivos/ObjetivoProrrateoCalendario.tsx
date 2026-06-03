@@ -89,6 +89,7 @@ export function ObjetivoProrrateoCalendario({
       </div>
 
       <p className="text-[9px] text-[var(--shelfy-muted)] leading-snug">
+        Meta diaria recalculada según pendiente y días hábiles restantes.
         Cada celda: <span className="text-emerald-700">avance/meta del día</span>.
         Verde ≥100%, ámbar ≥60%, rojo &lt;60%. Número grande = día del mes.
       </p>

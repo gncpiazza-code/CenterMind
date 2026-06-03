@@ -10,6 +10,19 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "public/docs/visor-mobile-raw.png"
 OUT = ROOT / "public/docs/visor-mobile-gestos.jpg"
 
+# Paleta alto contraste
+BG = "#ffffff"
+INK = "#0f172a"
+MUTED = "#475569"
+ACCENT = "#4338ca"
+ACCENT_DARK = "#312e81"
+PURPLE = "#7c3aed"
+BORDER = "#cbd5e1"
+CARD = "#f8fafc"
+LEFT_ZONE = (49, 46, 129, 150)
+RIGHT_ZONE = (49, 46, 129, 150)
+CENTER_ZONE = (109, 40, 217, 95)
+
 
 def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = [
@@ -26,6 +39,60 @@ def load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFo
     return ImageFont.load_default()
 
 
+def text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> tuple[int, int]:
+    box = draw.textbbox((0, 0), text, font=font)
+    return box[2] - box[0], box[3] - box[1]
+
+
+def draw_pill(
+    draw: ImageDraw.ImageDraw,
+    cx: int,
+    cy: int,
+    lines: list[str],
+    *,
+    bg: str,
+    fg: str = "#ffffff",
+    font: ImageFont.ImageFont,
+    pad_x: int = 16,
+    pad_y: int = 10,
+    radius: int = 14,
+) -> None:
+    line_h = text_size(draw, "Ay", font)[1] + 4
+    widths = [text_size(draw, line, font)[0] for line in lines]
+    w = max(widths) + pad_x * 2
+    h = len(lines) * line_h + pad_y * 2 - 4
+    x0, y0 = cx - w // 2, cy - h // 2
+    draw.rounded_rectangle((x0, y0, x0 + w, y0 + h), radius=radius, fill=bg, outline="#ffffff", width=3)
+    for i, line in enumerate(lines):
+        tw, _ = text_size(draw, line, font)
+        draw.text((cx - tw // 2, y0 + pad_y + i * line_h), line, fill=fg, font=font)
+
+
+def draw_legend_item(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    w: int,
+    *,
+    badge: str,
+    badge_bg: str,
+    title: str,
+    desc: str,
+    badge_font: ImageFont.ImageFont,
+    title_font: ImageFont.ImageFont,
+    body_font: ImageFont.ImageFont,
+) -> int:
+    row_h = 72
+    draw.rounded_rectangle((x, y, x + w, y + row_h), radius=12, fill=CARD, outline=BORDER, width=2)
+    badge_w = 88
+    draw.rounded_rectangle((x + 12, y + 12, x + 12 + badge_w, y + row_h - 12), radius=10, fill=badge_bg)
+    bw, bh = text_size(draw, badge, badge_font)
+    draw.text((x + 12 + (badge_w - bw) // 2, y + (row_h - bh) // 2), badge, fill="#ffffff", font=badge_font)
+    draw.text((x + 12 + badge_w + 16, y + 14), title, fill=INK, font=title_font)
+    draw.text((x + 12 + badge_w + 16, y + 38), desc, fill=MUTED, font=body_font)
+    return row_h + 10
+
+
 def main() -> None:
     if not RAW.exists():
         raise SystemExit(f"Falta captura: {RAW}")
@@ -33,86 +100,131 @@ def main() -> None:
     shot = Image.open(RAW).convert("RGBA")
     sw, sh = shot.size
 
-    pad_x, pad_top, pad_bottom = 28, 36, 40
-    title_h = 92
-    legend_h = 220
+    pad_x, pad_top, pad_bottom = 32, 40, 36
+    title_h = 88
+    legend_h = 520
     canvas_w = sw + pad_x * 2
     canvas_h = pad_top + title_h + sh + legend_h + pad_bottom
 
-    canvas = Image.new("RGB", (canvas_w, canvas_h), "#f4f0ff")
+    canvas = Image.new("RGB", (canvas_w, canvas_h), BG)
     draw = ImageDraw.Draw(canvas)
 
-    title_font = load_font(28, bold=True)
-    sub_font = load_font(16)
-    label_font = load_font(18, bold=True)
-    body_font = load_font(15)
-    small_font = load_font(13)
+    title_font = load_font(32, bold=True)
+    sub_font = load_font(17)
+    pill_font = load_font(20, bold=True)
+    badge_font = load_font(15, bold=True)
+    item_title = load_font(16, bold=True)
+    body_font = load_font(14)
+    small_font = load_font(12)
 
-    draw.text((pad_x, pad_top), "Gestos — Visor mobile (Evaluar)", fill="#312e81", font=title_font)
+    draw.text((pad_x, pad_top), "Gestos — Visor mobile", fill=INK, font=title_font)
     draw.text(
-        (pad_x, pad_top + 38),
-        "Navegá exhibiciones y fotos sin usar los botones inferiores",
-        fill="#6366f1",
+        (pad_x, pad_top + 42),
+        "Evaluar · navegá sin los botones inferiores",
+        fill=MUTED,
         font=sub_font,
     )
 
     y0 = pad_top + title_h
     canvas.paste(shot, (pad_x, y0), shot)
+
     overlay = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
     ov = ImageDraw.Draw(overlay)
 
-    # Zona foto (debajo del header overlay, arriba de la píldora glass)
     photo_top = int(sh * 0.17)
     photo_bottom = int(sh * 0.72)
-    edge_w = int(sw * 0.34)
+    edge_w = int(sw * 0.30)
+    center_left = edge_w
+    center_right = sw - edge_w
 
-    # Tap izquierda / derecha — cambiar foto
-    ov.rectangle((0, photo_top, edge_w, photo_bottom), fill=(99, 102, 241, 48))
-    ov.rectangle((sw - edge_w, photo_top, sw, photo_bottom), fill=(99, 102, 241, 48))
+    ov.rectangle((0, photo_top, edge_w, photo_bottom), fill=LEFT_ZONE)
+    ov.rectangle((sw - edge_w, photo_top, sw, photo_bottom), fill=RIGHT_ZONE)
+    ov.rectangle((center_left, photo_top, center_right, photo_bottom), fill=CENTER_ZONE)
 
-    # Swipe vertical — cambiar exhibición (centro)
-    center_left = edge_w + 8
-    center_right = sw - edge_w - 8
-    ov.rectangle((center_left, photo_top, center_right, photo_bottom), fill=(168, 85, 247, 28))
+    # Bordes de zona (blanco sólido)
+    border = (255, 255, 255, 220)
+    for x in (edge_w, sw - edge_w):
+        ov.line((x, photo_top, x, photo_bottom), fill=border, width=3)
+    ov.line((center_left, photo_top, center_right, photo_top), fill=border, width=2)
+    ov.line((center_left, photo_bottom, center_right, photo_bottom), fill=border, width=2)
 
     cx = sw // 2
     cy = (photo_top + photo_bottom) // 2
-    arrow_color = (255, 255, 255, 230)
-    ov.line((cx, photo_top + 28, cx, cy - 36), fill=arrow_color, width=4)
-    ov.polygon([(cx, photo_top + 16), (cx - 14, photo_top + 44), (cx + 14, photo_top + 44)], fill=arrow_color)
-    ov.line((cx, photo_bottom - 28, cx, cy + 36), fill=arrow_color, width=4)
-    ov.polygon([(cx, photo_bottom - 16), (cx - 14, photo_bottom - 44), (cx + 14, photo_bottom - 44)], fill=arrow_color)
+    arrow = (255, 255, 255, 255)
+    ov.line((cx, photo_top + 36, cx, cy - 52), fill=arrow, width=5)
+    ov.polygon([(cx, photo_top + 18), (cx - 16, photo_top + 52), (cx + 16, photo_top + 52)], fill=arrow)
+    ov.line((cx, photo_bottom - 36, cx, cy + 52), fill=arrow, width=5)
+    ov.polygon([(cx, photo_bottom - 18), (cx - 16, photo_bottom - 52), (cx + 16, photo_bottom - 52)], fill=arrow)
 
     canvas.paste(overlay, (pad_x, y0), overlay)
 
-    # Etiquetas sobre la captura
-    draw.text((pad_x + 18, y0 + photo_top + 12), "TOCAR\n◀ foto ant.", fill="#ffffff", font=label_font, stroke_width=2, stroke_fill="#4338ca")
-    draw.text((pad_x + sw - edge_w + 12, y0 + photo_top + 12), "TOCAR\nfoto sig. ▶", fill="#ffffff", font=label_font, stroke_width=2, stroke_fill="#4338ca")
-    draw.text((pad_x + cx - 72, y0 + cy - 14), "DESLIZAR\n↑ ↓ exhib.", fill="#ffffff", font=label_font, stroke_width=2, stroke_fill="#7c3aed")
+    # Badges sobre captura (fondo sólido, texto blanco)
+    left_cx = edge_w // 2
+    right_cx = sw - edge_w // 2
+    zone_cy = (photo_top + photo_bottom) // 2
 
-    ly = y0 + sh + 24
+    overlay_draw = ImageDraw.Draw(canvas)
+    draw_pill(
+        overlay_draw,
+        pad_x + left_cx,
+        y0 + zone_cy,
+        ["◀ TOCAR", "foto ant."],
+        bg=ACCENT,
+        font=pill_font,
+    )
+    draw_pill(
+        overlay_draw,
+        pad_x + right_cx,
+        y0 + zone_cy,
+        ["TOCAR ▶", "foto sig."],
+        bg=ACCENT,
+        font=pill_font,
+    )
+    draw_pill(
+        overlay_draw,
+        pad_x + cx,
+        y0 + zone_cy,
+        ["DESLIZAR", "↑ ↓ exhib."],
+        bg=PURPLE,
+        font=pill_font,
+    )
+
+    ly = y0 + sh + 28
+    draw.text((pad_x, ly), "Referencia rápida", fill=ACCENT_DARK, font=item_title)
+    ly += 28
+
     items = [
-        ("Deslizar ↑", "Siguiente exhibición (otro PDV / vendedor en cola)."),
-        ("Deslizar ↓", "Exhibición anterior."),
-        ("Tocar borde izquierdo", "Foto anterior del mismo PDV (solo si hay 2+ fotos)."),
-        ("Tocar borde derecho", "Foto siguiente del mismo PDV (solo si hay 2+ fotos)."),
-        ("Centro + doble tap", "Zoom como antes. Arrastrar con zoom para mover la imagen."),
+        ("↑ ↓", ACCENT, "Deslizar arriba / abajo", "Cambia de exhibición (otro PDV o vendedor en cola)."),
+        ("◀ ▶", ACCENT, "Tocar borde izquierdo o derecho", "Foto anterior / siguiente del mismo PDV (si hay 2+ fotos)."),
+        ("🤏", PURPLE, "Pellizcar con 2 dedos", "Acercá o alejá la foto. Con zoom, arrastrá para mover."),
+        ("2×", PURPLE, "Doble tap en el centro", "Alterná zoom como antes. Con zoom, arrastrá para mover."),
     ]
-    for i, (key, desc) in enumerate(items):
-        y = ly + i * 34
-        draw.rounded_rectangle((pad_x, y, pad_x + 148, y + 26), radius=8, fill="#ede9fe")
-        draw.text((pad_x + 10, y + 5), key, fill="#5b21b6", font=small_font)
-        draw.text((pad_x + 160, y + 5), desc, fill="#334155", font=body_font)
+
+    row_w = canvas_w - pad_x * 2
+    for badge, badge_bg, title, desc in items:
+        ly += draw_legend_item(
+            draw,
+            pad_x,
+            ly,
+            row_w,
+            badge=badge,
+            badge_bg=badge_bg,
+            title=title,
+            desc=desc,
+            badge_font=badge_font,
+            title_font=item_title,
+            body_font=body_font,
+        )
 
     draw.text(
-        (pad_x, canvas_h - pad_bottom + 8),
-        "Captura real: Real Distribución · /visor · Shelfy Evaluar",
-        fill="#94a3b8",
+        (pad_x, canvas_h - pad_bottom + 6),
+        "Captura: Real Distribución · /visor · Shelfy Evaluar",
+        fill="#64748b",
         font=small_font,
     )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(OUT, "JPEG", quality=92, optimize=True)
+    canvas.save(OUT, "JPEG", quality=93, optimize=True)
     print(f"OK → {OUT}")
 
 

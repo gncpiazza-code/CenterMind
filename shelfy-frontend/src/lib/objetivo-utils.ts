@@ -234,8 +234,46 @@ function buildPeriod(
   return { start, end, startEffective, diasValidos, todosDias, today };
 }
 
+function avanceDiaEnCelda(
+  dia: DiaHabil,
+  hasReal: boolean,
+  progresoDiario: Record<string, number>,
+  avgPasado: number,
+): number {
+  if (!dia.isPast && !dia.isToday) return 0;
+  if (hasReal) return progresoDiario[dia.iso] ?? 0;
+  if (dia.isPast && !dia.isToday) return avgPasado;
+  return progresoDiario[dia.iso] ?? 0;
+}
+
+/** Meta del día bajo prorrateo rolling: pendiente / días hábiles restantes (incl. ese día). */
+function computeMetasRolling(
+  diasValidos: DiaHabil[],
+  meta: number,
+  hasReal: boolean,
+  progresoDiario: Record<string, number>,
+  avgPasado: number,
+): Map<string, { metaDia: number; avanceDia: number }> {
+  const out = new Map<string, { metaDia: number; avanceDia: number }>();
+  let remaining = meta;
+
+  for (const dia of diasValidos) {
+    const daysLeft = diasValidos.filter((d) => d.iso >= dia.iso).length;
+    const metaDia = daysLeft > 0 ? remaining / daysLeft : 0;
+    const avanceDia = avanceDiaEnCelda(dia, hasReal, progresoDiario, avgPasado);
+    out.set(dia.iso, { metaDia, avanceDia });
+
+    if (dia.isPast || dia.isToday) {
+      remaining = Math.max(0, remaining - avanceDia);
+    }
+  }
+
+  return out;
+}
+
 /**
  * Grilla semanal (lun–sáb) con avance diario para el modal de detalle.
+ * Meta diaria rolling: se recalcula según pendiente / días hábiles restantes.
  */
 export function buildProrrateoGrid(
   obj: Objetivo,
@@ -254,16 +292,26 @@ export function buildProrrateoGrid(
   const hasReal = Object.keys(progresoDiario).length > 0;
 
   const { diasValidos, todosDias } = periodo;
-  const pasados = diasValidos.filter((d) => d.isPast || d.isToday);
-  const futuros = diasValidos.filter((d) => d.isFuture);
+  const pasados = diasValidos.filter((d) => d.isPast && !d.isToday);
+  const diasFuturos = diasValidos.filter((d) => d.isFuture);
 
-  const metaDiariaOriginal =
-    diasValidos.length > 0 ? meta / diasValidos.length : 0;
   const restante = Math.max(0, meta - actual);
-  const metaDiariaFutura =
-    futuros.length > 0 ? restante / futuros.length : 0;
-  const avgPasado =
-    pasados.length > 0 ? actual / pasados.length : 0;
+
+  const avgPasado = pasados.length > 0 ? actual / pasados.length : 0;
+  const rolling = computeMetasRolling(
+    diasValidos,
+    meta,
+    hasReal,
+    progresoDiario,
+    avgPasado,
+  );
+
+  const firstFuture = diasFuturos[0];
+  const metaDiariaFutura = firstFuture
+    ? (rolling.get(firstFuture.iso)?.metaDia ?? 0)
+    : diasValidos.find((d) => d.isToday)
+      ? (rolling.get(diasValidos.find((d) => d.isToday)!.iso)?.metaDia ?? 0)
+      : 0;
 
   const semanasMap = new Map<string, DiaHabil[]>();
   for (const dia of todosDias) {
@@ -288,12 +336,9 @@ export function buildProrrateoGrid(
         }
 
         const isPastOrToday = dia.isPast || dia.isToday;
-        const metaDia = isPastOrToday ? metaDiariaOriginal : metaDiariaFutura;
-        const avanceDia = isPastOrToday
-          ? hasReal
-            ? progresoDiario[dia.iso] ?? 0
-            : avgPasado
-          : 0;
+        const cell = rolling.get(dia.iso);
+        const metaDia = cell?.metaDia ?? 0;
+        const avanceDia = isPastOrToday ? (cell?.avanceDia ?? 0) : 0;
         const pct =
           metaDia > 0
             ? Math.min(100, Math.round((avanceDia / metaDia) * 100))
@@ -332,7 +377,7 @@ export function buildProrrateoGrid(
     semanas,
     metaDiariaFutura,
     restante,
-    futuros: futuros.length,
+    futuros: diasFuturos.length,
     diasValidos: diasValidos.length,
     label:
       obj.origen === "compania"

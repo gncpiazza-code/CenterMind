@@ -16,6 +16,7 @@ from core.padron_cliente_vitalidad import DIAS_ACTIVO_COMERCIAL
 from db import sb
 from core.objetivos_compradores import _norm_erp
 from core.tenant_tables import tenant_table_name
+from core.ventas_enriched_tenant import filter_ventas_rows_for_tenant, ventas_enriched_base_query
 from core.ultima_compra import PAGE, _venta_cuenta_como_compra
 
 _VENTAS_FECHAS_SELECT = (
@@ -235,7 +236,7 @@ def fetch_top2_fechas_compra_por_erp(
     hasta = fecha_hasta or date.today()
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
     hasta_s = hasta.isoformat()
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_FECHAS_SELECT)
     dias_por_erp: dict[str, set[str]] = {}
 
     chunk_size = 400
@@ -244,10 +245,7 @@ def fetch_top2_fechas_compra_por_erp(
         offset = 0
         while True:
             batch = (
-                sb.table(t_ventas)
-                .select(_VENTAS_FECHAS_SELECT)
-                .eq("id_distribuidor", dist_id)
-                .eq("anulado", False)
+                q_ventas.eq("anulado", False)
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta_s)
@@ -256,6 +254,7 @@ def fetch_top2_fechas_compra_por_erp(
                 .execute()
                 .data or []
             )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
             for row in batch:
                 if not _venta_cuenta_como_compra(row):
                     continue
@@ -295,22 +294,22 @@ def _tiene_ventas_sin_match_nombre(
     erp = str(id_cliente_erp or "").strip()
     if not erp:
         return False
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    ventas_ctx, q_ventas = ventas_enriched_base_query(
+        sb, dist_id, "nombre_cliente,fecha_factura,importe_final,anulado"
+    )
     offset = 0
     tiene_alguna = False
     tiene_match = False
     while True:
         batch = (
-            sb.table(t_ventas)
-            .select("nombre_cliente,fecha_factura,importe_final,anulado")
-            .eq("id_distribuidor", dist_id)
-            .eq("id_cliente_erp", erp)
+            q_ventas.eq("id_cliente_erp", erp)
             .order("id")
             .range(offset, offset + PAGE - 1)
             .execute()
             .data
             or []
         )
+        batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
         for row in batch:
             if not _venta_cuenta_como_compra(row):
                 continue

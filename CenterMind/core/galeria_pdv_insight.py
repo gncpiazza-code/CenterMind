@@ -9,6 +9,7 @@ from typing import Any
 from db import sb
 from core.cc_deuda_match import match_comprobantes_adeudo_cc
 from core.tenant_tables import tenant_table_name
+from core.ventas_enriched_tenant import filter_ventas_rows_for_tenant, ventas_enriched_base_query
 from core.ultima_compra import (
     apply_ultima_compra_enriched,
     erp_query_variants,
@@ -44,7 +45,11 @@ def fetch_ventas_enriched_periodo(
     if not variants or not desde or not hasta:
         return []
 
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    cols = (
+        "fecha_factura, tipo_documento, numero_documento, serie, "
+        "cod_articulo, descripcion_articulo, bultos_total, importe_final, anulado"
+    )
+    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, cols)
     rows: list[dict] = []
     chunk_size = 400
     for i in range(0, len(variants), chunk_size):
@@ -52,13 +57,7 @@ def fetch_ventas_enriched_periodo(
         offset = 0
         while True:
             batch = (
-                sb.table(t_ventas)
-                .select(
-                    "fecha_factura, tipo_documento, numero_documento, serie, "
-                    "cod_articulo, descripcion_articulo, bultos_total, importe_final, anulado"
-                )
-                .eq("id_distribuidor", dist_id)
-                .in_("id_cliente_erp", chunk)
+                q_ventas.in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta)
                 .order("fecha_factura", desc=True)
@@ -68,6 +67,7 @@ def fetch_ventas_enriched_periodo(
                 .data
                 or []
             )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
             rows.extend(batch)
             if len(batch) < PAGE:
                 break

@@ -33,6 +33,10 @@ from core.estadisticas_franchise import (
     FRANCHISE_VENTAS_SOURCE_DIST,
     resolve_estadisticas_ventas_fetch,
 )
+from core.ventas_enriched_tenant import (
+    apply_ventas_tenant_filters,
+    filter_ventas_rows_for_tenant,
+)
 from core.ventas_bultos_rules import (
     bultos_desglose_decimal,
     bultos_display_2dec,
@@ -96,7 +100,10 @@ def _fetch_ventas_estadisticas(
     ventas_ctx: dict[str, object],
 ) -> list[dict]:
     """Lee ventas_enriched paginado por ventanas de fecha (evita statement timeout)."""
-    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    t_v = str(
+        ventas_ctx.get("table_name")
+        or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    )
     rows: list[dict] = []
 
     def fetch_chunk(desde: str, hasta: str) -> list[dict]:
@@ -141,6 +148,7 @@ def _fetch_ventas_estadisticas(
             raise VentasFetchIncompleteError(
                 f"ventas_enriched incompleto dist={dist_id} rango={desde}..{hasta}: {last_err}"
             ) from last_err
+    rows = filter_ventas_rows_for_tenant(rows, ventas_ctx)
     return _dedupe_ventas_enriched_lines(rows)
 
 
@@ -282,7 +290,10 @@ def _collect_meses_ventas_comerciales(dist_id: int) -> set[str]:
     ventas_ctx = resolve_estadisticas_ventas_fetch(
         dist_id, vend_prescan if vend_prescan else None
     )
-    t = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    t = str(
+        ventas_ctx.get("table_name")
+        or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    )
     meses: set[str] = set()
     offset = 0
     while True:
@@ -525,7 +536,10 @@ def _fetch_ventas_rows_vendedor(
         "tipo_documento,importe_final,fecha_factura,numero_documento,codigo_vendedor,"
         "nombre_vendedor,id_cliente_erp,nombre_cliente,anulado"
     )
-    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    t_v = str(
+        ventas_ctx.get("table_name")
+        or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    )
     rows: list[dict] = []
 
     def fetch_chunk(desde: str, hasta: str) -> list[dict]:
@@ -551,6 +565,7 @@ def _fetch_ventas_rows_vendedor(
 
     for desde, hasta in _ventas_date_chunks(fecha_desde, fecha_hasta):
         rows.extend(fetch_chunk(desde, hasta))
+    rows = filter_ventas_rows_for_tenant(rows, ventas_ctx)
     rows = _dedupe_ventas_enriched_lines(rows)
     return [r for r in rows if _venta_pertenece_vendedor(r, vctx)]
 
@@ -636,19 +651,10 @@ def _apply_ventas_scope(
     ventas_ctx: dict[str, object],
     vendor_codigos: list[str] | None = None,
 ):
-    """
-    Franquicia: lee tabla Real; batch usa todos los códigos ERP del dist,
-    detalle por vendedor usa solo los códigos de ese vendedor.
-    """
-    codigos = vendor_codigos
-    if not codigos:
-        raw = ventas_ctx.get("codigos")
-        codigos = list(raw) if raw else None
-    if not codigos:
-        return q
-    if len(codigos) == 1:
-        return q.eq("codigo_vendedor", codigos[0])
-    return q.in_("codigo_vendedor", codigos)
+    """Scope estricto por tenant (id_distribuidor + tenant_id + códigos franquicia)."""
+    return apply_ventas_tenant_filters(
+        q, ventas_ctx, vendor_codigos=vendor_codigos
+    )
 
 
 def _vendor_context(dist_id: int, id_vendedor: str) -> dict:
@@ -949,7 +955,10 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         or []
     )
     ventas_ctx = resolve_estadisticas_ventas_fetch(dist_id, vend_all)
-    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    t_v = str(
+        ventas_ctx.get("table_name")
+        or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    )
     compradores: set = set()
 
     def venta_q(offset):
@@ -970,6 +979,7 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         return _ventas_enriched_query_order(q)
 
     venta_rows = _paginate(venta_q)
+    venta_rows = filter_ventas_rows_for_tenant(venta_rows, ventas_ctx)
     venta_rows = _dedupe_ventas_enriched_lines(venta_rows)
     if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
         venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]
@@ -1115,7 +1125,10 @@ def aggregate_kpis_vendedor_bounds(
         or []
     )
     ventas_ctx = resolve_estadisticas_ventas_fetch(dist_id, vend_all)
-    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    t_v = str(
+        ventas_ctx.get("table_name")
+        or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    )
     compradores: set = set()
 
     def venta_q(offset):
@@ -1136,6 +1149,7 @@ def aggregate_kpis_vendedor_bounds(
         return _ventas_enriched_query_order(q)
 
     venta_rows = _paginate(venta_q)
+    venta_rows = filter_ventas_rows_for_tenant(venta_rows, ventas_ctx)
     venta_rows = _dedupe_ventas_enriched_lines(venta_rows)
     if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
         venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]

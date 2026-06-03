@@ -17,6 +17,7 @@ from db import sb
 from core.exhibicion_aggregate import erp_lookup_keys
 from core.objetivos_compradores import _norm_erp
 from core.tenant_tables import tenant_table_name
+from core.ventas_enriched_tenant import filter_ventas_rows_for_tenant, ventas_enriched_base_query
 from core.ventas_bultos_rules import classify_volumen, unidades_por_bulto, volumen_es_convertido
 
 PAGE = 1000
@@ -180,7 +181,7 @@ def fetch_ultima_compra_por_erp(
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
     hasta_s = hasta.isoformat()
 
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
     best: dict[str, dict[str, Any]] = {}
 
     # PostgREST: .in_ con lista grande; trocear ERPs crudos (incluye variantes con ceros).
@@ -190,10 +191,7 @@ def fetch_ultima_compra_por_erp(
         offset = 0
         while True:
             batch = (
-                sb.table(t_ventas)
-                .select(_VENTAS_SELECT)
-                .eq("id_distribuidor", dist_id)
-                .eq("anulado", False)
+                q_ventas.eq("anulado", False)
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta_s)
@@ -202,6 +200,7 @@ def fetch_ultima_compra_por_erp(
                 .execute()
                 .data or []
             )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
             for row in batch:
                 if not _venta_cuenta_como_compra(row):
                     continue
@@ -245,7 +244,7 @@ def ultima_compra_en_periodo_por_cliente(
     if not erp_to_cid:
         return {}
 
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
     best: dict[int, dict[str, Any]] = {}
 
     for i in range(0, len(erp_list), 400):
@@ -253,17 +252,16 @@ def ultima_compra_en_periodo_por_cliente(
         offset = 0
         while True:
             batch = (
-                sb.table(t_ventas)
-                .select(_VENTAS_SELECT)
-                .eq("id_distribuidor", dist_id)
-                .eq("anulado", False)
+                q_ventas.eq("anulado", False)
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde_d)
                 .lte("fecha_factura", hasta_d)
+                .order("id")
                 .range(offset, offset + PAGE - 1)
                 .execute()
                 .data or []
             )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
             for row in batch:
                 if not _venta_cuenta_como_compra(row):
                     continue
@@ -412,7 +410,7 @@ def _fetch_ventas_docs_por_erps(
     hasta = fecha_hasta or date.today()
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
     hasta_s = hasta.isoformat()
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_DETALLE)
 
     docs: dict[tuple[str, str, str], dict[str, Any]] = {}
     chunk_size = 400
@@ -421,10 +419,7 @@ def _fetch_ventas_docs_por_erps(
         offset = 0
         while True:
             batch = (
-                sb.table(t_ventas)
-                .select(_VENTAS_SELECT_DETALLE)
-                .eq("id_distribuidor", dist_id)
-                .eq("anulado", False)
+                q_ventas.eq("anulado", False)
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta_s)
@@ -433,6 +428,7 @@ def _fetch_ventas_docs_por_erps(
                 .execute()
                 .data or []
             )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
             for row in batch:
                 if not _venta_cuenta_como_compra(row):
                     continue

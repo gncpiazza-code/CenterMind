@@ -24,6 +24,8 @@ def test_franchise_codigos_from_vendedores():
     ctx = resolve_estadisticas_ventas_fetch(7, rows)
     assert ctx["table_dist"] == 2
     assert ctx["filter_dist"] == 2
+    assert ctx["data_tenant_id"] == "real"
+    assert ctx["is_franchise"] is True
     assert set(ctx["codigos"]) == {"7702", "7715"}
 
 

@@ -1205,10 +1205,18 @@ def supervision_ventas(
         fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
 
         t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+        from core.ventas_enriched_tenant import (
+            apply_ventas_tenant_filters,
+            build_ventas_read_context,
+            filter_ventas_rows_for_tenant,
+        )
         from services.estadisticas_service import (
             _dedupe_ventas_enriched_lines,
             _ventas_enriched_query_order,
         )
+
+        ventas_ctx = build_ventas_read_context(dist_id)
+        t_ventas = ventas_ctx["table_name"]
 
         PAGE = 1000
         raw_lines: list[dict] = []
@@ -1221,11 +1229,11 @@ def supervision_ventas(
                     "tipo_documento,numero_documento,cod_articulo,descripcion_articulo,"
                     "bultos_total,importe_final,anulado,ruta,agrupacion_art_1"
                 )
-                .eq("id_distribuidor", dist_id)
                 .eq("anulado", False)
                 .gte("fecha_factura", fecha_desde)
                 .lte("fecha_factura", fecha_hasta_str)
             )
+            q = apply_ventas_tenant_filters(q, ventas_ctx)
             batch = (
                 _ventas_enriched_query_order(q)
                 .range(offset, offset + PAGE - 1)
@@ -1237,6 +1245,7 @@ def supervision_ventas(
                 break
             offset += PAGE
 
+        raw_lines = filter_ventas_rows_for_tenant(raw_lines, ventas_ctx)
         raw_lines = _dedupe_ventas_enriched_lines(raw_lines)
 
         erp_name_map = _get_erp_name_map(dist_id)

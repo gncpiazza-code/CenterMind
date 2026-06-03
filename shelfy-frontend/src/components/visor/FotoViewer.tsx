@@ -84,9 +84,10 @@ function readNaturalSize(img: HTMLImageElement): { w: number; h: number } | null
   return null;
 }
 
-/** Zoom de presentación inicial (vertical entra acercada). */
-function presentationZoomForPortrait(isPortrait: boolean): number {
-  return isPortrait ? PORTRAIT_DEFAULT_USER_ZOOM : FIT_ZOOM;
+/** Zoom de presentación inicial: mobile vertical acercada; desktop siempre fit completo. */
+function presentationZoomForPortrait(isPortrait: boolean, closePortraitFit: boolean): number {
+  if (!isPortrait || !closePortraitFit) return FIT_ZOOM;
+  return PORTRAIT_DEFAULT_USER_ZOOM;
 }
 
 function isNearZoom(a: number, b: number, eps = 0.05): boolean {
@@ -143,9 +144,11 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     return naturalSize.w / naturalSize.h < PORTRAIT_ASPECT_MAX;
   }, [naturalSize]);
 
+  const closePortraitFit = Boolean(photoNavigation);
+
   const presentationZoom = useMemo(
-    () => presentationZoomForPortrait(isPortrait),
-    [isPortrait],
+    () => presentationZoomForPortrait(isPortrait, closePortraitFit),
+    [closePortraitFit, isPortrait],
   );
 
   const shellW = shellSize.w > 0 ? shellSize.w : 640;
@@ -209,6 +212,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       setNaturalSize(intrinsic);
       const pres = presentationZoomForPortrait(
         intrinsic.w / intrinsic.h < PORTRAIT_ASPECT_MAX,
+        Boolean(photoNavigationRef.current),
       );
       userZoomRef.current = pres;
       setUserZoom(pres);
@@ -620,6 +624,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
                 commitNatural(size);
                 const pres = presentationZoomForPortrait(
                   size.w / size.h < PORTRAIT_ASPECT_MAX,
+                  Boolean(photoNavigationRef.current),
                 );
                 if (userZoomRef.current <= FIT_ZOOM + 0.02) {
                   userZoomRef.current = pres;

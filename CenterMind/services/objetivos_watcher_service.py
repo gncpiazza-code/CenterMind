@@ -42,6 +42,38 @@ def _norm_origen(value: Any) -> str:
     return txt
 
 
+def _compania_retro_since(
+    obj: dict,
+    default_since: str,
+    *,
+    as_timestamp: bool = False,
+) -> str:
+    """
+    Objetivos compañía: contar desde el 1° del mes_referencia (retroactividad mensual).
+    Fallback: fecha_objetivo → created_at → default_since.
+    """
+    if _norm_origen(obj.get("origen")) != "compania":
+        return default_since
+    try:
+        mes_referencia = obj.get("mes_referencia")
+        base_raw = (
+            str(mes_referencia)[:10]
+            if mes_referencia
+            else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
+        )
+        if not base_raw:
+            return default_since
+        first_day = date.fromisoformat(base_raw).replace(day=1)
+        if as_timestamp:
+            return f"{first_day.isoformat()}T00:00:00"
+        return first_day.isoformat()
+    except Exception as e_retro:
+        logger.warning(
+            f"[Watcher] Retroactividad compañía inválida obj={obj.get('id')}: {e_retro}"
+        )
+        return default_since
+
+
 class ObjetivosWatcherService:
     """
     Actualiza valor_actual mediante detección de diferencias.
@@ -259,11 +291,10 @@ class ObjetivosWatcherService:
         id_vendedor = obj.get("id_vendedor")
         created_at = obj.get("created_at", "")
         origen = _norm_origen(obj.get("origen"))
-        mes_referencia = obj.get("mes_referencia")
 
         if tipo == "ruteo_alteo":
             since = created_at[:10] if created_at else ""
-            # El prorrateo en compañía ahora es de fecha_objetivo a fin de mes, no aplica retroactividad
+            since = _compania_retro_since(obj, since, as_timestamp=False)
             return self._diff_alteo(obj, id_vendedor, dist_id, since)
             
         if tipo == "conversion_estado":
@@ -274,43 +305,13 @@ class ObjetivosWatcherService:
         if tipo == "exhibicion":
             # Retroactividad solo para objetivos de compañía:
             # si la meta se crea a mitad de mes, tomar exhibiciones desde el 1er día del mes.
-            since = created_at
-            if origen == "compania":
-                try:
-                    from datetime import date as _date_cls
-                    base_raw = (
-                        str(mes_referencia)[:10]
-                        if mes_referencia
-                        else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
-                    )
-                    if base_raw:
-                        mes_dt = _date_cls.fromisoformat(base_raw)
-                        # Contar desde el 1° del mes de referencia (no desde el día guardado en la fila).
-                        first_day = mes_dt.replace(day=1)
-                        since = f"{first_day.isoformat()}T00:00:00"
-                except Exception as e_retro:
-                    logger.warning(
-                        f"[Watcher] Retroactividad compañía inválida obj={obj.get('id')}: {e_retro}"
-                    )
+            since = _compania_retro_since(obj, created_at or "", as_timestamp=True)
             return self._diff_exhibicion(obj, id_vendedor, dist_id, since)
         if tipo == "compradores":
             from core.objetivos_compradores import compradores_en_periodo, periodo_desde_hasta_objetivo
             desde, hasta = periodo_desde_hasta_objetivo(obj)
             if origen == "compania":
-                # Retroactividad: desde día 1 del mes_referencia (igual que exhibicion compañía)
-                try:
-                    from datetime import date as _date_cls
-                    base_raw = (
-                        str(mes_referencia)[:10]
-                        if mes_referencia
-                        else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
-                    )
-                    if base_raw:
-                        mes_dt = _date_cls.fromisoformat(base_raw)
-                        first_day = mes_dt.replace(day=1)
-                        desde = first_day.isoformat()
-                except Exception as e_retro:
-                    logger.warning(f"[Watcher] compradores retro compañía obj={obj.get('id')}: {e_retro}")
+                desde = _compania_retro_since(obj, desde, as_timestamp=False)
             return self._diff_compradores(obj, id_vendedor, dist_id, desde, hasta)
 
         if tipo == "cobranza":

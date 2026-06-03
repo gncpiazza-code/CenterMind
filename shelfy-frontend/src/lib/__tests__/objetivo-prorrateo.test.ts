@@ -69,10 +69,10 @@ describe("buildProrrateoGrid rolling", () => {
     expect(celdaMie!.metaDia).toBeGreaterThan(celdaMar!.metaDia);
 
     expect(celdaJue!.avanceDia).toBe(0);
-    expect(celdaJue!.metaDia).toBeCloseTo(grid!.metaDiariaFutura, 5);
+    expect(celdaJue!.metaDia).toBeCloseTo(57 / 23, 5);
 
     expect(grid!.restante).toBe(57);
-    expect(grid!.metaDiariaFutura).toBeGreaterThan(2.4);
+    expect(grid!.metaDiariaFutura).toBeCloseTo(57 / 24, 5);
     expect(grid!.futuros).toBe(23);
   });
 
@@ -81,6 +81,29 @@ describe("buildProrrateoGrid rolling", () => {
     vi.setSystemTime(new Date("2026-06-03T12:00:00"));
     const grid = buildProrrateoGrid(makeObj());
     expect(grid!.futuros).toBe(23);
+  });
+
+  it("recalcula meta futura con valor_actual aunque progreso_diario no incluya pendientes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-03T12:00:00"));
+
+    const grid = buildProrrateoGrid(
+      makeObj({
+        tipo: "exhibicion",
+        valor_objetivo: 100,
+        valor_actual: 30,
+        desglose_cache: {
+          progreso_diario: {
+            "2026-06-02": 10,
+            "2026-06-03": 10,
+          },
+        },
+      }),
+    );
+
+    expect(grid).not.toBeNull();
+    expect(grid!.restante).toBe(70);
+    expect(grid!.metaDiariaFutura).toBeCloseTo(70 / 24, 5);
   });
 });
 

@@ -112,6 +112,7 @@ def _fetch_ventas_estadisticas(
                 .eq("anulado", False)
             )
             q = _apply_ventas_scope(q, ventas_ctx)
+            q = _ventas_enriched_query_order(q)
             batch = q.range(offset, offset + PAGE - 1).execute().data or []
             out.extend(batch)
             if len(batch) < PAGE:
@@ -140,7 +141,7 @@ def _fetch_ventas_estadisticas(
             raise VentasFetchIncompleteError(
                 f"ventas_enriched incompleto dist={dist_id} rango={desde}..{hasta}: {last_err}"
             ) from last_err
-    return rows
+    return _dedupe_ventas_enriched_lines(rows)
 
 
 def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
@@ -210,6 +211,34 @@ def _es_operacion_bultos_neto(tipo: str | None, importe: float) -> bool:
     return not _es_recaudacion(tipo)
 
 
+def _venta_enriched_line_key(row: dict) -> tuple[str, str, str, str]:
+    """Clave de línea comercial (misma que upsert ventas_enriched_v2)."""
+    return (
+        str(row.get("fecha_factura") or "")[:10],
+        str(row.get("numero_documento") or "").strip(),
+        str(row.get("id_cliente_erp") or "").strip(),
+        str(row.get("cod_articulo") or "").strip(),
+    )
+
+
+def _dedupe_ventas_enriched_lines(rows: list[dict]) -> list[dict]:
+    """
+    Colapsa filas repetidas en memoria (p. ej. paginación PostgREST sin ORDER BY).
+    Conserva la primera ocurrencia por clave de línea comercial.
+    """
+    seen: dict[tuple[str, str, str, str], dict] = {}
+    for row in rows:
+        key = _venta_enriched_line_key(row)
+        if key not in seen:
+            seen[key] = row
+    return list(seen.values())
+
+
+def _ventas_enriched_query_order(q):
+    """Orden estable obligatorio antes de .range() — sin esto PostgREST repite filas."""
+    return q.order("id")
+
+
 def _collect_meses_from_rows(rows: list[dict], field: str) -> set[str]:
     out: set[str] = set()
     for r in rows:
@@ -264,6 +293,7 @@ def _collect_meses_ventas_comerciales(dist_id: int) -> set[str]:
             .eq("anulado", False)
         )
         q = _apply_ventas_scope(q, ventas_ctx)
+        q = _ventas_enriched_query_order(q)
         batch = q.range(offset, offset + PAGE - 1).execute().data or []
         for r in batch:
             m = _mes_from_venta_row(r)
@@ -430,7 +460,7 @@ def _carta_tiene_actividad_comercial(raw: dict) -> bool:
 def _ventas_select_cols() -> str:
     return (
         "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
-        "importe_final,fecha_factura,bultos_total,unidades_total,"
+        "importe_final,fecha_factura,numero_documento,bultos_total,unidades_total,"
         "cod_articulo,descripcion_articulo,agrupacion_art_2"
     )
 
@@ -492,7 +522,7 @@ def _fetch_ventas_rows_vendedor(
     ventas_ctx = vctx.get("ventas_ctx") or resolve_estadisticas_ventas_fetch(dist_id, None)
     cols = select_cols or (
         "cod_articulo,descripcion_articulo,bultos_total,unidades_total,agrupacion_art_2,"
-        "tipo_documento,importe_final,fecha_factura,codigo_vendedor,"
+        "tipo_documento,importe_final,fecha_factura,numero_documento,codigo_vendedor,"
         "nombre_vendedor,id_cliente_erp,nombre_cliente,anulado"
     )
     t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
@@ -511,6 +541,7 @@ def _fetch_ventas_rows_vendedor(
                 .eq("anulado", False)
             )
             q = _apply_ventas_scope(q, ventas_ctx)
+            q = _ventas_enriched_query_order(q)
             batch = q.range(offset, offset + PAGE - 1).execute().data or []
             out.extend(batch)
             if len(batch) < PAGE:
@@ -520,6 +551,7 @@ def _fetch_ventas_rows_vendedor(
 
     for desde, hasta in _ventas_date_chunks(fecha_desde, fecha_hasta):
         rows.extend(fetch_chunk(desde, hasta))
+    rows = _dedupe_ventas_enriched_lines(rows)
     return [r for r in rows if _venta_pertenece_vendedor(r, vctx)]
 
 
@@ -728,40 +760,82 @@ def _build_vendor_match_indexes(
         if vid is not None:
             consolido_to_vid[_key] = vid
 
+    vid_to_nombre: dict[int, str] = {}
+    for v in vend_rows:
+        try:
+            vid = int(v["id_vendedor"])
+        except (TypeError, ValueError):
+            continue
+        nom = (v.get("nombre_erp") or "").strip().upper()
+        if nom:
+            vid_to_nombre[vid] = nom
+
     return {
         "codigo_to_vid": codigo_to_vid,
         "nombre_to_vid": nombre_to_vid,
         "consolido_to_vid": consolido_to_vid,
+        "vid_to_nombre": vid_to_nombre,
     }
 
 
-def _resolve_vid_from_venta_row(row: dict, idx: dict[str, object]) -> int | None:
-    codigo_to_vid: dict[str, int] = idx.get("codigo_to_vid") or {}
+def _resolve_vid_by_nombre(row: dict, idx: dict[str, object]) -> int | None:
     nombre_to_vid: dict[str, int] = idx.get("nombre_to_vid") or {}
     consolido_to_vid: dict[str, int] = idx.get("consolido_to_vid") or {}
 
+    raw_nom = (row.get("nombre_vendedor") or "").strip()
+    if not raw_nom:
+        return None
+    vid = consolido_to_vid.get(raw_nom.lower())
+    if vid is not None:
+        return vid
+    nom = raw_nom.upper()
+    vid = nombre_to_vid.get(nom)
+    if vid is not None:
+        return vid
+    for en, v in nombre_to_vid.items():
+        if _vendor_names_match_venta(nom, en):
+            return v
+    return None
+
+
+def _resolve_vid_by_codigo(row: dict, idx: dict[str, object]) -> int | None:
+    codigo_to_vid: dict[str, int] = idx.get("codigo_to_vid") or {}
     cod = str(row.get("codigo_vendedor") or "").strip()
-    if cod:
-        vid = codigo_to_vid.get(cod)
-        if vid is None:
-            stripped = cod.lstrip("0") or cod
-            vid = codigo_to_vid.get(stripped)
-        if vid is not None:
-            return vid
+    if not cod:
+        return None
+    vid = codigo_to_vid.get(cod)
+    if vid is None:
+        stripped = cod.lstrip("0") or cod
+        vid = codigo_to_vid.get(stripped)
+    return vid
+
+
+def _resolve_vid_from_venta_row(row: dict, idx: dict[str, object]) -> int | None:
+    """
+    Asigna fila Consolido → vendedor ERP.
+
+    Prioridad: nombre en informe (dsvendedor) → código solo si valida contra nombre ERP.
+    En Aloma/Consolido el mismo c_perso (1001, 1006, …) aparece en filas de distintos
+    nombres (suplentes/rutas); confiar ciego en código inflaba bultos (p. ej. 1001 → CORIA
+    absorbía ventas de GALLO RICARDO / IVAN SOTO).
+    """
+    nom_vid = _resolve_vid_by_nombre(row, idx)
+    if nom_vid is not None:
+        return nom_vid
+
+    cod_vid = _resolve_vid_by_codigo(row, idx)
+    if cod_vid is None:
+        return None
 
     raw_nom = (row.get("nombre_vendedor") or "").strip()
-    if raw_nom:
-        vid = consolido_to_vid.get(raw_nom.lower())
-        if vid is not None:
-            return vid
-        nom = raw_nom.upper()
-        vid = nombre_to_vid.get(nom)
-        if vid is not None:
-            return vid
-        for en, v in nombre_to_vid.items():
-            if _vendor_names_match_venta(nom, en):
-                return v
-    return None
+    if not raw_nom:
+        return cod_vid
+
+    vid_to_nombre: dict[int, str] = idx.get("vid_to_nombre") or {}
+    erp_name = vid_to_nombre.get(cod_vid, "")
+    if erp_name and not _vendor_names_match_venta(raw_nom.upper(), erp_name):
+        return None
+    return cod_vid
 
 
 def _venta_matches_vendor(row: dict, ctx: dict) -> bool:
@@ -883,7 +957,7 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
             sb.table(t_v)
             .select(
                 "id_cliente_erp,codigo_vendedor,nombre_vendedor,tipo_documento,"
-                "importe_final,fecha_factura,anulado,bultos_total,unidades_total,"
+                "importe_final,fecha_factura,numero_documento,anulado,bultos_total,unidades_total,"
                 "descripcion_articulo,agrupacion_art_2"
             )
             .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
@@ -892,9 +966,11 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
             .eq("anulado", False)
         )
         codigos = vctx.get("codigos_vendedor") or []
-        return _apply_ventas_scope(q, ventas_ctx, codigos or None)
+        q = _apply_ventas_scope(q, ventas_ctx, codigos or None)
+        return _ventas_enriched_query_order(q)
 
     venta_rows = _paginate(venta_q)
+    venta_rows = _dedupe_ventas_enriched_lines(venta_rows)
     if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
         venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]
 
@@ -1047,7 +1123,7 @@ def aggregate_kpis_vendedor_bounds(
             sb.table(t_v)
             .select(
                 "id_cliente_erp,codigo_vendedor,nombre_vendedor,tipo_documento,"
-                "importe_final,fecha_factura,anulado,bultos_total,unidades_total,"
+                "importe_final,fecha_factura,numero_documento,anulado,bultos_total,unidades_total,"
                 "descripcion_articulo,agrupacion_art_2"
             )
             .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
@@ -1056,9 +1132,11 @@ def aggregate_kpis_vendedor_bounds(
             .eq("anulado", False)
         )
         codigos = vctx.get("codigos_vendedor") or []
-        return _apply_ventas_scope(q, ventas_ctx, codigos or None)
+        q = _apply_ventas_scope(q, ventas_ctx, codigos or None)
+        return _ventas_enriched_query_order(q)
 
     venta_rows = _paginate(venta_q)
+    venta_rows = _dedupe_ventas_enriched_lines(venta_rows)
     if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
         venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]
 

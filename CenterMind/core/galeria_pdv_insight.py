@@ -62,6 +62,7 @@ def fetch_ventas_enriched_periodo(
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta)
                 .order("fecha_factura", desc=True)
+                .order("id")
                 .range(offset, offset + PAGE - 1)
                 .execute()
                 .data

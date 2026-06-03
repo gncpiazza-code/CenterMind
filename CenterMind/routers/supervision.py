@@ -1205,11 +1205,16 @@ def supervision_ventas(
         fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
 
         t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+        from services.estadisticas_service import (
+            _dedupe_ventas_enriched_lines,
+            _ventas_enriched_query_order,
+        )
+
         PAGE = 1000
         raw_lines: list[dict] = []
         offset = 0
         while True:
-            batch = (
+            q = (
                 sb.table(t_ventas)
                 .select(
                     "fecha_factura,nombre_vendedor,nombre_cliente,id_cliente_erp,"
@@ -1220,6 +1225,9 @@ def supervision_ventas(
                 .eq("anulado", False)
                 .gte("fecha_factura", fecha_desde)
                 .lte("fecha_factura", fecha_hasta_str)
+            )
+            batch = (
+                _ventas_enriched_query_order(q)
                 .range(offset, offset + PAGE - 1)
                 .execute()
                 .data or []
@@ -1228,6 +1236,8 @@ def supervision_ventas(
             if len(batch) < PAGE:
                 break
             offset += PAGE
+
+        raw_lines = _dedupe_ventas_enriched_lines(raw_lines)
 
         erp_name_map = _get_erp_name_map(dist_id)
         sucursal_norm = (sucursal or "").strip().lower()

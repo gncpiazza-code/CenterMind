@@ -251,6 +251,7 @@ def fetch_top2_fechas_compra_por_erp(
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta_s)
+                .order("id")
                 .range(offset, offset + PAGE - 1)
                 .execute()
                 .data or []
@@ -304,6 +305,7 @@ def _tiene_ventas_sin_match_nombre(
             .select("nombre_cliente,fecha_factura,importe_final,anulado")
             .eq("id_distribuidor", dist_id)
             .eq("id_cliente_erp", erp)
+            .order("id")
             .range(offset, offset + PAGE - 1)
             .execute()
             .data

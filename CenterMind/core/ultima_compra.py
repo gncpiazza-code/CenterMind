@@ -197,6 +197,7 @@ def fetch_ultima_compra_por_erp(
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta_s)
+                .order("id")
                 .range(offset, offset + PAGE - 1)
                 .execute()
                 .data or []
@@ -427,6 +428,7 @@ def _fetch_ventas_docs_por_erps(
                 .in_("id_cliente_erp", chunk)
                 .gte("fecha_factura", desde)
                 .lte("fecha_factura", hasta_s)
+                .order("id")
                 .range(offset, offset + PAGE - 1)
                 .execute()
                 .data or []

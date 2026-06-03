@@ -263,7 +263,7 @@ export function VisorPageContent() {
   const { data: vendedores = [] } = useQuery({
     queryKey: ["vendedores", distId],
     queryFn: () => fetchVendedores(distId),
-    enabled: !!user,
+    enabled: !!user && distId > 0 && !mockFitDemo,
   });
 
   // ── Filtered data ────────────────────────────────────────────────────────────
@@ -747,6 +747,20 @@ export function VisorPageContent() {
   function handlePrevFoto() {
     navigateToFoto(currentFotoIdx - 1);
   }
+
+  const handleNextExhibicion = useCallback(() => {
+    if (currentIndex >= totalGrupos - 1) return;
+    setCurrentIndex(currentIndex + 1);
+    resetGroupState();
+    setComentario("");
+  }, [currentIndex, resetGroupState, setCurrentIndex, totalGrupos]);
+
+  const handlePrevExhibicion = useCallback(() => {
+    if (currentIndex <= 0) return;
+    setCurrentIndex(currentIndex - 1);
+    resetGroupState();
+    setComentario("");
+  }, [currentIndex, resetGroupState, setCurrentIndex]);
 
   function handleRevertir() {
     if (!lastEvalIds.length || mutationRevertir.isPending) return;
@@ -1437,6 +1451,16 @@ export function VisorPageContent() {
                         idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
                         priority
                         onZoomChange={handlePhotoZoomChange}
+                        photoNavigation={{
+                          onPrev: handlePrevFoto,
+                          onNext: handleNextFoto,
+                          canPrev: fotosGrupo.length > 1 && currentFotoIdx > 0,
+                          canNext: fotosGrupo.length > 1 && currentFotoIdx < fotosGrupo.length - 1,
+                          onPrevExhibicion: handlePrevExhibicion,
+                          onNextExhibicion: handleNextExhibicion,
+                          canPrevExhibicion: currentIndex > 0,
+                          canNextExhibicion: currentIndex < totalGrupos - 1,
+                        }}
                         overlay={
                           !focusHoldActive ? (
                             <VisorPhotoControls

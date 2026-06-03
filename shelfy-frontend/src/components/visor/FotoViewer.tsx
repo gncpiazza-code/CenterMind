@@ -36,6 +36,26 @@ export type FotoViewerHandle = {
   getImgElement: () => HTMLImageElement | null;
 };
 
+/** Gestos mobile visor: tap lateral (fotos) + swipe vertical (exhibición). */
+export type PhotoNavigationHandlers = {
+  onPrev?: () => void;
+  onNext?: () => void;
+  canPrev?: boolean;
+  canNext?: boolean;
+  onPrevExhibicion?: () => void;
+  onNextExhibicion?: () => void;
+  canPrevExhibicion?: boolean;
+  canNextExhibicion?: boolean;
+};
+
+const SWIPE_MIN_PX = 56;
+const SWIPE_DIRECTION_RATIO = 1.35;
+const TAP_MAX_MOVE_PX = 12;
+const TAP_MAX_MS = 350;
+const TAP_EDGE_RATIO = 0.34;
+
+type GestureMode = "idle" | "pending" | "pan" | "swipe-exhibicion";
+
 export function resolveVisorImageSrc(
   driveUrl: string | null | undefined,
   idExhibicion?: number,
@@ -81,10 +101,12 @@ type FotoViewerProps = {
   onZoomChange?: (userZoom: number, presentationZoom: number) => void;
   /** Controles glass — deben vivir en el mismo shell que la foto para backdrop-filter. */
   overlay?: ReactNode;
+  /** Tap lateral (fotos) + swipe vertical (exhibición) — solo mobile visor. */
+  photoNavigation?: PhotoNavigationHandlers;
 };
 
 export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function FotoViewer(
-  { driveUrl, idExhibicion, priority = false, onZoomChange, overlay },
+  { driveUrl, idExhibicion, priority = false, onZoomChange, overlay, photoNavigation },
   ref,
 ) {
   const src = resolveVisorImageSrc(driveUrl, idExhibicion);
@@ -97,6 +119,15 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const gestureRef = useRef({
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    mode: "idle" as GestureMode,
+  });
+  const photoNavigationRef = useRef(photoNavigation);
+  photoNavigationRef.current = photoNavigation;
   const userZoomRef = useRef(1);
   const presentationZoomRef = useRef(1);
   /** Doble clic: 3 acercamientos; el 4.º vuelve al zoom inicial de la foto. */
@@ -337,6 +368,20 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     lastPointerRef.current = { clientX, clientY };
   }, []);
 
+  const resolvePhotoNav = useCallback((direction: "prev" | "next") => {
+    const nav = photoNavigationRef.current;
+    if (!nav) return;
+    if (direction === "prev" && nav.canPrev !== false) nav.onPrev?.();
+    if (direction === "next" && nav.canNext !== false) nav.onNext?.();
+  }, []);
+
+  const resolveExhibicionNav = useCallback((direction: "prev" | "next") => {
+    const nav = photoNavigationRef.current;
+    if (!nav) return;
+    if (direction === "prev" && nav.canPrevExhibicion !== false) nav.onPrevExhibicion?.();
+    if (direction === "next" && nav.canNextExhibicion !== false) nav.onNextExhibicion?.();
+  }, []);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const target = e.target;
@@ -344,6 +389,19 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         return;
       }
       trackPointer(e.clientX, e.clientY);
+
+      if (photoNavigationRef.current) {
+        gestureRef.current = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          startTime: Date.now(),
+          mode: "pending",
+        };
+        e.currentTarget.setPointerCapture(e.pointerId);
+        return;
+      }
+
       if (userZoom <= ZOOM_MIN + 0.02) return;
       setDragging(true);
       dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
@@ -355,20 +413,84 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   const onPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       trackPointer(e.clientX, e.clientY);
+      const nav = photoNavigationRef.current;
+      const g = gestureRef.current;
+
+      if (nav && g.mode !== "idle" && g.pointerId === e.pointerId) {
+        const dx = e.clientX - g.startX;
+        const dy = e.clientY - g.startY;
+        const adx = Math.abs(dx);
+        const ady = Math.abs(dy);
+
+        if (g.mode === "pending") {
+          if (ady > 10 && ady > adx * SWIPE_DIRECTION_RATIO) {
+            gestureRef.current = { ...g, mode: "swipe-exhibicion" };
+            return;
+          }
+          if (adx > 6 || ady > 6) {
+            if (userZoom <= ZOOM_MIN + 0.02) {
+              gestureRef.current = { ...g, mode: "idle", pointerId: -1 };
+              return;
+            }
+            gestureRef.current = { ...g, mode: "pan" };
+            setDragging(true);
+            dragStartRef.current = { x: g.startX, y: g.startY, panX: pan.x, panY: pan.y };
+          }
+        }
+
+        if (gestureRef.current.mode === "pan" && userZoom > ZOOM_MIN + 0.02) {
+          const pdx = e.clientX - dragStartRef.current.x;
+          const pdy = e.clientY - dragStartRef.current.y;
+          setPan(clampPan(dragStartRef.current.panX + pdx, dragStartRef.current.panY + pdy, userZoom));
+        }
+        return;
+      }
+
       if (!dragging || userZoom <= ZOOM_MIN + 0.02) return;
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
       setPan(clampPan(dragStartRef.current.panX + dx, dragStartRef.current.panY + dy, userZoom));
     },
-    [clampPan, dragging, trackPointer, userZoom],
+    [clampPan, dragging, pan.x, pan.y, trackPointer, userZoom],
   );
 
-  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    setDragging(false);
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  }, []);
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const g = gestureRef.current;
+      if (photoNavigationRef.current && g.pointerId === e.pointerId && g.mode !== "idle") {
+        const dx = e.clientX - g.startX;
+        const dy = e.clientY - g.startY;
+        const adx = Math.abs(dx);
+        const ady = Math.abs(dy);
+        const elapsed = Date.now() - g.startTime;
+        const shell = shellRef.current;
+
+        if (g.mode === "swipe-exhibicion" && ady >= SWIPE_MIN_PX && ady > adx * SWIPE_DIRECTION_RATIO) {
+          // Swipe arriba → siguiente exhibición; abajo → anterior (estilo reels)
+          if (dy < 0) resolveExhibicionNav("next");
+          else resolveExhibicionNav("prev");
+        } else if (
+          g.mode === "pending" &&
+          adx <= TAP_MAX_MOVE_PX &&
+          ady <= TAP_MAX_MOVE_PX &&
+          elapsed <= TAP_MAX_MS &&
+          shell
+        ) {
+          const relX = (e.clientX - shell.getBoundingClientRect().left) / shell.clientWidth;
+          if (relX <= TAP_EDGE_RATIO) resolvePhotoNav("prev");
+          else if (relX >= 1 - TAP_EDGE_RATIO) resolvePhotoNav("next");
+        }
+
+        gestureRef.current = { ...g, mode: "idle", pointerId: -1 };
+      }
+
+      setDragging(false);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    },
+    [resolveExhibicionNav, resolvePhotoNav],
+  );
 
   useEffect(() => {
     const shell = shellRef.current;

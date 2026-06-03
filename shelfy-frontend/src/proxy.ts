@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_KEY } from "@/lib/constants";
 
-const PUBLIC_PATHS = ["/login", "/", "/estadisticas/preview-fusion"];
+const PUBLIC_PATHS = ["/login", "/", "/estadisticas/preview-fusion", "/visor/demo"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

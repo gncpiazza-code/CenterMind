@@ -28,6 +28,17 @@ def test_franchise_scoped_to_real_and_codigos():
     assert set(ctx["codigos"]) == {"7702", "7715"}
 
 
+def test_filter_keeps_rows_when_scope_cols_not_in_select():
+    """Post-filter no debe vaciar filas si id_distribuidor/tenant_id no vienen en el SELECT."""
+    ctx = build_ventas_read_context(4)
+    rows = [
+        {"codigo_vendedor": "1007", "bultos_total": 5},
+        {"codigo_vendedor": "1006", "bultos_total": 2},
+    ]
+    out = filter_ventas_rows_for_tenant(rows, ctx)
+    assert len(out) == 2
+
+
 def test_filter_drops_wrong_tenant_id():
     ctx = build_ventas_read_context(4)
     rows = [

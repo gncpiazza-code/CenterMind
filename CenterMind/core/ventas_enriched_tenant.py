@@ -145,21 +145,24 @@ def filter_ventas_rows_for_tenant(
     kept: list[dict] = []
     dropped = 0
     for row in rows:
-        try:
-            row_dist = int(row.get("id_distribuidor") or 0)
-        except (TypeError, ValueError):
-            dropped += 1
-            continue
-        if row_dist != filter_dist:
-            dropped += 1
-            continue
+        # Solo validar columnas presentes en el SELECT; la query ya aplicó filtros estrictos.
+        if "id_distribuidor" in row:
+            try:
+                row_dist = int(row.get("id_distribuidor") or 0)
+            except (TypeError, ValueError):
+                dropped += 1
+                continue
+            if row_dist != filter_dist:
+                dropped += 1
+                continue
 
-        row_tid = (row.get("tenant_id") or "").strip().lower()
-        if tenant_id and row_tid and row_tid != tenant_id:
-            dropped += 1
-            continue
+        if tenant_id and "tenant_id" in row:
+            row_tid = (row.get("tenant_id") or "").strip().lower()
+            if row_tid and row_tid != tenant_id:
+                dropped += 1
+                continue
 
-        if is_franchise:
+        if is_franchise and "codigo_vendedor" in row:
             cod = str(row.get("codigo_vendedor") or "").strip()
             if not cod or not (codigos_norm & _codigo_variants(cod)):
                 dropped += 1

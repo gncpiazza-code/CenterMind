@@ -39,8 +39,8 @@ def propagate_telegram_users_to_vendedor(
         upd: dict = {"id_vendedor_v2": id_vendedor_v2}
         if vendedor_erp:
             upd["id_vendedor_erp"] = vendedor_erp
-        if telegram_group_id is not None:
-            upd["telegram_group_id"] = telegram_group_id
+        # Propagar vendedor a todas las filas del UID (puede estar en varios grupos).
+        # No tocar telegram_group_id: cada fila conserva su chat de origen.
         (
             sb.table("integrantes_grupo")
             .update(upd)

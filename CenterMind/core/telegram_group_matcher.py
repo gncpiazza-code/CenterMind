@@ -901,6 +901,26 @@ def apply_group_binding(
                 binding_row,
                 on_conflict="id_distribuidor,id_vendedor_v2",
             ).execute()
+            # Limpiar bindings obsoletos del mismo UID en este chat (p. ej. reasignación Maria → Juan)
+            stale_uids = [int(u) for u in tg_uids]
+            if stale_uids:
+                try:
+                    (
+                        sb.table("vendedores_telegram_binding")
+                        .delete()
+                        .eq("id_distribuidor", dist_id)
+                        .eq("telegram_group_id", telegram_chat_id)
+                        .in_("telegram_user_id", stale_uids)
+                        .neq("id_vendedor_v2", id_vendedor_v2)
+                        .execute()
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "apply_group_binding stale cleanup dist=%s chat=%s err=%s",
+                        dist_id,
+                        telegram_chat_id,
+                        exc,
+                    )
 
         if tg_uids:
             from core.fv_telegram_binding import propagate_telegram_users_to_vendedor

@@ -303,13 +303,6 @@ export function Topbar({ title, live = false }: TopbarProps) {
     }
   }, []);
 
-  const latestResponseId = useMemo(() => {
-    const withResponse = myTickets.filter((t: any) => t.respuesta && t.responded_at);
-    if (!withResponse.length) return null;
-    withResponse.sort((a: any, b: any) => new Date(b.responded_at).getTime() - new Date(a.responded_at).getTime());
-    return withResponse[0].id;
-  }, [myTickets]);
-
   const hasUnreadResponse = useMemo(() => {
     const withResponse = myTickets.filter((t: any) => t.respuesta && t.responded_at);
     if (!withResponse.length) return false;
@@ -318,18 +311,6 @@ export function Topbar({ title, live = false }: TopbarProps) {
     if (!lastSeenTickets) return true;
     return new Date(latestResponse.responded_at) > new Date(lastSeenTickets);
   }, [myTickets, lastSeenTickets]);
-
-  const notifiedRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (hasUnreadResponse && latestResponseId && notifiedRef.current !== latestResponseId) {
-      toast.info("¡Tenés una nueva respuesta!", {
-        description: "El equipo de soporte respondió tu ticket.",
-        duration: 5000,
-      });
-      notifiedRef.current = latestResponseId;
-    }
-  }, [hasUnreadResponse, latestResponseId]);
 
   const handleOpenTickets = () => {
     setTicketOpen(true);

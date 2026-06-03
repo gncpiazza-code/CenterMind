@@ -177,6 +177,40 @@ export function VisorPageContent() {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
+  /** Mobile: vista fija sin scroll del documento (gestos swipe en Evaluar). */
+  useEffect(() => {
+    if (isMdUp || typeof document === "undefined") return;
+    const html = document.documentElement;
+    const body = document.body;
+    const scrollY = window.scrollY;
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverscroll: body.style.overscrollBehavior,
+      bodyPosition: body.style.position,
+      bodyTop: body.style.top,
+      bodyWidth: body.style.width,
+    };
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    return () => {
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      html.style.overscrollBehavior = prev.htmlOverscroll;
+      body.style.overscrollBehavior = prev.bodyOverscroll;
+      body.style.position = prev.bodyPosition;
+      body.style.top = prev.bodyTop;
+      body.style.width = prev.bodyWidth;
+      window.scrollTo(0, scrollY);
+    };
+  }, [isMdUp]);
+
   const getActiveFotoViewer = useCallback((): FotoViewerHandle | null => {
     return isMdUp ? desktopFotoViewerRef.current : mobileFotoViewerRef.current;
   }, [isMdUp]);
@@ -1020,12 +1054,17 @@ export function VisorPageContent() {
   // ── Main render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[100dvh] bg-[var(--shelfy-bg)] overflow-hidden">
+    <div
+      className={cn(
+        "flex bg-[var(--shelfy-bg)] overflow-hidden overscroll-none",
+        isMdUp ? "h-[100dvh]" : "fixed inset-0 z-0 h-[100dvh] w-full max-h-[100dvh]",
+      )}
+    >
       <Sidebar />
       <div className="hidden md:block">
         <BottomNav />
       </div>
-      <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 h-full min-h-0 overflow-hidden overscroll-none">
 
         {/* Topbar (desktop) */}
         <div className="hidden md:block shrink-0">
@@ -1436,7 +1475,7 @@ export function VisorPageContent() {
               </div>
 
               {/* ═══ MOBILE LAYOUT ════════════════════════════════════════════ */}
-              <div className="flex md:hidden flex-col flex-1 min-h-0 p-0 relative">
+              <div className="flex md:hidden flex-col flex-1 min-h-0 max-h-full p-0 relative overflow-hidden overscroll-none">
                 {/* Flash */}
                 {flashEl}
 

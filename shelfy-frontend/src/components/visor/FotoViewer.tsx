@@ -422,6 +422,10 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         const adx = Math.abs(dx);
         const ady = Math.abs(dy);
 
+        if (g.mode === "pending" || g.mode === "swipe-exhibicion" || g.mode === "pan") {
+          e.preventDefault();
+        }
+
         if (g.mode === "pending") {
           if (ady > 10 && ady > adx * SWIPE_DIRECTION_RATIO) {
             gestureRef.current = { ...g, mode: "swipe-exhibicion" };
@@ -494,6 +498,17 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
 
   useEffect(() => {
     const shell = shellRef.current;
+    if (!shell || !photoNavigation) return;
+    const blockTouchScroll = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+    };
+    shell.addEventListener("touchmove", blockTouchScroll, { passive: false });
+    return () => shell.removeEventListener("touchmove", blockTouchScroll);
+  }, [photoNavigation]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
     if (!shell) return;
     const onWheel = (e: WheelEvent) => {
       if (isTypingTarget(e.target)) return;
@@ -554,7 +569,8 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       ref={shellRef}
       data-foto-shell
       className={cn(
-        "relative w-full h-full min-h-[200px] overflow-hidden select-none",
+        "relative w-full h-full min-h-[200px] overflow-hidden select-none overscroll-none",
+        photoNavigation && "touch-none",
         canPan ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
       )}
       onDoubleClick={onDoubleClickZoom}

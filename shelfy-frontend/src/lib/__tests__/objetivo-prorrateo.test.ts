@@ -123,6 +123,74 @@ describe("buildProrrateoGrid rolling", () => {
     expect(grid!.futuros).toBe(23);
   });
 
+  it("compradores sin progreso_diario no reparte el total en días pasados", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-04T12:00:00"));
+
+    const grid = buildProrrateoGrid(
+      makeObj({
+        tipo: "compradores",
+        mes_referencia: "2026-06-01",
+        valor_objetivo: 220,
+        valor_actual: 99,
+        fecha_inicio: "2026-06-04",
+        desglose_cache: {},
+      }),
+    );
+
+    const findCelda = (iso: string) => {
+      for (const semana of grid!.semanas) {
+        for (const celda of semana.celdas) {
+          if (celda && celda !== "pre" && typeof celda === "object" && celda.dia.iso === iso) {
+            return celda;
+          }
+        }
+      }
+      return null;
+    };
+
+    expect(findCelda("2026-06-01")!.avanceDia).toBe(0);
+    expect(findCelda("2026-06-02")!.avanceDia).toBe(0);
+    expect(findCelda("2026-06-03")!.avanceDia).toBe(0);
+  });
+
+  it("compradores con progreso_diario muestra avance real por día", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-04T12:00:00"));
+
+    const grid = buildProrrateoGrid(
+      makeObj({
+        tipo: "compradores",
+        mes_referencia: "2026-06-01",
+        valor_objetivo: 220,
+        valor_actual: 99,
+        desglose_cache: {
+          progreso_diario: {
+            "2026-06-01": 40,
+            "2026-06-02": 35,
+            "2026-06-03": 24,
+          },
+        },
+      }),
+    );
+
+    const findCelda = (iso: string) => {
+      for (const semana of grid!.semanas) {
+        for (const celda of semana.celdas) {
+          if (celda && celda !== "pre" && typeof celda === "object" && celda.dia.iso === iso) {
+            return celda;
+          }
+        }
+      }
+      return null;
+    };
+
+    expect(findCelda("2026-06-01")!.avanceDia).toBe(40);
+    expect(findCelda("2026-06-02")!.avanceDia).toBe(35);
+    expect(findCelda("2026-06-03")!.avanceDia).toBe(24);
+    expect(findCelda("2026-06-04")!.avanceDia).toBe(0);
+  });
+
   it("recalcula meta futura con valor_actual aunque progreso_diario no incluya pendientes", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-03T12:00:00"));

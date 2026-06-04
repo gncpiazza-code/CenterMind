@@ -300,6 +300,33 @@ export function VendorCardFusion({
         </div>
       )}
 
+      {vendor.exhibicion_sync_alert && (
+        <div
+          title={
+            vendor.exhibicion_canonical_count != null
+              ? `Hay ~${vendor.exhibicion_canonical_count} exhibiciones lógicas sin reflejar en la carta. Actualizá o reportá a desarrollo.`
+              : "Exhibiciones detectadas sin atribuir en la carta."
+          }
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 8px",
+            background: "rgba(124,58,237,0.1)",
+            border: "1px solid rgba(124,58,237,0.28)",
+            borderRadius: 7,
+            marginTop: 6,
+          }}
+        >
+          <AlertTriangle size={12} color="#7c3aed" strokeWidth={2.5} />
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#7c3aed", lineHeight: 1.3 }}>
+            Exhibiciones sin reflejar en carta
+            <br />
+            <span style={{ fontWeight: 500 }}>Recargá estadísticas o avisá a desarrollo.</span>
+          </span>
+        </div>
+      )}
+
       {!previewMode && evolucionDistId && evolucionMes && (
         <RecapEvolucionButton
           distId={evolucionDistId}

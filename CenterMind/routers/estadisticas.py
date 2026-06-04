@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from core.security import verify_auth, check_dist_permission
+from core.usuario_sucursal_scope import assert_sucursal_nombre_allowed, filter_sucursal_names
 from core.estadisticas_ideal import validate_pesos, repartir_pesos, KPI_KEYS
 from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from services.estadisticas_service import (
@@ -61,7 +62,8 @@ def estadisticas_meses(dist_id: int, user_payload=Depends(verify_auth)):
 def estadisticas_sucursales(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
-        return {"sucursales": fetch_sucursales_disponibles(dist_id)}
+        names = fetch_sucursales_disponibles(dist_id)
+        return {"sucursales": filter_sucursal_names(names, user_payload)}
     except Exception as e:
         logger.error(f"Error sucursales {dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -75,6 +77,7 @@ def estadisticas_cartas(
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
+    assert_sucursal_nombre_allowed(user_payload, sucursal)
     meses_list = [m.strip() for m in meses.split(",") if m.strip()]
     if not meses_list:
         raise HTTPException(status_code=400, detail="Debe especificar al menos un mes")

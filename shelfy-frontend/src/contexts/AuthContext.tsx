@@ -75,6 +75,9 @@ function parseStoredUser(): AuthResponse | null {
       usa_mapeo_vendedores: payload.usa_mapeo_vendedores,
       show_tutorial: locallySeen ? false : showTutorialFromToken,
       permisos: payload.permisos ?? {},
+      sucursales_restringidas: Boolean(payload.sucursales_restringidas),
+      sucursales_permitidas_ids: payload.sucursales_permitidas_ids ?? [],
+      sucursales_permitidas_nombres: payload.sucursales_permitidas_nombres ?? [],
     };
   } catch {
     return null;

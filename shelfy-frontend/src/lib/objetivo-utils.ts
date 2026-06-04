@@ -242,9 +242,10 @@ function avanceDiaEnCelda(
   actual: number,
   pasadosCount: number,
 ): number {
+  if (dia.isPreStart) return 0;
   if (!dia.isPast && !dia.isToday) return 0;
   if (hasReal) return progresoDiario[dia.iso] ?? 0;
-  if (dia.isPast && !dia.isToday) return avgPasado;
+  if (dia.isPast && !dia.isToday) return 0;
   if (dia.isToday && pasadosCount === 0) return actual;
   return progresoDiario[dia.iso] ?? 0;
 }

@@ -17,6 +17,7 @@ import {
   sortClientesCC,
 } from "@/lib/cuentasCorrientes";
 import { formatCcKpiTrendDisplay, hasCcKpiTrends, shouldShowCcKpiTrend } from "@/lib/supervision-cc-trend";
+import { filterSucursalNamesForUser } from "@/lib/sucursal-scope";
 import { CcSyncStatusBadge } from "@/components/supervision/CcSyncStatusBadge";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
@@ -203,8 +204,8 @@ export default function SupervisionPage() {
       const s = v.sucursal_nombre;
       if (s && !seen.has(s)) { seen.add(s); list.push(s); }
     }
-    return list.sort();
-  }, [vendedores]);
+    return filterSucursalNamesForUser(list.sort(), user ?? undefined);
+  }, [vendedores, user]);
 
   const vendedorOptions = useMemo(() => {
     return vendedores
@@ -255,7 +256,10 @@ export default function SupervisionPage() {
     clientesOrdenados.length > 0
       ? clientesOrdenados.length
       : (kpis?.clientes_deudores ?? cuentasData?.metadatos?.clientes_deudores ?? 0);
-  const pdvsAtraso15 = kpis?.pdvs_atraso_15 ?? (clientesOrdenados.filter((c) => (c.antiguedad ?? 0) > 15).length);
+  const pdvsAtraso15 =
+    clientesOrdenados.length > 0
+      ? clientesOrdenados.filter((c) => (c.antiguedad ?? 0) > 15).length
+      : (kpis?.pdvs_atraso_15 ?? 0);
   const diasPromedio = kpis?.dias_promedio_atraso ?? (cuentasData?.metadatos?.promedio_dias_retraso ?? 0);
 
   const deudaPorAntiguedad = useMemo(

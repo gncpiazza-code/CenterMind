@@ -30,6 +30,7 @@ from core.helpers import (
 from core.exhibicion_aggregate import count_logical_per_client
 from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
+from core.usuario_sucursal_scope import assert_sucursal_nombre_allowed
 from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from core.tenant_tables import (
     tenant_table_name,
@@ -1196,6 +1197,7 @@ def supervision_ventas(
 ):
     """Ventas de supervisión desde Informe de Ventas Consolido (ventas_enriched_v2)."""
     check_dist_permission(user_payload, dist_id)
+    assert_sucursal_nombre_allowed(user_payload, sucursal)
     try:
         if fecha_hasta:
             base_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
@@ -1612,6 +1614,106 @@ def _resolve_cc_fecha_ultima_compra(
     return fuc
 
 
+def _cc_cliente_antiguedad_fields(
+    item: dict,
+    *,
+    fecha_uc_map: dict,
+    erp_fuc_map: dict,
+    erp_id_map: dict,
+    id_cliente_map: dict,
+    erp_to_id_cliente: dict,
+    id_cliente_fuc_map: dict,
+    hoy_ar: date,
+) -> tuple[int, int, str, bool]:
+    """Antigüedad mostrada en supervisión (CC + fallback padrón)."""
+    nombre_norm = _norm_name(item.get("cliente_nombre"))
+    nombre_raw_upper = (item.get("cliente_nombre") or "").strip().upper()
+    erp_label, name_label = _parse_cc_cliente_label(item.get("cliente_nombre"))
+    erp_resolved = (
+        item.get("id_cliente_erp")
+        or (erp_label if erp_label else None)
+        or erp_id_map.get(name_label or "")
+        or erp_id_map.get(nombre_norm)
+        or erp_id_map.get(nombre_raw_upper)
+    )
+    erp_norm_resolved = _norm_erp_cliente_id(erp_resolved)
+    id_cliente_pk = item.get("id_cliente")
+    if not id_cliente_pk:
+        id_cliente_pk = (
+            (erp_to_id_cliente.get(erp_label) if erp_label else None)
+            or (id_cliente_map.get(name_label) if name_label else None)
+            or id_cliente_map.get(nombre_norm)
+            or id_cliente_map.get(nombre_raw_upper)
+            or (erp_to_id_cliente.get(erp_norm_resolved) if erp_norm_resolved else None)
+        )
+    fuc = _resolve_cc_fecha_ultima_compra(
+        item,
+        id_cliente_pk=id_cliente_pk,
+        erp_label=erp_label,
+        erp_norm_resolved=erp_norm_resolved,
+        name_label=name_label,
+        nombre_norm=nombre_norm,
+        nombre_raw_upper=nombre_raw_upper,
+        id_cliente_fuc_map=id_cliente_fuc_map,
+        erp_fuc_map=erp_fuc_map,
+        fecha_uc_map=fecha_uc_map,
+    )
+    dias_uc = _dias_desde_fecha(fuc, hoy_ar) if fuc else None
+    antig_cc = int(item.get("antiguedad_dias") or 0)
+    antig_show, rango_show, desde_padron = _antiguedad_supervision_display(
+        antig_cc, dias_uc, float(item.get("deuda_total") or 0)
+    )
+    return antig_show, antig_cc, rango_show, desde_padron
+
+
+def _compute_cc_kpis_from_detalle(d_id: int, rows: list[dict]) -> dict:
+    """
+    KPIs de CC con la misma antigüedad que la tabla de supervisión.
+    Evita subconteo cuando CHESS marca 0d pero el padrón tiene compra >15d atrás.
+    """
+    if not rows:
+        return {
+            "total_deuda": 0.0,
+            "clientes_deudores": 0,
+            "pdvs_atraso_15": 0,
+            "dias_promedio_atraso": 0.0,
+        }
+    try:
+        fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map = (
+            _build_pdv_metadata_maps(d_id, rows)
+        )
+    except Exception as e:
+        logger.warning(f"[cc_kpis] PDV metadata dist={d_id}: {e}")
+        fecha_uc_map = erp_fuc_map = erp_id_map = id_cliente_map = erp_to_id_cliente = id_cliente_fuc_map = {}
+
+    hoy_ar = _today_ar()
+    antig_shows: list[int] = []
+    total_deuda = 0.0
+    for item in rows:
+        deuda = float(item.get("deuda_total") or 0)
+        total_deuda += deuda
+        antig_show, _, _, _ = _cc_cliente_antiguedad_fields(
+            item,
+            fecha_uc_map=fecha_uc_map,
+            erp_fuc_map=erp_fuc_map,
+            erp_id_map=erp_id_map,
+            id_cliente_map=id_cliente_map,
+            erp_to_id_cliente=erp_to_id_cliente,
+            id_cliente_fuc_map=id_cliente_fuc_map,
+            hoy_ar=hoy_ar,
+        )
+        antig_shows.append(antig_show)
+
+    pdvs_atraso_15 = sum(1 for a in antig_shows if a > 15)
+    dias_prom = round(sum(antig_shows) / len(antig_shows), 1) if antig_shows else 0.0
+    return {
+        "total_deuda": round(total_deuda, 2),
+        "clientes_deudores": len(rows),
+        "pdvs_atraso_15": pdvs_atraso_15,
+        "dias_promedio_atraso": dias_prom,
+    }
+
+
 def _cc_padron_incoherente(deuda: float, antiguedad_dias: int, dias_desde_compra: int | None) -> bool:
     """
     Deuda con mora baja en CC implica facturación reciente; si el padrón marca compra mucho más
@@ -1794,6 +1896,7 @@ def supervision_cuentas(
         f'</api/bundle/supervision/{dist_id}>; rel="successor-version"'
     )
     check_dist_permission(user_payload, dist_id)
+    assert_sucursal_nombre_allowed(user_payload, sucursal)
     try:
         try:
             d_id = int(dist_id)
@@ -1907,6 +2010,7 @@ def supervision_cuentas(
             logger.warning(f"[supervision_cuentas] ventas FUC overlay dist={d_id}: {e_v}")
 
         vendors: dict = {}
+        hoy_ar = _today_ar()
         for item in rows:
             # Normalize vendor keys for grouping
             raw_v_name = (item.get("vendedor_nombre") or "Sin Vendedor").strip()
@@ -1956,11 +2060,16 @@ def supervision_cuentas(
                 erp_fuc_map=erp_fuc_map,
                 fecha_uc_map=fecha_uc_map,
             )
-            hoy_ar = _today_ar()
             dias_uc = _dias_desde_fecha(fuc, hoy_ar) if fuc else None
-            antig_cc = int(item.get("antiguedad_dias") or 0)
-            antig_show, rango_show, desde_padron = _antiguedad_supervision_display(
-                antig_cc, dias_uc, deuda
+            antig_show, antig_cc, rango_show, desde_padron = _cc_cliente_antiguedad_fields(
+                item,
+                fecha_uc_map=fecha_uc_map,
+                erp_fuc_map=erp_fuc_map,
+                erp_id_map=erp_id_map,
+                id_cliente_map=id_cliente_map,
+                erp_to_id_cliente=erp_to_id_cliente,
+                id_cliente_fuc_map=id_cliente_fuc_map,
+                hoy_ar=hoy_ar,
             )
             erp_cc = (
                 _norm_erp_cliente_id(item.get("id_cliente_erp"))
@@ -2004,6 +2113,7 @@ def supervision_cuentas(
         total_deuda  = sum(v["deuda_total"] for v in result)
         total_cli    = sum(v["cantidad_clientes"] for v in result)
         avg_dias     = (sum(c["antiguedad"] or 0 for c in all_clientes) / len(all_clientes) if all_clientes else 0)
+        pdvs_atraso_15 = sum(1 for c in all_clientes if (c.get("antiguedad") or 0) > 15)
 
         return {
             "fecha": fecha_snapshot,
@@ -2011,6 +2121,7 @@ def supervision_cuentas(
                 "total_deuda": round(total_deuda, 2),
                 "clientes_deudores": total_cli,
                 "promedio_dias_retraso": round(avg_dias, 1),
+                "pdvs_atraso_15": pdvs_atraso_15,
             },
             "vendedores": result,
         }
@@ -2030,6 +2141,7 @@ def supervision_cuentas_pdf(
 ):
     """PDF de CC (mismo formato que difusión Telegram). Un vendedor → PDF; varios → ZIP."""
     check_dist_permission(user_payload, dist_id)
+    assert_sucursal_nombre_allowed(user_payload, sucursal)
     try:
         from services.cc_difusion_service import export_cc_pdf_supervision
 
@@ -2176,18 +2288,37 @@ def supervision_cc_kpis(
             return {"kpis": None, "deltas": None}
 
         actual = rows[0]
+        fecha_snapshot = actual.get("fecha_snapshot")
+        detalle_rows = _fetch_cc_detalle_rows(
+            int(dist_id),
+            str(fecha_snapshot),
+            id_vendedor=int(id_vendedor) if id_vendedor is not None else None,
+        )
+        computed = _compute_cc_kpis_from_detalle(int(dist_id), detalle_rows)
+
         referencia = fetch_cc_kpi_reference_snapshot(
             int(dist_id), id_vendedor, actual, lookback_days=7
         )
         deltas = build_cc_kpi_deltas(actual, referencia, lookback_days=7)
+        if deltas and "pdvs_atraso_15" in deltas:
+            ref_pdvs = int((referencia or {}).get("pdvs_atraso_15") or 0)
+            act_pdvs = int(computed.get("pdvs_atraso_15") or 0)
+            diff = round(act_pdvs - ref_pdvs, 2)
+            deltas["pdvs_atraso_15"] = {
+                "diff": diff,
+                "pct": round(diff / ref_pdvs * 100, 1) if ref_pdvs else None,
+                "dir": "up" if diff > 0 else ("down" if diff < 0 else "neutral"),
+                "anterior": ref_pdvs,
+                "actual": act_pdvs,
+            }
 
         return {
             "kpis": {
-                "total_deuda": float(actual.get("total_deuda") or 0),
-                "clientes_deudores": int(actual.get("clientes_deudores") or 0),
-                "pdvs_atraso_15": int(actual.get("pdvs_atraso_15") or 0),
-                "dias_promedio_atraso": float(actual.get("dias_promedio_atraso") or 0),
-                "fecha_snapshot": actual.get("fecha_snapshot"),
+                "total_deuda": float(computed.get("total_deuda") or 0),
+                "clientes_deudores": int(computed.get("clientes_deudores") or 0),
+                "pdvs_atraso_15": int(computed.get("pdvs_atraso_15") or 0),
+                "dias_promedio_atraso": float(computed.get("dias_promedio_atraso") or 0),
+                "fecha_snapshot": fecha_snapshot,
             },
             "deltas": deltas,
             "trends_available": deltas is not None,

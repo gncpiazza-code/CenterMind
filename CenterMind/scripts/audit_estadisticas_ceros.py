@@ -34,12 +34,25 @@ def get_meses_default() -> list[str]:
 
 def audit_dist(dist_id: int, meses: list[str]) -> list[dict]:
     from services.estadisticas_service import (
+        _build_integrante_to_vid,
+        _exhibiciones_canonical_por_vid,
         _fetch_carta_source_rows,
         _aggregate_kpis_from_rows,
+        _in_meses,
     )
     source = _fetch_carta_source_rows(dist_id, meses)
     all_raw, _loc = _aggregate_kpis_from_rows(source, meses)
     ventas_meta: dict = all_raw.pop("__ventas_meta__", {})
+    exhib_meta: dict = all_raw.pop("__exhib_meta__", {}) or {}
+    meses_set = set(meses)
+    vend_rows = source.get("vendedores") or []
+    integrante_to_vid = _build_integrante_to_vid(dist_id, vend_rows)
+    ex_rows = [
+        r
+        for r in (source.get("ex") or [])
+        if _in_meses(r.get("timestamp_subida", ""), meses_set)
+    ]
+    ex_canonical, _ = _exhibiciones_canonical_por_vid(ex_rows, integrante_to_vid)
     ventas_total = ventas_meta.get("ventas_total", 0)
     ventas_unmatched = ventas_meta.get("ventas_unmatched", 0)
     ventas_unmatched_pct = ventas_meta.get("ventas_unmatched_pct", 0.0)
@@ -52,6 +65,8 @@ def audit_dist(dist_id: int, meses: list[str]) -> list[dict]:
             continue
         compradores = float(raw.get("compradores") or 0)
         bultos_raw = float(raw.get("bultos_raw") or 0)
+        exhibiciones = int(raw.get("exhibiciones") or 0)
+        canonical_ex = int(ex_canonical.get(int(vid_str), 0))
         nombre = raw.get("__nombre__", vid_str)
         erp_sync_alert = (
             ventas_total >= 100
@@ -60,17 +75,27 @@ def audit_dist(dist_id: int, meses: list[str]) -> list[dict]:
             and bultos_raw == 0
             and ventas_unmatched_pct >= 50.0
         )
+        exhibicion_false_zero = (
+            pdvs > 0
+            and exhibiciones == 0
+            and canonical_ex > 0
+            and (compradores > 0 or bultos_raw > 0)
+        )
         rows_out.append({
             "dist_id": dist_id,
             "id_vendedor": vid_str,
             "nombre": nombre,
             "pdvs": pdvs,
+            "exhibiciones": exhibiciones,
+            "exhibiciones_canonical": canonical_ex,
             "compradores": int(compradores),
             "bultos": round(bultos_raw, 2),
             "ventas_total_dist": ventas_total,
             "ventas_unmatched_dist": ventas_unmatched,
             "ventas_match_pct": ventas_match_pct,
             "erp_sync_alert": erp_sync_alert,
+            "exhibicion_false_zero": exhibicion_false_zero,
+            "exhib_logicas_sum_dist": int(exhib_meta.get("logicas_sum") or 0),
         })
     # Enriquecer con nombre desde vendedores
     vend_map = {
@@ -108,7 +133,11 @@ def main() -> None:
             print(f"[audit] ERROR dist={dist_id}: {e}", file=sys.stderr)
 
     if args.only_alerts:
-        all_rows = [r for r in all_rows if r["erp_sync_alert"]]
+        all_rows = [
+            r
+            for r in all_rows
+            if r.get("erp_sync_alert") or r.get("exhibicion_false_zero")
+        ]
 
     if args.json_out:
         with open(args.json_out, "w") as f:
@@ -117,9 +146,9 @@ def main() -> None:
 
     fieldnames = [
         "dist_id", "dist_nombre", "id_vendedor", "nombre",
-        "pdvs", "compradores", "bultos",
+        "pdvs", "exhibiciones", "exhibiciones_canonical", "compradores", "bultos",
         "ventas_total_dist", "ventas_unmatched_dist", "ventas_match_pct",
-        "erp_sync_alert",
+        "erp_sync_alert", "exhibicion_false_zero", "exhib_logicas_sum_dist",
     ]
     writer = csv.DictWriter(
         open(args.csv, "w", newline="") if args.csv else sys.stdout,

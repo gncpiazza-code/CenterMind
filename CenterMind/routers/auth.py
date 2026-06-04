@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.config import JWT_AVAILABLE, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS, _jwt
 from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from core.security import verify_auth
+from core.usuario_sucursal_scope import load_sucursal_scope_for_user, jwt_sucursal_claims
 from db import sb
 from models.schemas import LoginRequest, TokenResponse
 
@@ -62,6 +63,13 @@ def auth_login(req: LoginRequest):
         except Exception as e:
             logger.warning(f"⚠️ No se pudieron cargar permisos para rol '{rol_normalizado}': {e}")
 
+        scope = load_sucursal_scope_for_user(
+            int(user["id_usuario"]),
+            int(dist_id) if dist_id else None,
+            is_superadmin=is_superadmin,
+        )
+        sucursal_claims = jwt_sucursal_claims(scope)
+
         payload = {
             "sub":                  user["usuario_login"],
             "id_usuario":           user["id_usuario"],
@@ -75,6 +83,7 @@ def auth_login(req: LoginRequest):
             "show_tutorial":        show_tutorial,
             "permisos":             permisos,
             "exp":                  datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
+            **sucursal_claims,
         }
         token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
         return TokenResponse(
@@ -88,6 +97,7 @@ def auth_login(req: LoginRequest):
             usa_mapeo_vendedores=payload["usa_mapeo_vendedores"],
             show_tutorial=show_tutorial,
             permisos=permisos,
+            **sucursal_claims,
         )
     except HTTPException:
         raise

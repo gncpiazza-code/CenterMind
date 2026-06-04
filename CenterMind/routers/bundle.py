@@ -16,6 +16,13 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from core.helpers import should_apply_exhibicion_qa_filter
 from core.security import verify_auth, check_dist_permission
+from core.usuario_sucursal_scope import (
+    assert_sucursal_id_allowed,
+    assert_sucursal_nombre_allowed,
+    filter_sucursal_names,
+    filter_sucursales_rows,
+    is_unrestricted_sucursales,
+)
 from services.snapshot_dashboard_service import get_or_refresh_dashboard
 from services.snapshot_supervision_service import get_or_refresh_supervision
 from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
@@ -39,9 +46,22 @@ def bundle_dashboard(
     KPIs y ranking comparten un único fetch de exhibiciones (optimización clave).
     """
     check_dist_permission(payload, dist_id)
+    assert_sucursal_id_allowed(payload, sucursal_id)
     from core.helpers import should_apply_exhibicion_qa_filter
     hide_qa = should_apply_exhibicion_qa_filter(dist_id, payload)
-    return get_or_refresh_dashboard(dist_id, periodo, sucursal_id, hide_qa=hide_qa)
+    out = get_or_refresh_dashboard(dist_id, periodo, sucursal_id, hide_qa=hide_qa)
+    if not is_unrestricted_sucursales(payload):
+        allowed = filter_sucursal_names(
+            [s.get("sucursal") or s.get("nombre_erp") or "" for s in (out.get("sucursales") or [])],
+            payload,
+        )
+        allowed_set = set(allowed)
+        out["sucursales"] = [
+            s for s in (out.get("sucursales") or [])
+            if (s.get("sucursal") or s.get("nombre_erp") or "").strip() in allowed_set
+        ]
+        out["ranking"] = filter_sucursales_rows(out.get("ranking") or [], payload)
+    return out
 
 
 @router.get("/supervision/{dist_id}")
@@ -55,6 +75,7 @@ def bundle_supervision(
     Bundle completo de supervision CC: vendedores + clientes deudores + metadatos.
     """
     check_dist_permission(payload, dist_id)
+    assert_sucursal_nombre_allowed(payload, sucursal)
     return get_or_refresh_supervision(dist_id, sucursal, id_vendedor)
 
 
@@ -81,9 +102,13 @@ def bundle_estadisticas(
         meses_list = [m.strip() for m in meses.split(",") if m.strip()]
     else:
         meses_list = [ar_now.strftime("%Y-%m")]
-    return get_or_refresh_estadisticas(
+    assert_sucursal_nombre_allowed(payload, sucursal)
+    out = get_or_refresh_estadisticas(
         dist_id, meses_list, sucursal, force_refresh=refresh
     )
+    if not is_unrestricted_sucursales(payload):
+        out["cartas"] = filter_sucursales_rows(out.get("cartas") or [], payload, name_key="sucursal")
+    return out
 
 
 @router.get("/recap-evolucion/{dist_id}")
@@ -98,6 +123,7 @@ def bundle_recap_evolucion(
     Una sola ida al abrir Estadísticas; alimenta cache por vendedor en el FE.
     """
     check_dist_permission(payload, dist_id)
+    assert_sucursal_nombre_allowed(payload, sucursal)
     return get_or_refresh_recap_evolucion_bundle(dist_id, mes.strip(), sucursal)
 
 

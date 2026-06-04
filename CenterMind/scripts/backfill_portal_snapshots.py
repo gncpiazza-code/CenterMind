@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -34,7 +35,8 @@ from core.recap_period import resolve_period_bounds
 from services.estadisticas_service import fetch_sucursales_disponibles
 from services.recap_cron_service import _run_recap_for_dist
 from services.snapshot_estadisticas_service import (
-    get_or_refresh_estadisticas,
+    force_persist_estadisticas,
+    mark_all_estadisticas_stale,
     mark_estadisticas_stale,
 )
 
@@ -56,15 +58,27 @@ def _list_active_dists(dist_filter: int | None) -> list[int]:
     ids: list[int] = []
     offset = 0
     while True:
-        batch = (
-            sb.table("distribuidores")
-            .select("id_distribuidor")
-            .eq("estado", "activo")
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data
-            or []
-        )
+        batch = None
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                batch = (
+                    sb.table("distribuidores")
+                    .select("id_distribuidor")
+                    .eq("estado", "activo")
+                    .range(offset, offset + PAGE - 1)
+                    .execute()
+                    .data
+                    or []
+                )
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                print(f"WARN list dists offset={offset} intento={attempt}/3: {e}")
+                time.sleep(1.2 * attempt)
+        if last_exc is not None:
+            raise RuntimeError(f"No se pudo listar distribuidores activos: {last_exc}") from last_exc
         for row in batch:
             try:
                 ids.append(int(row["id_distribuidor"]))
@@ -109,29 +123,48 @@ def _backfill_estadisticas_dist(
             continue
         try:
             mark_estadisticas_stale(dist_id)
-            resp = get_or_refresh_estadisticas(
-                dist_id,
-                meses,
-                sucursal,
-                force_refresh=True,
-            )
-            meta = resp.get("meta") or {}
-            n = int(resp.get("total") or len(resp.get("cartas") or []))
+            n = force_persist_estadisticas(dist_id, meses, sucursal)
             if n == 0:
                 skipped += 1
-                print(f"      → sin cartas (skip)")
+                print(f"      → sin cartas o KPIs no plausibles (skip)")
                 continue
             ok += 1
-            reval = meta.get("revalidating")
-            stale = meta.get("stale")
-            print(f"      → cartas={n} stale={stale} revalidating={reval}")
+            print(f"      → cartas={n} persistidas (sync)")
         except Exception as e:
             errors += 1
             print(f"      → ERROR: {e}")
     return {"ok": ok, "skipped": skipped, "errors": errors}
 
 
-def _backfill_recap_dist(dist_id: int, mes: str, dry_run: bool) -> dict:
+def _run_recap_job_with_timeout(
+    dist_id: int,
+    periodo_key: str,
+    desde: str,
+    hasta: str,
+    timeout_secs: float | None,
+) -> dict:
+    if not timeout_secs or timeout_secs <= 0:
+        return _run_recap_for_dist(dist_id, periodo_key, desde, hasta)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(_run_recap_for_dist, dist_id, periodo_key, desde, hasta)
+        try:
+            return fut.result(timeout=timeout_secs)
+        except FuturesTimeoutError:
+            return {
+                "dist_id": dist_id,
+                "periodo_key": periodo_key,
+                "processed": 0,
+                "errors": 1,
+                "timeout": True,
+            }
+
+
+def _backfill_recap_dist(
+    dist_id: int,
+    mes: str,
+    dry_run: bool,
+    dist_timeout_secs: float | None = None,
+) -> dict:
     ok = 0
     errors = 0
     for periodo_key, desde, hasta in _recap_jobs_for_mes(mes):
@@ -140,7 +173,16 @@ def _backfill_recap_dist(dist_id: int, mes: str, dry_run: bool) -> dict:
             ok += 1
             continue
         try:
-            result = _run_recap_for_dist(dist_id, periodo_key, desde, hasta)
+            result = _run_recap_job_with_timeout(
+                dist_id, periodo_key, desde, hasta, dist_timeout_secs
+            )
+            if result.get("timeout"):
+                errors += 1
+                print(
+                    f"      → TIMEOUT dist={dist_id} {periodo_key} "
+                    f"(>{dist_timeout_secs}s) — sigue con siguiente tenant"
+                )
+                break
             processed = int(result.get("processed") or 0)
             err_n = int(result.get("errors") or 0)
             ok += 1 if err_n == 0 else 0
@@ -174,8 +216,23 @@ def main() -> int:
     )
     parser.add_argument("--batch-size", type=int, default=1, help="Tenants por lote (default 1)")
     parser.add_argument("--pause-secs", type=float, default=10.0, help="Pausa entre lotes")
+    parser.add_argument(
+        "--dist-timeout-secs",
+        type=float,
+        default=900.0,
+        help="Máx segundos por job recap de un tenant (0=sin límite). Default 900",
+    )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--mark-all-stale",
+        action="store_true",
+        help="Invalida snapshots de estadísticas de todos los tenants antes del backfill",
+    )
     args = parser.parse_args()
+
+    if args.mark_all_stale and not args.dry_run and args.only in ("estadisticas", "all"):
+        print("Marcando stale estadísticas (todos los tenants activos)…")
+        mark_all_estadisticas_stale()
 
     mes = args.mes.strip()
     meses = [m.strip() for m in (args.meses or mes).split(",") if m.strip()]
@@ -204,7 +261,8 @@ def main() -> int:
                 total_skip += r["skipped"]
                 total_err += r["errors"]
             if args.only in ("recap", "all"):
-                r = _backfill_recap_dist(dist_id, mes, args.dry_run)
+                timeout = args.dist_timeout_secs if args.dist_timeout_secs > 0 else None
+                r = _backfill_recap_dist(dist_id, mes, args.dry_run, timeout)
                 total_ok += r["ok"]
                 total_skip += r["skipped"]
                 total_err += r["errors"]

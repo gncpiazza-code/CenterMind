@@ -53,12 +53,16 @@ class UsuarioRequest(BaseModel):
     login: str
     password: str
     rol: str
+    restriccion_sucursales: bool = False
+    sucursales_ids: list[int] = []
 
 
 class UsuarioEditRequest(BaseModel):
     login: str
     rol: str
     password: str = ""
+    restriccion_sucursales: bool | None = None
+    sucursales_ids: list[int] | None = None
 
 
 class IntegranteRolRequest(BaseModel):
@@ -80,6 +84,9 @@ class TokenResponse(BaseModel):
     usa_mapeo_vendedores: bool = False
     show_tutorial: bool = False
     permisos: dict = {}
+    sucursales_restringidas: bool = False
+    sucursales_permitidas_ids: list[int] = []
+    sucursales_permitidas_nombres: list[str] = []
 
 
 class MapeoVendedorRequest(BaseModel):

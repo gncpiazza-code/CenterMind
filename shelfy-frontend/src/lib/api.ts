@@ -37,6 +37,10 @@ export interface AuthResponse {
   usa_mapeo_vendedores?: boolean;
   show_tutorial?: boolean;
   permisos?: Record<string, boolean>;
+  /** false = todas las sucursales del tenant */
+  sucursales_restringidas?: boolean;
+  sucursales_permitidas_ids?: number[];
+  sucursales_permitidas_nombres?: string[];
 }
 
 export interface ERPUploadResponse {
@@ -196,6 +200,13 @@ export interface UsuarioPortal {
   rol: string;
   id_distribuidor: number;
   nombre_empresa: string;
+  restriccion_sucursales?: boolean;
+  sucursales_ids?: number[];
+}
+
+export interface SucursalUsuarioOpcion {
+  id_sucursal: number;
+  nombre_erp: string;
 }
 
 export interface ERPMapping {
@@ -785,11 +796,31 @@ export async function fetchUsuarios(distId?: number): Promise<UsuarioPortal[]> {
   return apiFetch<UsuarioPortal[]>(`/api/admin/usuarios${q}`);
 }
 
-export async function crearUsuario(data: { dist_id: number; login: string; password: string; rol: string }) {
+export async function fetchSucursalesUsuarioOpciones(distId: number): Promise<SucursalUsuarioOpcion[]> {
+  return apiFetch<SucursalUsuarioOpcion[]>(`/api/admin/usuarios/sucursales-opciones/${distId}`);
+}
+
+export async function crearUsuario(data: {
+  dist_id: number;
+  login: string;
+  password: string;
+  rol: string;
+  restriccion_sucursales?: boolean;
+  sucursales_ids?: number[];
+}) {
   return apiFetch("/api/admin/usuarios", { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function editarUsuario(id: number, data: { login: string; rol: string; password?: string }) {
+export async function editarUsuario(
+  id: number,
+  data: {
+    login: string;
+    rol: string;
+    password?: string;
+    restriccion_sucursales?: boolean;
+    sucursales_ids?: number[];
+  },
+) {
   return apiFetch(`/api/admin/usuarios/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
@@ -3453,6 +3484,10 @@ export interface VendorCartaResumen {
   erp_sync_alert?: boolean;
   erp_sync_reason?: string;
   erp_sync_unmatched_pct?: number;
+  /** Exhibiciones en Telegram no reflejadas en la carta (revisar binding integrante). */
+  exhibicion_sync_alert?: boolean;
+  exhibicion_sync_reason?: string;
+  exhibicion_canonical_count?: number;
   /** Top 2 localidades por cantidad de clientes en cartera (ej. "PARANA - DIAMANTE"). */
   top_localidades?: string;
 }

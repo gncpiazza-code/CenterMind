@@ -18,6 +18,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from core.config import WEBHOOK_URL
 from core.lifespan import bots, manager
 from core.security import verify_auth, check_dist_permission
+from core.usuario_sucursal_scope import (
+    attach_sucursales_to_usuarios,
+    sync_usuario_sucursales,
+)
 from core.roles import normalize_rol
 from core.tenant_tables import (
     tenant_table_name,
@@ -660,24 +664,79 @@ def update_distribuidor(dist_id: int, data: dict, user_payload=Depends(verify_au
 
 # ─── Usuarios del portal ──────────────────────────────────────────────────────
 
+@router.get("/api/admin/usuarios/sucursales-opciones/{dist_id}", summary="Catálogo sucursales para restricción de usuario")
+def admin_usuarios_sucursales_opciones(dist_id: int, payload=Depends(verify_auth)):
+    check_dist_permission(payload, dist_id)
+    t_suc = tenant_table_name("sucursales_v2", dist_id)
+    res = (
+        sb.table(t_suc)
+        .select("id_sucursal, nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .order("nombre_erp")
+        .execute()
+    )
+    return [
+        {"id_sucursal": int(r["id_sucursal"]), "nombre_erp": (r.get("nombre_erp") or "").strip()}
+        for r in (res.data or [])
+        if r.get("id_sucursal") is not None
+    ]
+
+
 @router.get("/api/admin/usuarios", summary="Lista de usuarios del portal")
 def admin_get_usuarios(dist_id: int | None = None, payload=Depends(verify_auth)):
     actual_dist_id = dist_id if payload.get("is_superadmin") else payload.get("id_distribuidor")
     if actual_dist_id is None:
         actual_dist_id = 0
     result = sb.rpc("fn_usuarios_portal", {"p_dist_id": actual_dist_id}).execute()
-    return result.data or []
+    rows = result.data or []
+    if rows:
+        uids = [u["id_usuario"] for u in rows]
+        flags = (
+            sb.table("usuarios_portal")
+            .select("id_usuario, restriccion_sucursales")
+            .in_("id_usuario", uids)
+            .execute()
+        )
+        flag_map = {int(r["id_usuario"]): bool(r.get("restriccion_sucursales")) for r in (flags.data or [])}
+        for u in rows:
+            u["restriccion_sucursales"] = flag_map.get(int(u["id_usuario"]), False)
+    return attach_sucursales_to_usuarios(rows)
 
 
 @router.post("/api/admin/usuarios", summary="Crear usuario del portal")
 def admin_crear_usuario(req: UsuarioRequest, payload=Depends(verify_auth)):
     check_dist_permission(payload, req.dist_id)
+    if req.restriccion_sucursales and not req.sucursales_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccioná al menos una sucursal o desactivá la restricción",
+        )
     try:
-        sb.table("usuarios_portal").insert({
-            "id_distribuidor": req.dist_id, "usuario_login": req.login.strip(),
-            "password": req.password, "rol": req.rol,
+        ins = sb.table("usuarios_portal").insert({
+            "id_distribuidor": req.dist_id,
+            "usuario_login": req.login.strip(),
+            "password": req.password,
+            "rol": req.rol,
+            "restriccion_sucursales": req.restriccion_sucursales,
         }).execute()
+        user_id = int((ins.data or [{}])[0].get("id_usuario") or 0)
+        if not user_id:
+            lookup = (
+                sb.table("usuarios_portal")
+                .select("id_usuario")
+                .eq("usuario_login", req.login.strip())
+                .eq("id_distribuidor", req.dist_id)
+                .limit(1)
+                .execute()
+            )
+            user_id = int((lookup.data or [{}])[0].get("id_usuario") or 0)
+        if user_id:
+            sync_usuario_sucursales(
+                user_id, req.dist_id, req.restriccion_sucursales, req.sucursales_ids
+            )
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=409, detail=str(e))
 
@@ -685,14 +744,44 @@ def admin_crear_usuario(req: UsuarioRequest, payload=Depends(verify_auth)):
 @router.put("/api/admin/usuarios/{user_id}", summary="Editar usuario del portal")
 def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, payload=Depends(verify_auth)):
     try:
-        check_q = sb.table("usuarios_portal").select("id_distribuidor").eq("id_usuario", user_id).execute()
-        if check_q.data:
-            check_dist_permission(payload, check_q.data[0]["id_distribuidor"])
+        check_q = (
+            sb.table("usuarios_portal")
+            .select("id_distribuidor, restriccion_sucursales")
+            .eq("id_usuario", user_id)
+            .execute()
+        )
+        if not check_q.data:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        dist_id = int(check_q.data[0]["id_distribuidor"])
+        check_dist_permission(payload, dist_id)
+
+        restricted = (
+            req.restriccion_sucursales
+            if req.restriccion_sucursales is not None
+            else bool(check_q.data[0].get("restriccion_sucursales"))
+        )
+        sucursal_ids = req.sucursales_ids
+        if restricted and sucursal_ids is not None and not sucursal_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Seleccioná al menos una sucursal o desactivá la restricción",
+            )
+
         update_data = {"usuario_login": req.login.strip(), "rol": req.rol}
         if req.password:
             update_data["password"] = req.password
+        if req.restriccion_sucursales is not None:
+            update_data["restriccion_sucursales"] = req.restriccion_sucursales
         sb.table("usuarios_portal").update(update_data).eq("id_usuario", user_id).execute()
+
+        if req.restriccion_sucursales is not None or sucursal_ids is not None:
+            if sucursal_ids is None and not restricted:
+                sync_usuario_sucursales(user_id, dist_id, False, [])
+            elif sucursal_ids is not None:
+                sync_usuario_sucursales(user_id, dist_id, restricted, sucursal_ids)
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=409, detail=str(e))
 

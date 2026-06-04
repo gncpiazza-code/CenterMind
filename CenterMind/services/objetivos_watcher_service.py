@@ -862,7 +862,11 @@ class ObjetivosWatcherService:
             ya_trackeados = self._get_tracked_refs(obj_id, "comprador")
             nuevos_ids = [cid for cid in comprador_ids if str(cid) not in ya_trackeados]
 
-            progreso_diario: dict = {}
+            from core.objetivos_compradores import compradores_progreso_diario_en_periodo
+
+            progreso_diario = compradores_progreso_diario_en_periodo(
+                dist_id, id_vendedor, desde, hasta
+            )
 
             if nuevos_ids:
                 items = [{"id_cliente": cid} for cid in nuevos_ids]

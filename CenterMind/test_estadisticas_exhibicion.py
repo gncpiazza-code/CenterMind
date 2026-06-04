@@ -362,7 +362,81 @@ def test_exhibiciones_por_vendedor_cuenta_pdvs_exhibidos_con_id_cliente_pdv():
         },
     ]
     logicas, unique = _exhibiciones_por_vendedor(
-        ex_rows, iid_to_erp, erp_to_vid, key_map, pdvs_by_vend
+        ex_rows, {1: 10}, iid_to_erp, erp_to_vid, key_map, pdvs_by_vend
     )
     assert logicas[10] == 2
     assert unique[10] == 1
+
+
+def test_exhibiciones_por_vendedor_integrante_to_vid_sin_match_nombre():
+    """Cartas batch: id_vendedor_v2 en integrante, aunque el nombre ERP no matchee."""
+    from core.exhibicion_aggregate import build_client_key_to_erp_map
+    from services.estadisticas_service import _exhibiciones_por_vendedor
+
+    key_map = build_client_key_to_erp_map(
+        [{"id_cliente_erp": "99", "id_cliente": 1}]
+    )
+    ex_rows = [
+        {
+            "id_exhibicion": "ex1",
+            "id_integrante": 55,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-06-02T10:00:00",
+            "id_cliente_pdv": 1,
+            "id_cliente": None,
+            "cliente_sombra_codigo": None,
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        },
+    ]
+    logicas, unique = _exhibiciones_por_vendedor(
+        ex_rows,
+        {55: 38},
+        {55: "NOMBRE TELEGRAM CRUDO"},
+        {},
+        key_map,
+        {38: {"99"}},
+    )
+    assert logicas[38] == 1
+    assert unique[38] == 1
+
+
+def test_reconcile_exhibiciones_corrige_cero_en_raw():
+    from services.estadisticas_service import _reconcile_exhibiciones_en_all_raw
+
+    ex_rows = [
+        {
+            "id_exhibicion": "ex1",
+            "id_integrante": 55,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-06-02T10:00:00",
+            "id_cliente_pdv": 1,
+            "id_cliente": None,
+            "cliente_sombra_codigo": None,
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        },
+    ]
+    all_raw = {
+        "38": {
+            "pdvs": 10,
+            "exhibiciones": 0,
+            "pdvs_exhibidos": 0,
+            "cobertura_pct": 0.0,
+            "compradores": 5,
+            "bultos": 1.0,
+            "bultos_raw": 1.0,
+        }
+    }
+    n = _reconcile_exhibiciones_en_all_raw(
+        all_raw,
+        ex_rows,
+        {55: 38},
+        {"1": "99"},
+        {38: {"99"}},
+    )
+    assert n == 1
+    assert all_raw["38"]["exhibiciones"] == 1
+    assert all_raw["38"]["pdvs_exhibidos"] == 1

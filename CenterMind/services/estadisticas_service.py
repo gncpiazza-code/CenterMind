@@ -152,7 +152,11 @@ def _fetch_ventas_estadisticas(
     return _dedupe_ventas_enriched_lines(rows)
 
 
-def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
+def _cartas_comercial_ventas_plausible(
+    cartas: list,
+    *,
+    exhib_logicas_sum: int | None = None,
+) -> bool:
     """Detecta snapshots/cartas con ventas vacías o parciales (timeout silencioso)."""
     if not cartas:
         return False
@@ -169,10 +173,10 @@ def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
         cmp = int(raw.get("compradores") or 0)
         ex = int(raw.get("exhibiciones") or 0)
         blt = float(raw.get("bultos_raw") or raw.get("bultos") or 0)
-        # Ventas parciales: exhibiciones altas + muchos compradores + bultos muy bajos
+        # Ventas parciales (solo log): no invalidar todo el snapshot por un outlier.
         if cmp >= 100 and ex >= 120 and blt > 0 and (blt / cmp) < 0.35:
             logger.warning(
-                "[estadisticas] carta implausible bultos/compradores dist=%s vendedor=%s "
+                "[estadisticas] carta outlier bultos/compradores dist=%s vendedor=%s "
                 "bultos=%s compradores=%s exhibiciones=%s",
                 c.get("id_distribuidor"),
                 c.get("nombre"),
@@ -180,10 +184,83 @@ def _cartas_comercial_ventas_plausible(cartas: list) -> bool:
                 cmp,
                 ex,
             )
-            return False
     if ex_sum >= 20 and cmp_sum == 0 and blt_sum == 0:
         return False
+    if (
+        exhib_logicas_sum is not None
+        and exhib_logicas_sum >= 15
+        and ex_sum == 0
+    ):
+        logger.warning(
+            "[estadisticas] snapshot rechazado: %s lógicas en fuente pero 0 en cartas",
+            exhib_logicas_sum,
+        )
+        return False
     return True
+
+
+def _exhibiciones_canonical_por_vid(
+    ex_rows: list[dict],
+    integrante_to_vid: dict[int, int],
+) -> tuple[dict[int, int], dict[int, list[dict]]]:
+    """Re-cuenta exhibiciones lógicas por vendedor vía id_vendedor_v2 (misma regla que objetivos)."""
+    rows_by_vid: dict[int, list[dict]] = defaultdict(list)
+    for row in ex_rows:
+        try:
+            iid = int(row.get("id_integrante"))
+            vid = integrante_to_vid.get(iid)
+        except (TypeError, ValueError):
+            continue
+        if vid is not None:
+            rows_by_vid[int(vid)].append(row)
+    logicas = {
+        vid: int(aggregate_exhibicion_counts_vendor_scope(rows).get("total_logicas", 0))
+        for vid, rows in rows_by_vid.items()
+    }
+    return logicas, dict(rows_by_vid)
+
+
+def _reconcile_exhibiciones_en_all_raw(
+    all_raw: dict[str, dict],
+    ex_rows: list[dict],
+    integrante_to_vid: dict[int, int],
+    client_key_to_erp: dict[str, str],
+    pdvs_by_vend: dict[int, set],
+) -> int:
+    """
+    Corrige exhibiciones/pdvs exhibidos en raw cuando el batch quedó en 0 pero hay fotos del vendedor.
+    Retorna cantidad de vendedores corregidos.
+    """
+    canonical, rows_by_vid = _exhibiciones_canonical_por_vid(ex_rows, integrante_to_vid)
+    fixed = 0
+    for vid_str, raw in list(all_raw.items()):
+        if vid_str.startswith("__"):
+            continue
+        try:
+            vid = int(vid_str)
+        except ValueError:
+            continue
+        expected = canonical.get(vid, 0)
+        reported = int(raw.get("exhibiciones") or 0)
+        if expected <= reported:
+            continue
+        cartera = pdvs_by_vend.get(vid) or set()
+        subset = rows_by_vid.get(vid, [])
+        ex_u = count_exhibited_clientes_in_cartera(subset, client_key_to_erp, cartera)
+        pdvs = int(raw.get("pdvs") or 0)
+        raw["exhibiciones"] = expected
+        raw["pdvs_exhibidos"] = ex_u
+        if pdvs > 0:
+            raw["cobertura_pct"] = round(min(100.0, ex_u / pdvs * 100), 1)
+        raw["exhibicion_reconciled"] = True
+        fixed += 1
+        logger.warning(
+            "[estadisticas] exhibiciones reconciliadas dist vend=%s reported=%s canonical=%s",
+            vid,
+            reported,
+            expected,
+        )
+    return fixed
 
 
 def _paginate(query_fn):
@@ -1402,8 +1479,52 @@ def _carta_cache_key(dist_id: int, meses: list[str], sucursal: str | None) -> st
     return f"{dist_id}|{','.join(sorted(meses))}|{(sucursal or '').lower()}"
 
 
+def _build_integrante_to_vid(
+    dist_id: int, vend_rows: list[dict] | None = None
+) -> dict[int, int]:
+    """
+    integrantes_grupo.id_integrante → id_vendedor (vendedores_v2).
+
+    Misma fuente que objetivos/ranking (id_vendedor_v2), con rollup Tabaco en cartas.
+    """
+    out: dict[int, int] = {}
+    offset = 0
+    while True:
+        batch = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante,id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        for r in batch:
+            try:
+                iid = int(r["id_integrante"])
+                vid = int(r["id_vendedor_v2"])
+            except (TypeError, ValueError):
+                continue
+            out[iid] = vid
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+
+    if dist_id == TABACO_DIST_ID:
+        for v in vend_rows or []:
+            try:
+                vid = int(v["id_vendedor"])
+            except (TypeError, ValueError):
+                continue
+            nom = (v.get("nombre_erp") or "").strip()
+            for iid in tabaco_rollup_integrante_ids(dist_id, nom):
+                out[iid] = vid
+    return out
+
+
 def _exhibiciones_por_vendedor(
     ex_rows: list[dict],
+    integrante_to_vid: dict[int, int],
     iid_to_erp: dict[int, str],
     erp_to_vid: dict[str, int],
     client_key_to_erp: dict[str, str],
@@ -1418,8 +1539,10 @@ def _exhibiciones_por_vendedor(
             iid = int(row.get("id_integrante"))
         except (TypeError, ValueError):
             continue
-        erp = (iid_to_erp.get(iid) or "").strip().upper()
-        vid = erp_to_vid.get(erp)
+        vid = integrante_to_vid.get(iid)
+        if vid is None:
+            erp = (iid_to_erp.get(iid) or "").strip().upper()
+            vid = erp_to_vid.get(erp)
         if vid is None:
             continue
         lk = vendor_logic_key(row)
@@ -1629,6 +1752,7 @@ def _aggregate_kpis_from_rows(
     erp_to_vid: dict[str, int] = (match_indexes.get("nombre_to_vid") or {})  # type: ignore[assignment]
 
     iid_to_erp = parallel.get("integrantes") or {}
+    integrante_to_vid = _build_integrante_to_vid(dist_id, vend_rows)
     ex_rows = [
         r
         for r in (parallel.get("ex") or [])
@@ -1636,6 +1760,7 @@ def _aggregate_kpis_from_rows(
     ]
     ex_logicas_by_vend, ex_pdvs_unique_by_vend = _exhibiciones_por_vendedor(
         ex_rows,
+        integrante_to_vid,
         iid_to_erp,
         erp_to_vid,
         build_client_key_to_erp_map(parallel.get("pdv") or []),
@@ -1714,6 +1839,10 @@ def _aggregate_kpis_from_rows(
         "ventas_unmatched": ventas_unmatched,
         "ventas_unmatched_pct": unmatched_pct,
     }
+    out["__exhib_meta__"] = {  # type: ignore[assignment]
+        "logicas_sum": int(sum(ex_logicas_by_vend.values())),
+        "filas_periodo": len(ex_rows),
+    }
     return out, dict(localidad_clients_by_vend)
 
 
@@ -1763,7 +1892,36 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
     source = _fetch_carta_source_rows(dist_id, meses)
     all_raw, localidad_by_vend = _aggregate_kpis_from_rows(source, meses)
     ventas_meta: dict = all_raw.pop("__ventas_meta__", {})  # type: ignore[call-overload]
+    exhib_meta: dict = all_raw.pop("__exhib_meta__", {}) or {}  # type: ignore[call-overload]
     vend_rows = source.get("vendedores") or []
+    meses_set = set(meses)
+    integrante_to_vid = _build_integrante_to_vid(dist_id, vend_rows)
+    ex_rows = [
+        r
+        for r in (source.get("ex") or [])
+        if _in_meses(r.get("timestamp_subida", ""), meses_set)
+    ]
+    ruta_to_vend: dict[int, int] = {}
+    for r in source.get("rutas") or []:
+        rid, vid = r.get("id_ruta"), r.get("id_vendedor")
+        if rid is not None and vid is not None:
+            ruta_to_vend[int(rid)] = int(vid)
+    pdvs_by_vend: dict[int, set] = defaultdict(set)
+    for row in source.get("pdv") or []:
+        rid = row.get("id_ruta")
+        if rid is None:
+            continue
+        vid = ruta_to_vend.get(int(rid))
+        eid = row.get("id_cliente_erp")
+        if vid is not None and eid:
+            pdvs_by_vend[vid].add(str(eid))
+    _reconcile_exhibiciones_en_all_raw(
+        all_raw,
+        ex_rows,
+        integrante_to_vid,
+        build_client_key_to_erp_map(source.get("pdv") or []),
+        dict(pdvs_by_vend),
+    )
     all_raw, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
     _refresh_top_localidades_on_raw(dist_id, all_raw, vend_rows, localidad_by_vend)
     ventas_total_dist: int = ventas_meta.get("ventas_total", 0)
@@ -1818,6 +1976,16 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
             and bultos_val == 0
             and ventas_unmatched_pct >= _ERP_SYNC_UNMATCHED_UMBRAL
         )
+        exhibiciones_val = int(raw.get("exhibiciones") or 0)
+        canonical_ex = _exhibiciones_canonical_por_vid(ex_rows, integrante_to_vid)[0].get(
+            int(vid), 0
+        )
+        exhibicion_sync_alert = (
+            int(raw.get("pdvs") or 0) > 0
+            and exhibiciones_val == 0
+            and canonical_ex > 0
+            and (compradores_val > 0 or bultos_val > 0)
+        )
 
         card: dict = {
             "id_vendedor": vid,
@@ -1836,6 +2004,10 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
             card["erp_sync_alert"] = True
             card["erp_sync_reason"] = "ventas_sin_match_vendedor"
             card["erp_sync_unmatched_pct"] = ventas_unmatched_pct
+        if exhibicion_sync_alert:
+            card["exhibicion_sync_alert"] = True
+            card["exhibicion_sync_reason"] = "exhibiciones_sin_atribuir_en_carta"
+            card["exhibicion_canonical_count"] = canonical_ex
 
         if ideal_comp:
             card["radar_ideal_compania"] = radar_ideal_target()
@@ -1850,7 +2022,7 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
 
         cards.append(card)
 
-    return sorted(cards, key=lambda c: c["score"], reverse=True)
+    return sorted(cards, key=lambda c: c["score"], reverse=True), exhib_meta
 
 
 def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = None) -> list[dict]:
@@ -1862,10 +2034,17 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
         if hit and now - hit[0] < _CARTA_TTL_SEC:
             return hit[1]
 
-    cards = _build_carta_resumen_impl(dist_id, meses, sucursal)
+    cards, _meta = _build_carta_resumen_impl(dist_id, meses, sucursal)
     with _CARTA_CACHE_LOCK:
         _CARTA_CACHE[key] = (now, cards)
     return cards
+
+
+def build_carta_resumen_with_meta(
+    dist_id: int, meses: list[str], sucursal: str | None = None
+) -> tuple[list[dict], dict]:
+    """Cartas + meta de exhibiciones (validación de snapshots)."""
+    return _build_carta_resumen_impl(dist_id, meses, sucursal)
 
 
 def _normalize_dia_semana(dia: str) -> str:

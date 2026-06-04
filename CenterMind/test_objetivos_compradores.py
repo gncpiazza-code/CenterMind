@@ -195,6 +195,105 @@ class TestPeriodoDesdeHastaObjetivo:
         assert hasta == date.today().isoformat()
 
 
+def _primera_venta_map(
+    client_by_id: dict,
+    ventas_rows: list[dict],
+    *,
+    desde: str,
+    hasta: str,
+) -> dict[int, str]:
+    """Simula _primera_compra_fecha_* (mínima fecha en período)."""
+    from core.objetivos_compradores import _norm_erp
+
+    desde_d, hasta_d = desde[:10], hasta[:10]
+    erp_to_cid: dict[str, int] = {}
+    for cid, row in client_by_id.items():
+        n = _norm_erp(row.get("id_cliente_erp"))
+        if n:
+            erp_to_cid[n] = int(cid)
+
+    primera: dict[int, str] = {}
+    for row in ventas_rows:
+        if float(row.get("importe_final") or 0) < 0:
+            continue
+        f = str(row.get("fecha_factura") or "")[:10]
+        if len(f) < 10 or f < desde_d or f > hasta_d:
+            continue
+        n = _norm_erp(row.get("id_cliente_erp"))
+        cid = erp_to_cid.get(n) if n else None
+        if cid is None:
+            continue
+        prev = primera.get(cid)
+        if prev is None or f < prev:
+            primera[cid] = f
+    return primera
+
+
+class TestCompradoresProgresoDiario:
+    def test_agrupa_por_primera_compra_no_ultima(self):
+        client_by_id = {
+            1: _make_client_row(1, "A"),
+            2: _make_client_row(2, "B"),
+            3: _make_client_row(3, "C"),
+        }
+        ventas = [
+            _make_ventas_row("A", "2026-06-01"),
+            _make_ventas_row("A", "2026-06-20"),
+            _make_ventas_row("B", "2026-06-02"),
+            _make_ventas_row("C", "2026-06-03"),
+        ]
+        ventas_uc = _ventas_uc_map(
+            client_by_id, ventas, desde="2026-06-01", hasta="2026-06-30"
+        )
+        primera = _primera_venta_map(
+            client_by_id, ventas, desde="2026-06-01", hasta="2026-06-30"
+        )
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value=ventas_uc,
+        ), patch(
+            "core.objetivos_compradores._primera_compra_fecha_vendedor",
+            return_value=primera,
+        ), patch(
+            "core.objetivos_compradores._comprador_ids_desde_ventas_vendedor",
+            return_value={1, 2, 3},
+        ):
+            from core.objetivos_compradores import compradores_progreso_diario_for_clients
+
+            progreso = compradores_progreso_diario_for_clients(
+                1,
+                client_by_id,
+                "2026-06-01",
+                "2026-06-30",
+                id_vendedor=7,
+            )
+        assert progreso == {"2026-06-01": 1, "2026-06-02": 1, "2026-06-03": 1}
+        assert sum(progreso.values()) == 3
+
+    def test_padron_fallback_asigna_dia_fuc(self):
+        client_by_id = {1: _make_client_row(1, "X", fuc="2026-06-05")}
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value={},
+        ), patch(
+            "core.objetivos_compradores._primera_compra_fecha_vendedor",
+            return_value={},
+        ), patch(
+            "core.objetivos_compradores._comprador_ids_desde_ventas_vendedor",
+            return_value=set(),
+        ):
+            from core.objetivos_compradores import compradores_progreso_diario_for_clients
+
+            progreso = compradores_progreso_diario_for_clients(
+                1,
+                client_by_id,
+                "2026-06-01",
+                "2026-06-30",
+                id_vendedor=7,
+            )
+        assert progreso == {"2026-06-05": 1}
+
+
 class TestCompradoresSnapshotBatch:
     """Batch estadísticas (snapshot) debe coincidir con compradores_en_periodo_for_clients."""
 

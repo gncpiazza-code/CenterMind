@@ -144,6 +144,238 @@ def _comprador_ids_desde_ventas_vendedor(
     return comprador_ids
 
 
+def _primera_compra_fecha_vendedor(
+    dist_id: int,
+    client_by_id: dict[int, dict],
+    desde_d: str,
+    hasta_d: str,
+    id_vendedor: int,
+) -> dict[int, str]:
+    """Por id_cliente: fecha (YYYY-MM-DD) de la primera venta del vendedor en el período."""
+    from core.ultima_compra import _venta_cuenta_como_compra, erp_query_variants
+    from core.ventas_enriched_tenant import (
+        filter_ventas_rows_for_tenant,
+        ventas_enriched_base_query,
+    )
+    from services.estadisticas_service import _vendor_context
+
+    vctx = _vendor_context(dist_id, str(id_vendedor))
+    erp_list: list[str] = []
+    for _cid, row in client_by_id.items():
+        raw = str(row.get("id_cliente_erp") or "").strip()
+        if not raw:
+            continue
+        for v in erp_query_variants(raw):
+            if v not in erp_list:
+                erp_list.append(v)
+
+    if not erp_list:
+        return {}
+
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_COMPRADORES)
+    primera: dict[int, str] = {}
+
+    for i in range(0, len(erp_list), 400):
+        chunk = erp_list[i : i + 400]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_COMPRADORES)
+        offset = 0
+        while True:
+            batch = (
+                q_ventas.eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde_d)
+                .lte("fecha_factura", hasta_d)
+                .order("id")
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
+            for row in batch:
+                if not _venta_cuenta_como_compra(row):
+                    continue
+                cid = _cid_from_venta_en_cartera(row, client_by_id, vctx)
+                if cid is None:
+                    continue
+                f = str(row.get("fecha_factura") or "")[:10]
+                if len(f) < 10:
+                    continue
+                prev = primera.get(int(cid))
+                if prev is None or f < prev:
+                    primera[int(cid)] = f
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    return primera
+
+
+def _primera_compra_fecha_sin_vendedor(
+    dist_id: int,
+    client_by_id: dict[int, dict],
+    desde_d: str,
+    hasta_d: str,
+) -> dict[int, str]:
+    """Primera venta en período por cliente (sin filtro de vendedor en fila)."""
+    from core.ultima_compra import _norm_erp, _venta_cuenta_como_compra
+    from core.ventas_enriched_tenant import (
+        filter_ventas_rows_for_tenant,
+        ventas_enriched_base_query,
+    )
+
+    erp_to_cid: dict[str, int] = {}
+    erp_list: list[str] = []
+    for cid, row in client_by_id.items():
+        raw = str(row.get("id_cliente_erp") or "").strip()
+        if not raw:
+            continue
+        erp_list.append(raw)
+        n = _norm_erp(raw)
+        if n:
+            erp_to_cid[n] = int(cid)
+
+    if not erp_to_cid:
+        return {}
+
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_COMPRADORES)
+    primera: dict[int, str] = {}
+
+    for i in range(0, len(erp_list), 400):
+        chunk = erp_list[i : i + 400]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_COMPRADORES)
+        offset = 0
+        while True:
+            batch = (
+                q_ventas.eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde_d)
+                .lte("fecha_factura", hasta_d)
+                .order("id")
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
+            for row in batch:
+                if not _venta_cuenta_como_compra(row):
+                    continue
+                n = _norm_erp(row.get("id_cliente_erp"))
+                cid = erp_to_cid.get(n) if n else None
+                if cid is None:
+                    continue
+                f = str(row.get("fecha_factura") or "")[:10]
+                if len(f) < 10:
+                    continue
+                prev = primera.get(int(cid))
+                if prev is None or f < prev:
+                    primera[int(cid)] = f
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    return primera
+
+
+def compradores_progreso_diario_for_clients(
+    dist_id: int,
+    client_by_id: dict[int, dict],
+    desde: str,
+    hasta: str,
+    *,
+    id_vendedor: int | None = None,
+) -> dict[str, int]:
+    """
+    Conteo de compradores por día calendario AR según la primera compra válida en el período.
+    """
+    desde_d, hasta_d = _periodo_bounds(desde, hasta)
+    comprador_ids = compradores_en_periodo_for_clients(
+        dist_id, client_by_id, desde, hasta, id_vendedor=id_vendedor
+    )
+    if not comprador_ids:
+        return {}
+
+    if id_vendedor is not None:
+        primera = _primera_compra_fecha_vendedor(
+            dist_id, client_by_id, desde_d, hasta_d, int(id_vendedor)
+        )
+    else:
+        primera = _primera_compra_fecha_sin_vendedor(
+            dist_id, client_by_id, desde_d, hasta_d
+        )
+
+    progreso: dict[str, int] = {}
+    for cid in comprador_ids:
+        icid = int(cid)
+        f = primera.get(icid)
+        if not f:
+            row = client_by_id.get(icid)
+            if row:
+                fuc = str(row.get("fecha_ultima_compra") or "")[:10]
+                if len(fuc) >= 10 and desde_d <= fuc <= hasta_d:
+                    f = fuc
+        if f and desde_d <= f[:10] <= hasta_d:
+            dkey = f[:10]
+            progreso[dkey] = progreso.get(dkey, 0) + 1
+    return progreso
+
+
+def _client_by_id_for_vendedor(dist_id: int, id_vendedor: int) -> dict[int, dict]:
+    """Cartera del vendedor (rutas_v2 → clientes_pdv_v2)."""
+    t_rutas = tenant_table_name("rutas_v2", dist_id)
+    rutas_res = (
+        sb.table(t_rutas)
+        .select("id_ruta")
+        .eq("id_vendedor", id_vendedor)
+        .execute()
+    )
+    ruta_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
+    if not ruta_ids:
+        return {}
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    offset = 0
+    client_by_id: dict[int, dict] = {}
+    while True:
+        batch = (
+            sb.table(t_clientes)
+            .select("id_cliente,id_cliente_erp,fecha_ultima_compra")
+            .eq("id_distribuidor", dist_id)
+            .in_("id_ruta", ruta_ids)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        for row in batch:
+            cid = row.get("id_cliente")
+            if cid is not None:
+                client_by_id[int(cid)] = row
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return client_by_id
+
+
+def compradores_progreso_diario_en_periodo(
+    dist_id: int,
+    id_vendedor: int,
+    desde: str,
+    hasta: str,
+) -> dict[str, int]:
+    """Progreso diario de compradores para un vendedor en [desde, hasta]."""
+    client_by_id = _client_by_id_for_vendedor(dist_id, id_vendedor)
+    if not client_by_id:
+        return {}
+    return compradores_progreso_diario_for_clients(
+        dist_id,
+        client_by_id,
+        desde,
+        hasta,
+        id_vendedor=int(id_vendedor),
+    )
+
+
 def compradores_en_periodo_for_clients(
     dist_id: int,
     client_by_id: dict[int, dict],
@@ -308,37 +540,9 @@ def compradores_en_periodo(
     Resuelve la cartera del vendedor via rutas_v2 → clientes_pdv_v2,
     luego delega a compradores_en_periodo_for_clients.
     """
-    t_rutas = tenant_table_name("rutas_v2", dist_id)
-    rutas_res = (
-        sb.table(t_rutas)
-        .select("id_ruta")
-        .eq("id_vendedor", id_vendedor)
-        .execute()
-    )
-    ruta_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
-    if not ruta_ids:
+    client_by_id = _client_by_id_for_vendedor(dist_id, id_vendedor)
+    if not client_by_id:
         return set()
-
-    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
-    offset = 0
-    client_by_id: dict[int, dict] = {}
-    while True:
-        batch = (
-            sb.table(t_clientes)
-            .select("id_cliente,id_cliente_erp,fecha_ultima_compra")
-            .eq("id_distribuidor", dist_id)
-            .in_("id_ruta", ruta_ids)
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data or []
-        )
-        for row in batch:
-            cid = row.get("id_cliente")
-            if cid is not None:
-                client_by_id[int(cid)] = row
-        if len(batch) < PAGE:
-            break
-        offset += PAGE
 
     return compradores_en_periodo_for_clients(
         dist_id, client_by_id, desde, hasta, id_vendedor=int(id_vendedor)

@@ -152,10 +152,16 @@ def _refresh_estadisticas_background(
     sucursal: str | None,
     meses_hash: str,
 ) -> None:
-    from services.estadisticas_service import build_carta_resumen, _cartas_comercial_ventas_plausible
+    from services.estadisticas_service import (
+        build_carta_resumen_with_meta,
+        _cartas_comercial_ventas_plausible,
+    )
 
-    cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
-    if not _cartas_comercial_ventas_plausible(cartas):
+    cartas, exhib_meta = build_carta_resumen_with_meta(dist_id, meses, sucursal)
+    cartas = _normalize_cartas_payload(cartas)
+    if not _cartas_comercial_ventas_plausible(
+        cartas, exhib_logicas_sum=int(exhib_meta.get("logicas_sum") or 0)
+    ):
         logger.warning(
             "[snap_estadisticas] skip persist dist=%s meses=%s — ventas KPIs vacíos con exhibiciones",
             dist_id,
@@ -277,9 +283,27 @@ def force_persist_estadisticas(
     dist_id: int,
     meses: list[str],
     sucursal: str | None = None,
-) -> None:
+) -> int:
+    """Recomputa y persiste cartas de forma síncrona. Retorna cantidad de cartas."""
     meses_hash = _hash_meses(meses)
-    _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash)
+    from services.estadisticas_service import (
+        build_carta_resumen_with_meta,
+        _cartas_comercial_ventas_plausible,
+    )
+
+    cartas, exhib_meta = build_carta_resumen_with_meta(dist_id, meses, sucursal)
+    cartas = _normalize_cartas_payload(cartas)
+    if not _cartas_comercial_ventas_plausible(
+        cartas, exhib_logicas_sum=int(exhib_meta.get("logicas_sum") or 0)
+    ):
+        logger.warning(
+            "[snap_estadisticas] skip persist dist=%s meses=%s — KPIs no plausibles",
+            dist_id,
+            meses,
+        )
+        return 0
+    _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
+    return len(cartas)
 
 
 def _cold_compute_estadisticas(
@@ -288,10 +312,16 @@ def _cold_compute_estadisticas(
     sucursal: str | None,
     meses_hash: str,
 ) -> dict:
-    from services.estadisticas_service import build_carta_resumen, _cartas_comercial_ventas_plausible
+    from services.estadisticas_service import (
+        build_carta_resumen_with_meta,
+        _cartas_comercial_ventas_plausible,
+    )
 
-    cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
-    if _cartas_comercial_ventas_plausible(cartas):
+    cartas, exhib_meta = build_carta_resumen_with_meta(dist_id, meses, sucursal)
+    cartas = _normalize_cartas_payload(cartas)
+    if _cartas_comercial_ventas_plausible(
+        cartas, exhib_logicas_sum=int(exhib_meta.get("logicas_sum") or 0)
+    ):
         _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
     else:
         logger.warning(

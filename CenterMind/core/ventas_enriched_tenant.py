@@ -14,10 +14,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from db import sb
 from core.rpa_tenant_registry import TENANT_DIST_MAP
 from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ventas_enriched_tenant")
+
+_PAGE_VEND = 1000
 
 # Franquicia → dist donde vive el informe Consolido compartido (Real)
 FRANCHISE_VENTAS_SOURCE_DIST: dict[int, int] = {
@@ -50,6 +53,31 @@ def _codigo_variants(codigo: str) -> set[str]:
         return set()
     stripped = c.lstrip("0") or c
     return {c, stripped}
+
+
+def load_vendedores_ventas_scope_rows(dist_id: int) -> list[dict]:
+    """
+    Filas mínimas de vendedores_v2 del tenant para armar codigos de franquicia
+    (Bolívar, Caramele, LAG → ventas en tabla Real).
+    """
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = (
+            sb.table(t_vend)
+            .select("id_vendedor,id_vendedor_erp,nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .range(offset, offset + _PAGE_VEND - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < _PAGE_VEND:
+            break
+        offset += _PAGE_VEND
+    return rows
 
 
 def build_ventas_read_context(
@@ -204,6 +232,9 @@ def ventas_enriched_base_query(
     vend_rows: list[dict] | None = None,
 ):
     """Query PostgREST con filtros estrictos de tenant ya aplicados."""
+    req = int(dist_id)
+    if FRANCHISE_VENTAS_SOURCE_DIST.get(req) is not None and not vend_rows:
+        vend_rows = load_vendedores_ventas_scope_rows(req)
     ctx = build_ventas_read_context(dist_id, vend_rows)
     q = sb_client.table(ctx["table_name"]).select(select)
     q = apply_ventas_tenant_filters(q, ctx)

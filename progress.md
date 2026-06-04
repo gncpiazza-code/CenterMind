@@ -64,7 +64,7 @@
 
 25. Estadísticas — cartas vendedor diseño FIFA (2026-05-29): `VendorCard` en `/estadisticas` vía `VendorCardFusion` (oro/plata/bronce 75/66/0, radar hex 6 KPIs, stats 2×3, ideal tooltips, corona líder por KPI, sheen). Preview en `/estadisticas/preview-fusion`.
 
-26. Fix retroactividad objetivo COMPRADORES (2026-06-04): ventas del mes filtradas por vendedor (`_venta_matches_vendor`); módulo único `objetivos_compradores` también en tarjetas `/estadisticas` (antes excluía devoluciones/recaudaciones y daba ~59 vs ~99 del objetivo). Supervisión alineada. Tests `test_objetivos_compradores.py`.
+26. Fix retroactividad objetivo COMPRADORES (2026-06-04): ventas del mes filtradas por vendedor (`_venta_matches_vendor`); módulo único `objetivos_compradores` también en tarjetas `/estadisticas`. Franquicias Real (Caramele d8, Bolívar d7, LAG d9): `ventas_enriched_base_query` carga automáticamente códigos ERP de `vendedores_v2` del tenant (evita scope vacío y compradores solo por padrón). Sucursal Caramele = **JOSE IGNACIO BIAVA** (vendedores CUELLO 9711 / GÁTICA 9712). Tests `test_objetivos_compradores.py`, `test_estadisticas_franchise.py`.
 
 ## Riesgos y Guardrails Activos
 

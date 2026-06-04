@@ -18,10 +18,6 @@ export const metadata: Metadata = {
     template: "%s | Shelfy",
   },
   description: "Panel de gestión Shelfy",
-  icons: {
-    icon: [{ url: "/WEBICON.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/WEBICON.svg", type: "image/svg+xml" }],
-  },
 };
 
 import { UIProvider } from "@/contexts/UIContext";

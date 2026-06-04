@@ -489,6 +489,77 @@ def _count_compradores_en_cartera(
     return len(compradores_ids & pdv_cartera_ids)
 
 
+def _vendor_context_light(
+    vend_row: dict,
+    match_indexes: dict[str, object],
+) -> dict:
+    """Contexto mínimo para _venta_matches_vendor sin queries extra (batch cartas)."""
+    try:
+        vid = int(vend_row.get("id_vendedor"))
+    except (TypeError, ValueError):
+        vid = 0
+    erp = str(vend_row.get("id_vendedor_erp") or "").strip()
+    codigos = [erp] if erp else []
+    nombre = (vend_row.get("nombre_erp") or "").strip()
+    return {
+        "id_vendedor": vid,
+        "codigo_vendedor": codigos[0] if codigos else "",
+        "codigos_vendedor": codigos,
+        "nombre_erp": nombre,
+        "match_indexes": match_indexes,
+    }
+
+
+def _compradores_cids_by_vend_from_parallel(
+    dist_id: int,
+    parallel: dict[str, object],
+    meses_set: set[str],
+    fecha_desde: str,
+    fecha_hasta: str,
+    match_indexes: dict[str, object],
+    ruta_to_vend: dict[int, int],
+) -> dict[int, set[int]]:
+    """Delega a objetivos_compradores (misma regla que objetivos/supervisión)."""
+    from core.objetivos_compradores import compradores_cids_by_vend_from_snapshot
+
+    client_by_id_by_vend: dict[int, dict[int, dict]] = defaultdict(dict)
+    pdv_cartera = parallel.get("pdv_cartera") or parallel.get("pdv") or []
+    for row in pdv_cartera:
+        rid = row.get("id_ruta")
+        cid = row.get("id_cliente")
+        if rid is None or cid is None:
+            continue
+        vid = ruta_to_vend.get(int(rid))
+        if vid is None:
+            continue
+        client_by_id_by_vend[vid][int(cid)] = row
+
+    vend_row_by_id: dict[int, dict] = {}
+    for v in parallel.get("vendedores") or []:
+        try:
+            vend_row_by_id[int(v["id_vendedor"])] = v
+        except (TypeError, ValueError, KeyError):
+            continue
+
+    ventas_ctx = parallel.get("ventas_ctx")
+    if isinstance(ventas_ctx, dict):
+        vctx = ventas_ctx
+    else:
+        vctx = None
+
+    return compradores_cids_by_vend_from_snapshot(
+        dist_id,
+        client_by_id_by_vend,
+        list(parallel.get("ventas") or []),
+        fecha_desde,
+        fecha_hasta,
+        vend_row_by_id=vend_row_by_id,
+        match_indexes=match_indexes,
+        ventas_ctx=vctx,
+        meses_yyyy_mm=meses_set,
+    )
+
+
 def _acumular_bultos_unidades(
     row: dict,
     bultos_acc: float,
@@ -1432,9 +1503,20 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
     def pdv_q(offset):
         return (
             sb.table(t_pdv)
-            .select(f"id_ruta,{_PDV_EXHIBICION_MAP_SELECT},fecha_alta,localidad")
+            .select(
+                f"id_ruta,{_PDV_EXHIBICION_MAP_SELECT},fecha_alta,localidad,"
+                "fecha_ultima_compra"
+            )
             .eq("id_distribuidor", dist_id)
             .or_(_PADRON_VISIBLE_OR)
+        )
+
+    def pdv_cartera_q(offset):
+        """Cartera completa (sin filtro visible) — alineada a objetivos_compradores."""
+        return (
+            sb.table(t_pdv)
+            .select("id_ruta,id_cliente,id_cliente_erp,fecha_ultima_compra")
+            .eq("id_distribuidor", dist_id)
         )
 
     def ex_q(offset):
@@ -1450,6 +1532,7 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
         {
             "rutas": lambda: _paginate(rutas_q),
             "pdv": lambda: _paginate(pdv_q),
+            "pdv_cartera": lambda: _paginate(pdv_cartera_q),
             "ex": lambda: _paginate(ex_q),
             "vendedores": lambda: (
                 sb.table(t_vend)
@@ -1591,7 +1674,9 @@ def _aggregate_kpis_from_rows(
             except (TypeError, ValueError):
                 continue
 
-    from core.objetivos_compradores import compradores_en_periodo
+    compradores_cids_by_vend = _compradores_cids_by_vend_from_parallel(
+        dist_id, parallel, meses_set, fd, fh, match_indexes, ruta_to_vend
+    )
 
     out: dict[str, dict] = {}
     for vid, pdv_set in pdvs_by_vend.items():
@@ -1602,12 +1687,7 @@ def _aggregate_kpis_from_rows(
         cumplidos = sum(1 for o in objs if o.get("cumplido"))
         obj_pct = (cumplidos / len(objs) * 100) if objs else 0.0
         ex_u = ex_pdvs_unique_by_vend.get(vid, 0)
-        try:
-            compradores_n = len(
-                compradores_en_periodo(int(dist_id), int(vid), fd, fh)
-            )
-        except (TypeError, ValueError):
-            compradores_n = 0
+        compradores_n = len(compradores_cids_by_vend.get(vid, set()))
         cob = min(100.0, ex_u / pdvs * 100) if pdvs else 0.0
         cob_compra = min(100.0, compradores_n / pdvs * 100) if pdvs else 0.0
         bultos_raw = bultos_by_vend.get(vid, 0.0)

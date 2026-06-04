@@ -116,17 +116,24 @@ export default function EstadisticasPage() {
   const {
     data: cartasBundle,
     isLoading: loadingCards,
+    isFetching: fetchingCards,
     isError: cartasError,
     refetch: refetchCartas,
   } = useEstadisticasCartasBundle(distId, mesesParaQuery, filterSucursal);
 
   const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
 
-  const showLoadingStrip =
-    mesesParaQuery.length > 0 &&
-    (loadingCards || cartasBundle?.meta?.revalidating) &&
-    vendors.length === 0 &&
-    !cartasError;
+  const cartasEnProceso =
+    loadingMeses ||
+    (mesesParaQuery.length > 0 &&
+      (loadingCards ||
+        fetchingCards ||
+        Boolean(cartasBundle?.meta?.revalidating)) &&
+      !cartasError);
+
+  const showLoadingStrip = cartasEnProceso && vendors.length === 0;
+
+  const showCartasRefreshOverlay = cartasEnProceso && vendors.length > 0;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);
@@ -148,7 +155,7 @@ export default function EstadisticasPage() {
 
   // Detect potentially empty data
   const hasVendors = vendors.length > 0;
-  const isLoading = loadingMeses || showLoadingStrip;
+  const isLoading = cartasEnProceso;
 
   if (authLoading || !user) {
     return (
@@ -315,7 +322,18 @@ export default function EstadisticasPage() {
             <AnimatePresence mode="wait">
               {showLoadingStrip && (
                 <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <EstadisticasLoadingStrip />
+                  <EstadisticasLoadingStrip
+                    label={
+                      loadingMeses
+                        ? "Cargando períodos y vendedores…"
+                        : "Armando cartas de vendedores…"
+                    }
+                    hint={
+                      loadingMeses
+                        ? "Preparando meses disponibles para esta distribuidora"
+                        : "Consultando padrón, exhibiciones y ventas del período"
+                    }
+                  />
                 </motion.div>
               )}
 
@@ -417,7 +435,7 @@ export default function EstadisticasPage() {
               )}
 
               {/* No vendors */}
-              {!isLoading && !cartasError && mesesParaQuery.length > 0 && !hasVendors && !loadingCards && (
+              {!cartasEnProceso && !cartasError && mesesParaQuery.length > 0 && !hasVendors && (
                 <motion.div
                   key="no-vendors"
                   initial={{ opacity: 0, y: 16 }}
@@ -452,6 +470,35 @@ export default function EstadisticasPage() {
                   exit={{ opacity: 0 }}
                   style={{ position: "relative" }}
                 >
+                  {showCartasRefreshOverlay && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        zIndex: 20,
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "center",
+                        paddingTop: 48,
+                        background: isDark
+                          ? "rgba(15,23,42,0.72)"
+                          : "rgba(248,250,252,0.82)",
+                        backdropFilter: "blur(2px)",
+                        borderRadius: 12,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <EstadisticasLoadingStrip
+                        label="Actualizando cartas…"
+                        hint="Recalculando compradores, bultos y exhibiciones del período"
+                        compact
+                      />
+                    </motion.div>
+                  )}
+
                   <MissingIdealBanner onConfigure={() => setShowIdealModal(true)} vendors={vendors} />
 
                   <VendorCollection

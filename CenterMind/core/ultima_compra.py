@@ -181,13 +181,14 @@ def fetch_ultima_compra_por_erp(
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
     hasta_s = hasta.isoformat()
 
-    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
     best: dict[str, dict[str, Any]] = {}
 
     # PostgREST: .in_ con lista grande; trocear ERPs crudos (incluye variantes con ceros).
     chunk_size = 400
     for i in range(0, len(erp_raw), chunk_size):
         chunk = erp_raw[i : i + chunk_size]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
         offset = 0
         while True:
             batch = (
@@ -244,11 +245,12 @@ def ultima_compra_en_periodo_por_cliente(
     if not erp_to_cid:
         return {}
 
-    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
     best: dict[int, dict[str, Any]] = {}
 
     for i in range(0, len(erp_list), 400):
         chunk = erp_list[i : i + 400]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT)
         offset = 0
         while True:
             batch = (
@@ -410,12 +412,13 @@ def _fetch_ventas_docs_por_erps(
     hasta = fecha_hasta or date.today()
     desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
     hasta_s = hasta.isoformat()
-    ventas_ctx, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_DETALLE)
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_DETALLE)
 
     docs: dict[tuple[str, str, str], dict[str, Any]] = {}
     chunk_size = 400
     for i in range(0, len(erp_variants), chunk_size):
         chunk = erp_variants[i : i + chunk_size]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_DETALLE)
         offset = 0
         while True:
             batch = (

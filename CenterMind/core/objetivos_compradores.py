@@ -49,6 +49,37 @@ def _periodo_bounds(desde: str, hasta: str) -> tuple[str, str]:
     return desde_d, hasta_d
 
 
+def _cid_from_venta_en_cartera(
+    row: dict,
+    client_by_id: dict[int, dict],
+    vctx: dict,
+) -> int | None:
+    """
+    Asigna una fila de venta al id_cliente de la cartera.
+    Si varios PDVs comparten variante ERP, prioriza match exacto del ERP padrón.
+    """
+    from core.ultima_compra import erp_query_variants
+    from services.estadisticas_service import _venta_matches_vendor
+
+    if not _venta_matches_vendor(row, vctx):
+        return None
+    re = str(row.get("id_cliente_erp") or "").strip()
+    if not re:
+        return None
+    best: tuple[int, int] | None = None
+    for cid, crow in client_by_id.items():
+        raw = str(crow.get("id_cliente_erp") or "").strip()
+        if not raw:
+            continue
+        if re not in set(erp_query_variants(raw)):
+            continue
+        priority = 0 if raw == re else 1
+        cand = (priority, int(cid))
+        if best is None or cand < best:
+            best = cand
+    return best[1] if best else None
+
+
 def _comprador_ids_desde_ventas_vendedor(
     dist_id: int,
     client_by_id: dict[int, dict],
@@ -68,7 +99,6 @@ def _comprador_ids_desde_ventas_vendedor(
     from services.estadisticas_service import _venta_matches_vendor, _vendor_context
 
     vctx = _vendor_context(dist_id, str(id_vendedor))
-    erp_to_cid: dict[str, int] = {}
     erp_list: list[str] = []
     for cid, row in client_by_id.items():
         raw = str(row.get("id_cliente_erp") or "").strip()
@@ -77,20 +107,16 @@ def _comprador_ids_desde_ventas_vendedor(
         for v in erp_query_variants(raw):
             if v not in erp_list:
                 erp_list.append(v)
-        n = _norm_erp(raw)
-        if n:
-            erp_to_cid[n] = int(cid)
 
-    if not erp_to_cid:
+    if not erp_list:
         return set()
 
-    ventas_ctx, q_ventas = ventas_enriched_base_query(
-        sb, dist_id, _VENTAS_SELECT_COMPRADORES
-    )
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_COMPRADORES)
     comprador_ids: set[int] = set()
 
     for i in range(0, len(erp_list), 400):
         chunk = erp_list[i : i + 400]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, _VENTAS_SELECT_COMPRADORES)
         offset = 0
         while True:
             batch = (
@@ -108,10 +134,7 @@ def _comprador_ids_desde_ventas_vendedor(
             for row in batch:
                 if not _venta_cuenta_como_compra(row):
                     continue
-                if not _venta_matches_vendor(row, vctx):
-                    continue
-                n = _norm_erp(row.get("id_cliente_erp"))
-                cid = erp_to_cid.get(n) if n else None
+                cid = _cid_from_venta_en_cartera(row, client_by_id, vctx)
                 if cid is not None:
                     comprador_ids.add(int(cid))
             if len(batch) < PAGE:
@@ -169,6 +192,108 @@ def compradores_en_periodo_for_clients(
             comprador_ids.add(int(cid))
 
     return comprador_ids
+
+
+def compradores_cids_by_vend_from_snapshot(
+    dist_id: int,
+    client_by_id_by_vend: dict[int, dict[int, dict]],
+    ventas_rows: list[dict],
+    desde: str,
+    hasta: str,
+    *,
+    vend_row_by_id: dict[int, dict],
+    match_indexes: dict[str, object],
+    ventas_ctx: dict[str, object] | None = None,
+    meses_yyyy_mm: set[str] | None = None,
+) -> dict[int, set[int]]:
+    """
+    Compradores por vendedor desde cartera + ventas ya en memoria (batch estadísticas).
+
+    Misma regla que compradores_en_periodo_for_clients(id_vendedor=…):
+    ventas con importe >= 0, asignación por vendedor (_venta_matches_vendor),
+    match ERP normalizado → id_cliente, fallback padrón FUC.
+    """
+    from collections import defaultdict
+
+    from core.ultima_compra import _venta_cuenta_como_compra, erp_query_variants
+    from core.ventas_enriched_tenant import filter_ventas_rows_for_tenant
+    from services.estadisticas_service import (
+        _in_meses,
+        _resolve_vid_from_venta_row,
+        _venta_matches_vendor,
+        _vendor_context_light,
+    )
+
+    desde_d, hasta_d = _periodo_bounds(desde, hasta)
+    rows = list(ventas_rows or [])
+    if ventas_ctx:
+        rows = filter_ventas_rows_for_tenant(rows, ventas_ctx)
+
+    vids_por_variant: dict[str, set[int]] = defaultdict(set)
+    vctx_by_vid: dict[int, dict] = {}
+    for vid, client_by_id in client_by_id_by_vend.items():
+        vend_row = vend_row_by_id.get(vid)
+        if vend_row:
+            vctx_by_vid[vid] = _vendor_context_light(vend_row, match_indexes)
+        for _cid, crow in client_by_id.items():
+            raw = str(crow.get("id_cliente_erp") or "").strip()
+            if not raw:
+                continue
+            for variant in erp_query_variants(raw):
+                vids_por_variant[variant].add(vid)
+
+    compradores: dict[int, set[int]] = {vid: set() for vid in client_by_id_by_vend}
+
+    for row in rows:
+        f = str(row.get("fecha_factura") or "")[:10]
+        if meses_yyyy_mm is not None:
+            if not _in_meses(f, meses_yyyy_mm):
+                continue
+        elif len(f) < 10 or f < desde_d or f > hasta_d:
+            continue
+        if not _venta_cuenta_como_compra(row):
+            continue
+
+        re = str(row.get("id_cliente_erp") or "").strip()
+        if not re:
+            continue
+        matches: list[tuple[int, int]] = []
+        for vid in vids_por_variant.get(re, ()):
+            vctx = vctx_by_vid.get(vid)
+            if vctx is None:
+                continue
+            cid = _cid_from_venta_en_cartera(
+                row, client_by_id_by_vend[vid], vctx
+            )
+            if cid is not None:
+                matches.append((vid, cid))
+        if not matches:
+            continue
+        if len(matches) == 1:
+            vid, cid = matches[0]
+        else:
+            vids = {m[0] for m in matches}
+            if len(vids) == 1:
+                vid, cid = matches[0]
+            else:
+                resolved = _resolve_vid_from_venta_row(row, match_indexes)
+                picked = next((m for m in matches if m[0] == resolved), None)
+                if picked is None:
+                    continue
+                vid, cid = picked
+        compradores[vid].add(int(cid))
+
+    for vid, client_by_id in client_by_id_by_vend.items():
+        seen = compradores[vid]
+        for cid, row in client_by_id.items():
+            icid = int(cid)
+            if icid in seen:
+                continue
+            fuc = str(row.get("fecha_ultima_compra") or "")[:10]
+            if len(fuc) >= 10 and desde_d <= fuc <= hasta_d:
+                seen.add(icid)
+
+    return compradores
 
 
 def compradores_en_periodo(

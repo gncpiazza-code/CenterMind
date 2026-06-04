@@ -45,13 +45,18 @@ function ShimmerCard() {
 
 interface EstadisticasLoadingStripProps {
   label?: string;
+  hint?: string;
+  /** Sin grilla de skeleton (overlay sobre cartas previas). */
+  compact?: boolean;
 }
 
 export function EstadisticasLoadingStrip({
   label = "Armando cartas de vendedores…",
+  hint = "Consultando padrón, exhibiciones y ventas del período",
+  compact = false,
 }: EstadisticasLoadingStripProps) {
   return (
-    <div style={{ padding: "8px 0 4px" }}>
+    <div style={{ padding: compact ? "12px 16px" : "8px 0 4px" }}>
       <div
         style={{
           padding: "10px 24px 14px",
@@ -95,33 +100,35 @@ export function EstadisticasLoadingStrip({
           />
         </div>
         <p style={{ margin: 0, fontSize: 11, color: "var(--shelfy-muted)" }}>
-          Consultando padrón, exhibiciones y ventas del período
+          {hint}
         </p>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))",
-          gap: 20,
-          padding: "4px 24px 20px",
-          overflowX: "hidden",
-        }}
-      >
-        {Array.from({ length: 6 }).map((_, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06, duration: 0.35 }}
-            style={{ minWidth: 0 }}
-          >
-            <ShimmerCard />
-          </motion.div>
-        ))}
-      </motion.div>
+      {!compact && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))",
+            gap: 20,
+            padding: "4px 24px 20px",
+            overflowX: "hidden",
+          }}
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06, duration: 0.35 }}
+              style={{ minWidth: 0 }}
+            >
+              <ShimmerCard />
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
 
       <style>{`
         .estad-fifa-shimmer-beam::after {

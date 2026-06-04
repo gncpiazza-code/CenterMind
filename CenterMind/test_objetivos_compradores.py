@@ -195,6 +195,57 @@ class TestPeriodoDesdeHastaObjetivo:
         assert hasta == date.today().isoformat()
 
 
+class TestCompradoresSnapshotBatch:
+    """Batch estadísticas (snapshot) debe coincidir con compradores_en_periodo_for_clients."""
+
+    def test_snapshot_igual_a_for_clients_con_vendedor(self):
+        from core.objetivos_compradores import (
+            compradores_cids_by_vend_from_snapshot,
+            compradores_en_periodo_for_clients,
+        )
+
+        client_by_id = {
+            1: _make_client_row(1, "100", fuc="2026-04-01"),
+            2: _make_client_row(2, "200", fuc="2026-05-20"),
+        }
+        ventas = [
+            {
+                "fecha_factura": "2026-05-10",
+                "importe_final": 80,
+                "anulado": False,
+                "id_cliente_erp": "100",
+                "codigo_vendedor": "10",
+                "nombre_vendedor": "V1",
+            },
+        ]
+        vend_row = {"id_vendedor": 7, "id_vendedor_erp": "10", "nombre_erp": "V1"}
+        match_indexes = {
+            "codigo_to_vid": {"10": 7},
+            "nombre_to_vid": {},
+            "integrante_to_vid": {},
+            "vid_to_nombre": {7: "V1"},
+        }
+        with patch(
+            "core.objetivos_compradores._comprador_ids_desde_ventas_vendedor",
+            return_value={1},
+        ):
+            canon = compradores_en_periodo_for_clients(
+                1, client_by_id, "2026-05-01", "2026-05-31", id_vendedor=7
+            )
+        batch = compradores_cids_by_vend_from_snapshot(
+            1,
+            {7: client_by_id},
+            ventas,
+            "2026-05-01",
+            "2026-05-31",
+            vend_row_by_id={7: vend_row},
+            match_indexes=match_indexes,
+            meses_yyyy_mm={"2026-05"},
+        )
+        assert batch[7] == canon
+        assert canon == {1, 2}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Test de regresión: activación no afectada
 # ──────────────────────────────────────────────────────────────────────────────

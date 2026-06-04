@@ -1,0 +1,17 @@
+{
+  "framework": "nextjs",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "shelfycenter.vercel.app" }],
+      "destination": "https://shelfycenter.com/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.shelfycenter.com" }],
+      "destination": "https://shelfycenter.com/:path*",
+      "permanent": true
+    }
+  ]
+}

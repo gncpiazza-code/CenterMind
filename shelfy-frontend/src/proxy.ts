@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_KEY } from "@/lib/constants";
 
+const CANONICAL_HOST = "shelfycenter.com";
+const LEGACY_HOSTS = new Set(["shelfycenter.vercel.app", "www.shelfycenter.com"]);
+
 const PUBLIC_PATHS = ["/login", "/", "/estadisticas/preview-fusion", "/visor/demo"];
 
 export function proxy(request: NextRequest) {
+  const host = request.headers.get("host")?.split(":")[0]?.toLowerCase() ?? "";
+  if (LEGACY_HOSTS.has(host)) {
+    const url = request.nextUrl.clone();
+    url.protocol = "https:";
+    url.host = CANONICAL_HOST;
+    return NextResponse.redirect(url, 308);
+  }
+
   const { pathname } = request.nextUrl;
 
   // Rutas públicas — no requieren auth

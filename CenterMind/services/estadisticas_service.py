@@ -959,8 +959,6 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         ventas_ctx.get("table_name")
         or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
     )
-    compradores: set = set()
-
     def venta_q(offset):
         q = (
             sb.table(t_v)
@@ -995,14 +993,23 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         imp = float(r.get("importe_final") or 0)
         if not _es_operacion_bultos_neto(tipo, imp):
             continue
-        if not _es_devolucion(tipo, imp):
-            ceid = r.get("id_cliente_erp")
-            if ceid:
-                compradores.add(str(ceid))
         bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
 
+    from core.objetivos_compradores import compradores_en_periodo
+
+    try:
+        compradores_count = len(
+            compradores_en_periodo(
+                dist_id,
+                int(id_vendedor),
+                fecha_desde[:10],
+                fecha_hasta[:10],
+            )
+        )
+    except (TypeError, ValueError):
+        compradores_count = 0
+
     # PDVs exhibidos = clientes de cartera con al menos 1 exhibición mapeable a ERP
-    compradores_count = _count_compradores_en_cartera(compradores, pdvs_unicos)
     client_key_to_erp = build_client_key_to_erp_map(pdv_rows_map)
     pdvs_exhibidos = count_exhibited_clientes_in_cartera(ex_rows, client_key_to_erp, pdvs_unicos)
     cobertura_compra_pct = 0.0
@@ -1129,8 +1136,6 @@ def aggregate_kpis_vendedor_bounds(
         ventas_ctx.get("table_name")
         or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
     )
-    compradores: set = set()
-
     def venta_q(offset):
         q = (
             sb.table(t_v)
@@ -1163,15 +1168,19 @@ def aggregate_kpis_vendedor_bounds(
         imp = float(r.get("importe_final") or 0)
         if not _es_operacion_bultos_neto(tipo, imp):
             continue
-        if not _es_devolucion(tipo, imp):
-            ceid = r.get("id_cliente_erp")
-            if ceid:
-                compradores.add(str(ceid))
         bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
+
+    from core.objetivos_compradores import compradores_en_periodo
+
+    try:
+        compradores_count = len(
+            compradores_en_periodo(dist_id, int(id_vendedor), fd, fh)
+        )
+    except (TypeError, ValueError):
+        compradores_count = 0
 
     client_key_to_erp = build_client_key_to_erp_map(pdv_rows_map)
     pdvs_exhibidos = count_exhibited_clientes_in_cartera(ex_rows, client_key_to_erp, pdvs_unicos)
-    compradores_count = _count_compradores_en_cartera(compradores, pdvs_unicos)
     cobertura_compra_pct = 0.0
     if pdvs_activos > 0:
         cobertura_compra_pct = min(100.0, compradores_count / pdvs_activos * 100)
@@ -1500,6 +1509,8 @@ def _aggregate_kpis_from_rows(
 ) -> tuple[dict[str, dict], dict[int, dict[str, set[str]]]]:
     """Agrega KPIs por vendedor a partir de filas ya cargadas."""
     meses_set = set(meses)
+    fecha_desde, fecha_hasta = _get_fecha_bounds(meses)
+    fd, fh = fecha_desde[:10], fecha_hasta[:10]
 
     ruta_to_vend: dict[int, int] = {}
     for r in parallel.get("rutas") or []:
@@ -1550,7 +1561,6 @@ def _aggregate_kpis_from_rows(
 
     bultos_by_vend: dict[int, float] = defaultdict(float)
     unidades_cig_by_vend: dict[int, float] = defaultdict(float)
-    compradores_by_vend: dict[int, set] = defaultdict(set)
     ventas_total = 0
     ventas_unmatched = 0
     for row in parallel.get("ventas") or []:
@@ -1571,10 +1581,6 @@ def _aggregate_kpis_from_rows(
         bultos_by_vend[vid], unidades_cig_by_vend[vid] = _acumular_bultos_unidades(
             row, bultos_by_vend[vid], unidades_cig_by_vend[vid]
         )
-        if not es_dev:
-            ceid = row.get("id_cliente_erp")
-            if ceid:
-                compradores_by_vend[vid].add(str(ceid))
 
     hoy = date.today()
     obj_by_vend: dict[int, list] = defaultdict(list)
@@ -1585,6 +1591,8 @@ def _aggregate_kpis_from_rows(
             except (TypeError, ValueError):
                 continue
 
+    from core.objetivos_compradores import compradores_en_periodo
+
     out: dict[str, dict] = {}
     for vid, pdv_set in pdvs_by_vend.items():
         if not pdv_set:
@@ -1594,10 +1602,12 @@ def _aggregate_kpis_from_rows(
         cumplidos = sum(1 for o in objs if o.get("cumplido"))
         obj_pct = (cumplidos / len(objs) * 100) if objs else 0.0
         ex_u = ex_pdvs_unique_by_vend.get(vid, 0)
-        compradores_n = _count_compradores_en_cartera(
-            compradores_by_vend.get(vid) or set(),
-            pdv_set,
-        )
+        try:
+            compradores_n = len(
+                compradores_en_periodo(int(dist_id), int(vid), fd, fh)
+            )
+        except (TypeError, ValueError):
+            compradores_n = 0
         cob = min(100.0, ex_u / pdvs * 100) if pdvs else 0.0
         cob_compra = min(100.0, compradores_n / pdvs * 100) if pdvs else 0.0
         bultos_raw = bultos_by_vend.get(vid, 0.0)

@@ -22,7 +22,7 @@ import { GaleriaPdvInsightPanel } from "./GaleriaPdvInsightPanel";
 import { useGaleriaViewerNav, type GaleriaViewerNavTarget } from "@/hooks/useGaleriaViewerNav";
 import type { GaleriaMapaPin } from "@/lib/api";
 import { formatGaleriaFechaVisita } from "@/lib/fecha-ar";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/hooks/useAuth";
 
 export interface GaleriaExhibicionViewerProps {
   open: boolean;

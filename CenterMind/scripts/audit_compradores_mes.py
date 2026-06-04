@@ -58,7 +58,9 @@ def compradores_vendedor(dist_id: int, id_vendedor: int) -> int:
         route_ids,
         "id_cliente,id_cliente_erp,fecha_ultima_compra",
     )
-    ids, _, _ = _supervision_compradores_mes(dist_id, clients, DESDE, HASTA)
+    ids, _, _ = _supervision_compradores_mes(
+        dist_id, clients, DESDE, HASTA, id_vendedor
+    )
     return len(ids)
 
 

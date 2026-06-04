@@ -64,6 +64,8 @@
 
 25. Estadísticas — cartas vendedor diseño FIFA (2026-05-29): `VendorCard` en `/estadisticas` vía `VendorCardFusion` (oro/plata/bronce 75/66/0, radar hex 6 KPIs, stats 2×3, ideal tooltips, corona líder por KPI, sheen). Preview en `/estadisticas/preview-fusion`.
 
+26. Fix retroactividad objetivo COMPRADORES (2026-06-04): ventas del mes filtradas por vendedor (`_venta_matches_vendor`, mismo criterio que estadísticas); tenant/franquicia vía `ventas_enriched_base_query`; fallback padrón solo si el PDV no matchea en motor; validación `desde`/`hasta`. Supervisión altas/compradores alineada. Tests en `test_objetivos_compradores.py`.
+
 ## Riesgos y Guardrails Activos
 
 - Tablas grandes: usar paginacion `.range()` en loops.

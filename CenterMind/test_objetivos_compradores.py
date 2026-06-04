@@ -28,31 +28,38 @@ def _make_client_row(id_cliente: int, erp: str, fuc: str | None = None) -> dict:
     return {"id_cliente": id_cliente, "id_cliente_erp": erp, "fecha_ultima_compra": fuc}
 
 
-def _mock_sb_for_ventas(ventas_rows: list[dict]):
-    """Mock de sb.table().select()...execute() que retorna ventas_rows."""
-    mock_sb = MagicMock()
-    mock_execute = MagicMock()
-    mock_execute.data = ventas_rows
-    # Primera página devuelve todas las filas; páginas siguientes, nada.
-    call_count = {"n": 0}
+def _ventas_uc_map(
+    client_by_id: dict,
+    ventas_rows: list[dict],
+    *,
+    desde: str,
+    hasta: str,
+) -> dict[int, dict]:
+    """Simula ultima_compra_en_periodo_por_cliente desde filas de venta mock."""
+    from core.objetivos_compradores import _norm_erp
 
-    def fake_execute():
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            mock_execute.data = ventas_rows
-        else:
-            mock_execute.data = []
-        return mock_execute
+    desde_d, hasta_d = desde[:10], hasta[:10]
+    erp_to_cid: dict[str, int] = {}
+    for cid, row in client_by_id.items():
+        n = _norm_erp(row.get("id_cliente_erp"))
+        if n:
+            erp_to_cid[n] = int(cid)
 
-    chain = MagicMock()
-    chain.execute = fake_execute
-    chain.select = MagicMock(return_value=chain)
-    chain.eq = MagicMock(return_value=chain)
-    chain.gte = MagicMock(return_value=chain)
-    chain.lte = MagicMock(return_value=chain)
-    chain.range = MagicMock(return_value=chain)
-    mock_sb.table = MagicMock(return_value=chain)
-    return mock_sb
+    best: dict[int, dict] = {}
+    for row in ventas_rows:
+        if float(row.get("importe_final") or 0) < 0:
+            continue
+        f = str(row.get("fecha_factura") or "")[:10]
+        if len(f) < 10 or f < desde_d or f > hasta_d:
+            continue
+        n = _norm_erp(row.get("id_cliente_erp"))
+        cid = erp_to_cid.get(n) if n else None
+        if cid is None:
+            continue
+        prev = str((best.get(cid) or {}).get("fecha") or "")
+        if f > prev:
+            best[cid] = {"fecha": f, "comprobante": None}
+    return best
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -63,10 +70,10 @@ class TestCompradoresEnPeriodoForClients:
     """Prueba la función core con client_by_id explícito."""
 
     def _run(self, dist_id, client_by_id, desde, hasta, ventas_rows):
-        mock_sb = _mock_sb_for_ventas(ventas_rows)
-        with (
-            patch("core.objetivos_compradores.sb", mock_sb),
-            patch("core.objetivos_compradores.tenant_table_name", return_value="ventas_enriched_v2_d1"),
+        ventas_uc = _ventas_uc_map(client_by_id, ventas_rows, desde=desde, hasta=hasta)
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value=ventas_uc,
         ):
             from core.objetivos_compradores import compradores_en_periodo_for_clients
             return compradores_en_periodo_for_clients(dist_id, client_by_id, desde, hasta)
@@ -117,6 +124,20 @@ class TestCompradoresEnPeriodoForClients:
         ventas: list = []
         result = self._run(1, client_by_id, "2026-05-01", "2026-05-31", ventas)
         assert result == set()
+
+    def test_padron_no_duplica_si_ventas_ya_cuentan(self):
+        """Con venta en el mes, no sumar por fecha_ultima_compra histórica fuera del mes."""
+        client_by_id = {1: _make_client_row(1, "ABC", fuc="2026-06-15")}
+        ventas = [_make_ventas_row("ABC", "2026-05-10")]
+        result = self._run(1, client_by_id, "2026-05-01", "2026-05-31", ventas)
+        assert result == {1}
+
+    def test_padron_total_no_cuenta_si_desde_vacio(self):
+        from core.objetivos_compradores import compradores_en_periodo_for_clients
+
+        client_by_id = {1: _make_client_row(1, "ABC", fuc="2026-05-10")}
+        with pytest.raises(ValueError, match="periodo compradores inválido"):
+            compradores_en_periodo_for_clients(1, client_by_id, "", "2026-05-31")
 
     def test_client_by_id_vacio_retorna_set_vacio(self):
         result = self._run(1, {}, "2026-05-01", "2026-05-31", [])

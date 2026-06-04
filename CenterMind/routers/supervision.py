@@ -2452,6 +2452,7 @@ def _supervision_compradores_mes(
     client_by_id: dict[int, dict],
     fecha_desde: str,
     fecha_hasta: str,
+    id_vendedor: int,
 ) -> tuple[Set[int], dict[int, str], dict[int, dict]]:
     """
     PDVs compradores en mes calendario:
@@ -2464,7 +2465,11 @@ def _supervision_compradores_mes(
     from core.objetivos_compradores import compradores_en_periodo_for_clients
 
     comprador_ids: Set[int] = compradores_en_periodo_for_clients(
-        dist_id, client_by_id, fecha_desde, fecha_hasta
+        dist_id,
+        client_by_id,
+        fecha_desde,
+        fecha_hasta,
+        id_vendedor=int(id_vendedor),
     )
 
     # Construir ultima_compra_mes para el panel (info extra que supervision necesita)
@@ -2636,6 +2641,7 @@ def supervision_pdvs_movimiento(
                 client_by_id,
                 fecha_inicio,
                 fecha_fin,
+                id_vendedor,
             )
             comprador_exhib = _exhibido_cliente_ids_en_mes(
                 dist_id, list(comprador_ids), fecha_inicio, fecha_fin
@@ -4512,7 +4518,11 @@ def supervision_vendedor_kpi_mapa(
                 "id_cliente,id_cliente_erp,fecha_ultima_compra",
             )
             compradores, _, _ = _supervision_compradores_mes(
-                dist_id, client_by_id, fecha_inicio, fecha_fin,
+                dist_id,
+                client_by_id,
+                fecha_inicio,
+                fecha_fin,
+                id_vendedor,
             )
             out["mes"] = mes
             out["pdv_altas_mes"] = pdv_altas_mes

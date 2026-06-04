@@ -20,6 +20,11 @@ from typing import Any
 from db import sb
 from core.tenant_tables import tenant_table_name
 
+PAGE = 1000
+_VENTAS_SELECT_COMPRADORES = (
+    "id_cliente_erp,fecha_factura,importe_final,anulado,codigo_vendedor,nombre_vendedor"
+)
+
 
 def _norm_erp(erp_id: Any) -> str | None:
     """Normaliza id_cliente_erp: quita .0 de float y ceros a la izquierda."""
@@ -33,19 +38,104 @@ def _norm_erp(erp_id: Any) -> str | None:
     return (s.lstrip("0") or "0").upper()
 
 
+def _periodo_bounds(desde: str, hasta: str) -> tuple[str, str]:
+    """Normaliza y valida [desde, hasta] (YYYY-MM-DD). Evita rangos vacíos que cuentan todo el padrón."""
+    desde_d = str(desde or "")[:10]
+    hasta_d = str(hasta or "")[:10]
+    if len(desde_d) < 10 or len(hasta_d) < 10:
+        raise ValueError(f"periodo compradores inválido: desde={desde!r} hasta={hasta!r}")
+    if desde_d > hasta_d:
+        raise ValueError(f"periodo compradores invertido: {desde_d} > {hasta_d}")
+    return desde_d, hasta_d
+
+
+def _comprador_ids_desde_ventas_vendedor(
+    dist_id: int,
+    client_by_id: dict[int, dict],
+    desde_d: str,
+    hasta_d: str,
+    id_vendedor: int,
+) -> set[int]:
+    """
+    PDVs de la cartera con al menos una venta del vendedor en [desde, hasta].
+    Misma asignación Consolido que estadísticas (_venta_matches_vendor).
+    """
+    from core.ultima_compra import erp_query_variants, _venta_cuenta_como_compra
+    from core.ventas_enriched_tenant import (
+        filter_ventas_rows_for_tenant,
+        ventas_enriched_base_query,
+    )
+    from services.estadisticas_service import _venta_matches_vendor, _vendor_context
+
+    vctx = _vendor_context(dist_id, str(id_vendedor))
+    erp_to_cid: dict[str, int] = {}
+    erp_list: list[str] = []
+    for cid, row in client_by_id.items():
+        raw = str(row.get("id_cliente_erp") or "").strip()
+        if not raw:
+            continue
+        for v in erp_query_variants(raw):
+            if v not in erp_list:
+                erp_list.append(v)
+        n = _norm_erp(raw)
+        if n:
+            erp_to_cid[n] = int(cid)
+
+    if not erp_to_cid:
+        return set()
+
+    ventas_ctx, q_ventas = ventas_enriched_base_query(
+        sb, dist_id, _VENTAS_SELECT_COMPRADORES
+    )
+    comprador_ids: set[int] = set()
+
+    for i in range(0, len(erp_list), 400):
+        chunk = erp_list[i : i + 400]
+        offset = 0
+        while True:
+            batch = (
+                q_ventas.eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde_d)
+                .lte("fecha_factura", hasta_d)
+                .order("id")
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
+            for row in batch:
+                if not _venta_cuenta_como_compra(row):
+                    continue
+                if not _venta_matches_vendor(row, vctx):
+                    continue
+                n = _norm_erp(row.get("id_cliente_erp"))
+                cid = erp_to_cid.get(n) if n else None
+                if cid is not None:
+                    comprador_ids.add(int(cid))
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    return comprador_ids
+
+
 def compradores_en_periodo_for_clients(
     dist_id: int,
     client_by_id: dict[int, dict],
     desde: str,
     hasta: str,
+    *,
+    id_vendedor: int | None = None,
 ) -> set[int]:
     """
     Dado un dict id_cliente → row (clientes_pdv_v2), retorna el conjunto de
     id_cliente que compraron al menos una vez en [desde, hasta].
 
     Fuentes (en orden):
-    1. ventas_enriched_v2 — fecha_factura en rango, importe_final >= 0.
-    2. Fallback padrón — fecha_ultima_compra en rango.
+    1. ventas_enriched_v2 vía ultima_compra_en_periodo_por_cliente (tenant + franquicia).
+    2. Fallback padrón por PDV sin match en ventas: fecha_ultima_compra en el rango.
 
     No retorna ultima_compra_mes para mantener la interfaz simple; la supervisión
     usa su propia función _supervision_compradores_mes que mantiene ese campo extra.
@@ -54,47 +144,26 @@ def compradores_en_periodo_for_clients(
     if not client_by_id:
         return comprador_ids
 
-    desde_d = desde[:10]
-    hasta_d = hasta[:10]
+    desde_d, hasta_d = _periodo_bounds(desde, hasta)
 
-    erp_norm_to_id: dict[str, int] = {}
-    for cid, row in client_by_id.items():
-        n = _norm_erp(row.get("id_cliente_erp"))
-        if n:
-            erp_norm_to_id[n] = int(cid)
-
-    if erp_norm_to_id:
-        t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
-        PAGE = 1000
-        offset = 0
-        while True:
-            batch = (
-                sb.table(t_ventas)
-                .select("id_cliente_erp,fecha_factura,importe_final")
-                .eq("id_distribuidor", dist_id)
-                .eq("anulado", False)
-                .gte("fecha_factura", desde_d)
-                .lte("fecha_factura", hasta_d)
-                .range(offset, offset + PAGE - 1)
-                .execute()
-                .data or []
+    if id_vendedor is not None:
+        comprador_ids.update(
+            _comprador_ids_desde_ventas_vendedor(
+                dist_id, client_by_id, desde_d, hasta_d, int(id_vendedor)
             )
-            for row in batch:
-                if float(row.get("importe_final") or 0) < 0:
-                    continue
-                f = str(row.get("fecha_factura") or "")[:10]
-                if len(f) < 10 or f < desde_d or f > hasta_d:
-                    continue
-                n = _norm_erp(row.get("id_cliente_erp"))
-                cid = erp_norm_to_id.get(n) if n else None
-                if cid is not None:
-                    comprador_ids.add(cid)
-            if len(batch) < PAGE:
-                break
-            offset += PAGE
+        )
+    else:
+        from core.ultima_compra import ultima_compra_en_periodo_por_cliente
 
-    # Fallback padrón
+        ventas_en_periodo = ultima_compra_en_periodo_por_cliente(
+            dist_id, client_by_id, desde_d, hasta_d
+        )
+        comprador_ids.update(int(cid) for cid in ventas_en_periodo.keys())
+
+    # Fallback padrón solo para PDVs sin venta en el motor (distribuidoras sin ingesta).
     for cid, row in client_by_id.items():
+        if int(cid) in comprador_ids:
+            continue
         fuc = str(row.get("fecha_ultima_compra") or "")[:10]
         if len(fuc) >= 10 and desde_d <= fuc <= hasta_d:
             comprador_ids.add(int(cid))
@@ -126,7 +195,6 @@ def compradores_en_periodo(
         return set()
 
     t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
-    PAGE = 1000
     offset = 0
     client_by_id: dict[int, dict] = {}
     while True:
@@ -147,7 +215,9 @@ def compradores_en_periodo(
             break
         offset += PAGE
 
-    return compradores_en_periodo_for_clients(dist_id, client_by_id, desde, hasta)
+    return compradores_en_periodo_for_clients(
+        dist_id, client_by_id, desde, hasta, id_vendedor=int(id_vendedor)
+    )
 
 
 def periodo_desde_hasta_objetivo(obj: dict) -> tuple[str, str]:

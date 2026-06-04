@@ -75,6 +75,40 @@ def inactivo_comercial_en(
     return prev_d < umbral
 
 
+def era_comprador_antes_de_inicio(
+    fecha_ultima_compra: str | None,
+    fecha_compra_anterior: str | None,
+    desde_iso: str,
+    *,
+    dias_umbral: int = DIAS_ACTIVO_COMERCIAL,
+) -> bool:
+    """
+    True si el PDV ya había comprado en los `dias_umbral` días previos al inicio del objetivo.
+
+    Evita contar como activación a un comprador del mes que vuelve a facturar después
+    (p. ej. compra el 5/06, objetivo desde 10/06, recompra el 15/06 con FUC actualizado).
+    """
+    desde = str(desde_iso or "")[:10]
+    if len(desde) < 10:
+        return False
+    try:
+        ref = date.fromisoformat(desde)
+    except ValueError:
+        return False
+    umbral = ref - timedelta(days=max(1, dias_umbral))
+
+    for raw in (fecha_ultima_compra, fecha_compra_anterior):
+        d = _iso(raw)
+        if not d or d >= desde:
+            continue
+        try:
+            if date.fromisoformat(d) >= umbral:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def es_activacion_en_periodo(
     fecha_ultima_compra: str | None,
     fecha_compra_anterior: str | None,
@@ -84,7 +118,8 @@ def es_activacion_en_periodo(
     dias_inactivo: int = DIAS_ACTIVO_COMERCIAL,
 ) -> bool:
     """
-    Activación = compra en [desde, hasta] y estaba inactivo al inicio del período (desde).
+    Activación = compra en [desde, hasta], inactivo al inicio (30d sin compra previa a `desde`)
+    y no era comprador habitual justo antes del objetivo (distinto de meta compradores).
     """
     desde = str(desde_iso or "")[:10]
     hasta = str(hasta_iso or desde)[:10]
@@ -92,6 +127,13 @@ def es_activacion_en_periodo(
         return False
     u = _iso(fecha_ultima_compra)
     if not u or u < desde or u > hasta:
+        return False
+    if era_comprador_antes_de_inicio(
+        fecha_ultima_compra,
+        fecha_compra_anterior,
+        desde,
+        dias_umbral=dias_inactivo,
+    ):
         return False
     return inactivo_comercial_en(
         fecha_ultima_compra,

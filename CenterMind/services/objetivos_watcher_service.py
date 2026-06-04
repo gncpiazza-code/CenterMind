@@ -432,33 +432,34 @@ class ObjetivosWatcherService:
         self, obj: dict, id_vendedor: int, dist_id: int, since: str
     ) -> tuple[float, int]:
         """
-        Detecta PDVs cuya fecha_ultima_compra >= since que no estén en tracking.
+        Detecta PDVs reactivados en el período (conversion_estado / activación).
 
-        Si el objetivo tiene objetivo_items, sólo evalúa esos PDVs específicos
-        y marca como cumplido cada ítem cuyo PDV realizó una compra reciente.
+        Regla canónica: core.compras_fechas.es_activacion_en_periodo
+        (inactivo +30d al inicio, compra en [since, hasta], no comprador previo del mes).
         """
         obj_id = obj["id"]
-        
-        def _filter_previously_active(clients: list[dict], since_str: str) -> list[dict]:
-            """Solo PDVs inactivos al inicio del objetivo (30d sin compra previa a `since`)."""
+        desde_d = str(since or "")[:10]
+        hasta_d = str(obj.get("fecha_objetivo") or date.today().isoformat())[:10]
+
+        def _filter_activaciones_validas(clients: list[dict]) -> list[dict]:
             if not clients:
                 return clients
             try:
-                from core.compras_fechas import inactivo_comercial_en
+                from core.compras_fechas import es_activacion_en_periodo
 
-                since_date = since_str[:10]
                 return [
                     c
                     for c in clients
-                    if inactivo_comercial_en(
+                    if es_activacion_en_periodo(
                         c.get("fecha_ultima_compra"),
                         c.get("fecha_compra_anterior"),
-                        since_date,
+                        desde_d,
+                        hasta_d,
                     )
                 ]
             except Exception as filter_err:
-                logger.warning(f"[Watcher] Error filtrando activos previos en activacion: {filter_err}")
-                return clients
+                logger.warning(f"[Watcher] Error filtrando activacion valida: {filter_err}")
+                return []
 
         def _filter_sales_before_objective(clients: list[dict], since_str: str) -> list[dict]:
             # Evita contar ventas que se ingirieron ANTES de la creación del objetivo
@@ -511,10 +512,10 @@ class ObjetivosWatcherService:
                     valid_ids = {int(v["id_cliente"]) for v in (ventas_res.data or []) if v.get("id_cliente")}
                     
                 return [
-                    c for c in clients 
-                    if (str(c.get("id_cliente_erp")) in valid_erps) or 
-                       (c.get("id_cliente") and int(c["id_cliente"]) in valid_ids) or
-                       (c.get("fecha_ultima_compra") and str(c.get("fecha_ultima_compra")) >= since_date)
+                    c
+                    for c in clients
+                    if (str(c.get("id_cliente_erp")) in valid_erps)
+                    or (c.get("id_cliente") and int(c["id_cliente"]) in valid_ids)
                 ]
             except Exception as filter_err:
                 logger.warning(f"[Watcher] Error filtrando ventas previas a objetivo: {filter_err}")
@@ -543,7 +544,7 @@ class ObjetivosWatcherService:
                 
                 clientes_res = q.execute()
                 all_clients = clientes_res.data or []
-                all_clients = _filter_previously_active(all_clients, since)
+                all_clients = _filter_activaciones_validas(all_clients)
                 all_clients = _filter_sales_before_objective(all_clients, since)
 
                 ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
@@ -597,7 +598,7 @@ class ObjetivosWatcherService:
                 .execute()
             )
             all_clients = clientes_res.data or []
-            all_clients = _filter_previously_active(all_clients, since)
+            all_clients = _filter_activaciones_validas(all_clients)
             all_clients = _filter_sales_before_objective(all_clients, since)
 
             ya_trackeados = self._get_tracked_refs(obj_id, "activacion")

@@ -54,3 +54,16 @@ def test_inactivo_y_activacion():
     # Penúltima en abril → activo al 1/may → no es activación
     assert not inactivo_comercial_en("2026-05-15", "2026-04-20", "2026-05-01")
     assert not es_activacion_en_periodo("2026-05-15", "2026-04-20", "2026-05-01", "2026-05-31")
+
+
+def test_activacion_excluye_comprador_previo_en_mes():
+    """Compró antes del objetivo y recompra después → no es activación."""
+    from core.compras_fechas import era_comprador_antes_de_inicio
+
+    assert era_comprador_antes_de_inicio("2026-06-15", "2026-06-05", "2026-06-10")
+    assert not es_activacion_en_periodo("2026-06-15", "2026-06-05", "2026-06-10", "2026-06-30")
+
+
+def test_activacion_sin_fuc_previa_cuenta():
+    """Sin compra en 30d previos al inicio → activación válida al recomprar."""
+    assert es_activacion_en_periodo("2026-06-20", "2026-03-01", "2026-06-10", "2026-06-30")

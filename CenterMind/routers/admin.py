@@ -689,18 +689,28 @@ def admin_get_usuarios(dist_id: int | None = None, payload=Depends(verify_auth))
         actual_dist_id = 0
     result = sb.rpc("fn_usuarios_portal", {"p_dist_id": actual_dist_id}).execute()
     rows = result.data or []
-    if rows:
-        uids = [u["id_usuario"] for u in rows]
-        flags = (
-            sb.table("usuarios_portal")
-            .select("id_usuario, restriccion_sucursales")
-            .in_("id_usuario", uids)
-            .execute()
-        )
-        flag_map = {int(r["id_usuario"]): bool(r.get("restriccion_sucursales")) for r in (flags.data or [])}
+    try:
+        if rows:
+            uids = [u["id_usuario"] for u in rows]
+            flags = (
+                sb.table("usuarios_portal")
+                .select("id_usuario, restriccion_sucursales")
+                .in_("id_usuario", uids)
+                .execute()
+            )
+            flag_map = {
+                int(r["id_usuario"]): bool(r.get("restriccion_sucursales"))
+                for r in (flags.data or [])
+            }
+            for u in rows:
+                u["restriccion_sucursales"] = flag_map.get(int(u["id_usuario"]), False)
+        return attach_sucursales_to_usuarios(rows)
+    except Exception as e:
+        logger.warning("Enriquecimiento sucursales usuarios falló (lista base OK): %s", e)
         for u in rows:
-            u["restriccion_sucursales"] = flag_map.get(int(u["id_usuario"]), False)
-    return attach_sucursales_to_usuarios(rows)
+            u.setdefault("restriccion_sucursales", False)
+            u.setdefault("sucursales_ids", [])
+        return rows
 
 
 @router.post("/api/admin/usuarios", summary="Crear usuario del portal")

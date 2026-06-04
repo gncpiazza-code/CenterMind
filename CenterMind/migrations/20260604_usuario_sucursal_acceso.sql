@@ -14,3 +14,5 @@ CREATE TABLE IF NOT EXISTS usuario_portal_sucursales (
 
 CREATE INDEX IF NOT EXISTS idx_usuario_portal_sucursales_dist
   ON usuario_portal_sucursales (id_distribuidor);
+
+NOTIFY pgrst, 'reload schema';

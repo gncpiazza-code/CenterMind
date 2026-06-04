@@ -123,11 +123,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await loginApi(usuario, password);
       setToken(data.access_token);
       setUser(data);
-      try {
-        sessionStorage.setItem("shelfy_login_pulse_guia", "1");
-      } catch {
-        /* ignore private mode */
-      }
       router.push("/dashboard");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al iniciar sesión");

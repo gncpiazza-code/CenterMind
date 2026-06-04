@@ -21,7 +21,6 @@ import { DashboardKpiCarousel } from "@/components/dashboard/DashboardKpiCarouse
 import { DashboardFilterBar } from "@/components/dashboard/DashboardFilterBar";
 import { HeroCarousel } from "@/components/dashboard/HeroCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
-import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
 
 import {
   type PeriodPreset,
@@ -357,7 +356,6 @@ export default function DashboardPage() {
         </main>
       </div>
 
-      <CCDifusionGuiaDialog autoOpenIfUnseen sessionReady={!!user} />
       <DashboardLayoutTuner layout={dashLayout} onChange={handleDashLayoutChange} />
     </div>
   );

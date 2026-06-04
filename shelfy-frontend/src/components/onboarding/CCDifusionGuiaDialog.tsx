@@ -51,11 +51,6 @@ import { toast } from "sonner";
 /** Servido desde `public/anuncios/...`. Bump versión backend + iframe al reemplazar el HTML. */
 export const DIFUSION_GUIA_HTML = "/anuncios/comunicacion-shelfy-cc-difusion/index.html";
 
-/** Una sola pulsación tras login válida (consumida al abrir el modal). */
-const SESSION_LOGIN_PULSE = "shelfy_login_pulse_guia";
-/** Cuántas veces se abrió automáticamente tras login (3 primeros ingresos con pulso). */
-const LOGIN_PROMPT_COUNT_KEY = "shelfy_difusion_cc_guia_login_opens";
-
 type TicketDestination = "producto" | "soporte" | "ideas";
 type TicketPriority = "baja" | "media" | "alta" | "critica";
 
@@ -208,8 +203,6 @@ function ToolbarIcon({
 }
 
 type Props = {
-  autoOpenIfUnseen?: boolean;
-  sessionReady?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 };
@@ -217,8 +210,6 @@ type Props = {
 type TrackAgg = { scrollMaxPct: number; activeSeconds: number };
 
 export function CCDifusionGuiaDialog({
-  autoOpenIfUnseen = false,
-  sessionReady = true,
   open: controlledOpen,
   onOpenChange,
 }: Props) {
@@ -337,27 +328,6 @@ export function CCDifusionGuiaDialog({
     },
     [user],
   );
-
-  useEffect(() => {
-    if (controlled || !autoOpenIfUnseen || !sessionReady) return;
-    try {
-      const pulse = sessionStorage.getItem(SESSION_LOGIN_PULSE);
-      if (!pulse) return;
-      sessionStorage.removeItem(SESSION_LOGIN_PULSE);
-
-      let n = 0;
-      try {
-        n = parseInt(localStorage.getItem(LOGIN_PROMPT_COUNT_KEY) || "0", 10);
-      } catch {
-        n = 0;
-      }
-      if (Number.isNaN(n) || n >= 3) return;
-      internalSetOpen(true);
-      localStorage.setItem(LOGIN_PROMPT_COUNT_KEY, String(n + 1));
-    } catch {
-      /* ignore */
-    }
-  }, [autoOpenIfUnseen, controlled, sessionReady]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -503,7 +473,7 @@ export function CCDifusionGuiaDialog({
               Cuentas corrientes y difusión vía Telegram
             </DialogTitle>
             <DialogDescription className="text-xs text-[var(--shelfy-muted)]">
-              Te lo mostramos hasta 3 veces al iniciar sesión. Recordatorio: Difusión → «Guía CC y Telegram».
+              Guía de referencia. Siempre disponible en Difusión → «Guía CC y Telegram».
             </DialogDescription>
           </DialogHeader>
           <iframe

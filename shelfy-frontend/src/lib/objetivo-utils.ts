@@ -249,28 +249,7 @@ function avanceDiaEnCelda(
   return progresoDiario[dia.iso] ?? 0;
 }
 
-/**
- * Pendiente para meta diaria rolling.
- * Hoy: excluye el avance de hoy (meta al inicio del día).
- * Futuro: usa el avance total acumulado (p. ej. pendientes no reflejados en progreso_diario).
- */
-function pendingForMetaDia(
-  meta: number,
-  actual: number,
-  dia: DiaHabil,
-  hasReal: boolean,
-  progresoDiario: Record<string, number>,
-): number {
-  if (dia.isFuture) return Math.max(0, meta - actual);
-  if (dia.isToday) {
-    const avanceHoy = progresoDiario[dia.iso] ?? 0;
-    if (hasReal) return Math.max(0, meta - actual + avanceHoy);
-    return Math.max(0, meta - actual);
-  }
-  return meta;
-}
-
-/** Meta del día bajo prorrateo rolling: pendiente / días hábiles restantes (incl. ese día). */
+/** Metas diarias: histórico rolling en pasado; plano uniforme en hoy y futuro. */
 function computeMetasRolling(
   diasValidos: DiaHabil[],
   meta: number,
@@ -282,20 +261,35 @@ function computeMetasRolling(
   const out = new Map<string, { metaDia: number; avanceDia: number }>();
   let remaining = meta;
 
+  const pasadosCount = diasValidos.filter((d) => d.isPast && !d.isToday).length;
+  const diasRestantesInclHoy = diasValidos.filter(
+    (d) => d.isToday || d.isFuture,
+  ).length;
+  const restante = Math.max(0, meta - actual);
+  const metaPlanaRestante =
+    restante > 0 && diasRestantesInclHoy > 0
+      ? restante / diasRestantesInclHoy
+      : 0;
+
   for (const dia of diasValidos) {
-    const daysLeft = diasValidos.filter((d) => d.iso >= dia.iso).length;
-    const pending =
-      dia.isToday || dia.isFuture
-        ? pendingForMetaDia(meta, actual, dia, hasReal, progresoDiario)
-        : remaining;
-    const metaDia = daysLeft > 0 ? pending / daysLeft : 0;
+    let metaDia: number;
+    if (dia.isFuture || dia.isToday) {
+      metaDia =
+        dia.isToday && !hasReal && pasadosCount === 0 && diasRestantesInclHoy > 0
+          ? meta / diasRestantesInclHoy
+          : metaPlanaRestante;
+    } else {
+      const daysLeft = diasValidos.filter((d) => d.iso >= dia.iso).length;
+      metaDia = daysLeft > 0 ? remaining / daysLeft : 0;
+    }
+
     const avanceDia = avanceDiaEnCelda(
       dia,
       hasReal,
       progresoDiario,
       avgPasado,
       actual,
-      diasValidos.filter((d) => d.isPast && !d.isToday).length,
+      pasadosCount,
     );
     out.set(dia.iso, { metaDia, avanceDia });
 
@@ -309,7 +303,7 @@ function computeMetasRolling(
 
 /**
  * Grilla semanal (lun–sáb) con avance diario para el modal de detalle.
- * Meta diaria rolling: se recalcula según pendiente / días hábiles restantes.
+ * Meta diaria: histórico rolling en días pasados; recálculo plano en hoy y futuro.
  */
 export function buildProrrateoGrid(
   obj: Objetivo,

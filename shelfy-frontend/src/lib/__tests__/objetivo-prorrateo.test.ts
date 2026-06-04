@@ -66,14 +66,54 @@ describe("buildProrrateoGrid rolling", () => {
     expect(celdaMar!.metaDia).toBeCloseTo(2.4, 5);
 
     expect(celdaMie!.avanceDia).toBe(1);
-    expect(celdaMie!.metaDia).toBeGreaterThan(celdaMar!.metaDia);
+    expect(celdaMie!.metaDia).toBeCloseTo(57 / 24, 5);
 
     expect(celdaJue!.avanceDia).toBe(0);
-    expect(celdaJue!.metaDia).toBeCloseTo(57 / 23, 5);
+    expect(celdaJue!.metaDia).toBeCloseTo(57 / 24, 5);
 
     expect(grid!.restante).toBe(57);
     expect(grid!.metaDiariaFutura).toBeCloseTo(57 / 24, 5);
     expect(grid!.futuros).toBe(23);
+  });
+
+  it("mantiene la misma meta plana en todos los días futuros del mes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-03T12:00:00"));
+
+    const grid = buildProrrateoGrid(
+      makeObj({
+        tipo: "exhibicion",
+        mes_referencia: "2026-06-01",
+        valor_objetivo: 100,
+        valor_actual: 35,
+        desglose_cache: {
+          progreso_diario: {
+            "2026-06-01": 10,
+            "2026-06-02": 13,
+            "2026-06-03": 0,
+          },
+        },
+      }),
+    );
+
+    const findCelda = (iso: string) => {
+      for (const semana of grid!.semanas) {
+        for (const celda of semana.celdas) {
+          if (celda && celda !== "pre" && typeof celda === "object" && celda.dia.iso === iso) {
+            return celda;
+          }
+        }
+      }
+      return null;
+    };
+
+    const metaEsperada = 65 / 24;
+    expect(findCelda("2026-06-04")!.metaDia).toBeCloseTo(metaEsperada, 5);
+    expect(findCelda("2026-06-27")!.metaDia).toBeCloseTo(metaEsperada, 5);
+    expect(findCelda("2026-06-04")!.metaDia).toBeCloseTo(
+      findCelda("2026-06-27")!.metaDia,
+      5,
+    );
   });
 
   it("expone días futuros sin contar hoy", () => {

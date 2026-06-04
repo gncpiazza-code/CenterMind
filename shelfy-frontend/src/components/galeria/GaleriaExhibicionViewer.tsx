@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { fetchGaleriaTimelineCliente } from "@/lib/api";
 import {
   groupTimelinePublicaciones,
+  pickFotoEvaluadaParaReeval,
   type GaleriaPublicacion,
 } from "@/lib/galeria-publicaciones";
 import { galeriaKeys, prefetchGaleriaTimeline, prefetchGaleriaPdvDetalle } from "@/lib/galeria-queries";
@@ -21,6 +22,7 @@ import { GaleriaPdvInsightPanel } from "./GaleriaPdvInsightPanel";
 import { useGaleriaViewerNav, type GaleriaViewerNavTarget } from "@/hooks/useGaleriaViewerNav";
 import type { GaleriaMapaPin } from "@/lib/api";
 import { formatGaleriaFechaVisita } from "@/lib/fecha-ar";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface GaleriaExhibicionViewerProps {
   open: boolean;
@@ -57,6 +59,7 @@ export function GaleriaExhibicionViewer({
   mapPins = [],
 }: GaleriaExhibicionViewerProps) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const carouselRef = useRef<GaleriaCarouselHandle>(null);
 
   const [idCliente, setIdCliente] = useState<number | null>(initialIdCliente);
@@ -168,7 +171,10 @@ export function GaleriaExhibicionViewer({
       onPhotoNext: () => carouselRef.current?.photoNext(),
     });
 
-  const activeFoto = currentPub?.fotos[0] ?? null;
+  const activeFoto = useMemo(
+    () => (currentPub ? pickFotoEvaluadaParaReeval(currentPub.fotos) : null),
+    [currentPub],
+  );
   const visitaTsHeader = currentPub?.fotos.reduce<string | null>((acc, f) => {
     const ts = f.timestamp_subida?.trim();
     if (!ts) return acc;
@@ -178,8 +184,11 @@ export function GaleriaExhibicionViewer({
   const visitaFechaHeader = currentPub
     ? formatGaleriaFechaVisita(currentPub.dia_ar, visitaTsHeader)
     : null;
-  const needsReevaluar =
-    canReevaluarCompania && activeFoto && activeFoto.estado !== "Pendiente";
+  const puedeReevaluarCompania =
+    canReevaluarCompania ||
+    Boolean(user?.is_superadmin) ||
+    ["compania", "directorio"].includes((user?.rol ?? "").toLowerCase());
+  const needsReevaluar = puedeReevaluarCompania && activeFoto != null;
 
   const mesLabel = mesGaleria ? formatGaleriaMesLabel(mesGaleria) : undefined;
 
@@ -247,14 +256,28 @@ export function GaleriaExhibicionViewer({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 shrink-0"
-              aria-label="Cerrar"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {needsReevaluar && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-9 text-xs border-white/30 text-white hover:bg-white/15 bg-black/35 backdrop-blur-md shrink-0"
+                  onClick={() => setReevalOpen(true)}
+                >
+                  <RotateCcw size={13} />
+                  <span className="hidden sm:inline">Re-evaluar (Compañía)</span>
+                  <span className="sm:hidden">Re-evaluar</span>
+                </Button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center hover:bg-black/60 shrink-0"
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 min-h-0 relative rounded-t-2xl md:rounded-none overflow-hidden mx-2 md:mx-4 mb-2 md:mb-4 shadow-2xl ring-1 ring-white/10 bg-black/30 backdrop-blur-sm">
@@ -290,81 +313,71 @@ export function GaleriaExhibicionViewer({
           className={cn(
             "pointer-events-auto shrink-0 w-full md:w-[min(440px,38vw)] lg:w-[440px]",
             "bg-black/60 backdrop-blur-xl border-t md:border-t-0 md:border-l border-white/10",
-            "max-h-[48vh] md:max-h-none md:h-full overflow-hidden",
+            "max-h-[48vh] md:max-h-none md:h-full",
+            "flex flex-col min-h-0 overflow-hidden",
           )}
         >
-          <GaleriaPdvInsightPanel
-            distId={distId}
-            idClienteErp={idClienteErp}
-            nombreCliente={nombreCliente}
-            currentPub={currentPub}
-            fechaDesde={fechaDesde}
-            fechaHasta={fechaHasta}
-            mesLabel={mesLabel}
-            totalVisitas={publicaciones.length}
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <GaleriaPdvInsightPanel
+              distId={distId}
+              idClienteErp={idClienteErp}
+              nombreCliente={nombreCliente}
+              currentPub={currentPub}
+              fechaDesde={fechaDesde}
+              fechaHasta={fechaHasta}
+              mesLabel={mesLabel}
+              totalVisitas={publicaciones.length}
+              className="h-auto overflow-visible"
+            />
 
-          {publicaciones.length > 1 && (
-            <div className="hidden md:block px-4 pb-3 border-t border-white/10 max-h-36 overflow-y-auto">
-              <p className="text-[10px] text-white/45 uppercase tracking-widest py-2">
-                Historial ({publicaciones.length})
-              </p>
-              <div className="space-y-1">
-                {publicaciones.map((p, i) => (
-                  <button
-                    key={p.dia_ar}
-                    type="button"
-                    onClick={() => handlePublicacionChange(i, p)}
-                    className={cn(
-                      "w-full text-left text-[11px] px-2 py-1.5 rounded-lg transition-colors",
-                      i === currentPubIdx
-                        ? "bg-white/15 text-white"
-                        : "text-white/50 hover:bg-white/10",
-                    )}
-                  >
-                    {formatGaleriaFechaVisita(p.dia_ar).fecha} · {p.total_fotos}f
-                  </button>
-                ))}
+            {publicaciones.length > 1 && (
+              <div className="hidden md:block px-4 pb-3 border-t border-white/10 max-h-36 overflow-y-auto">
+                <p className="text-[10px] text-white/45 uppercase tracking-widest py-2">
+                  Historial ({publicaciones.length})
+                </p>
+                <div className="space-y-1">
+                  {publicaciones.map((p, i) => (
+                    <button
+                      key={p.dia_ar}
+                      type="button"
+                      onClick={() => handlePublicacionChange(i, p)}
+                      className={cn(
+                        "w-full text-left text-[11px] px-2 py-1.5 rounded-lg transition-colors",
+                        i === currentPubIdx
+                          ? "bg-white/15 text-white"
+                          : "text-white/50 hover:bg-white/10",
+                      )}
+                    >
+                      {formatGaleriaFechaVisita(p.dia_ar).fecha} · {p.total_fotos}f
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {publicaciones.length > 1 && (
-            <div className="px-4 pb-4 md:hidden border-t border-white/10 max-h-24 overflow-y-auto">
-              <p className="text-[10px] text-white/45 uppercase tracking-widest py-2">Historial</p>
-              <div className="flex gap-2 overflow-x-auto">
-                {publicaciones.map((p, i) => (
-                  <button
-                    key={p.dia_ar}
-                    type="button"
-                    onClick={() => handlePublicacionChange(i, p)}
-                    className={cn(
-                      "shrink-0 text-[10px] px-2 py-1 rounded-full border",
-                      i === currentPubIdx
-                        ? "bg-white/20 border-white/40 text-white"
-                        : "border-white/15 text-white/50",
-                    )}
-                  >
-                    {formatGaleriaFechaVisita(p.dia_ar).fecha}
-                  </button>
-                ))}
+            {publicaciones.length > 1 && (
+              <div className="px-4 pb-4 md:hidden border-t border-white/10 max-h-24 overflow-y-auto">
+                <p className="text-[10px] text-white/45 uppercase tracking-widest py-2">Historial</p>
+                <div className="flex gap-2 overflow-x-auto">
+                  {publicaciones.map((p, i) => (
+                    <button
+                      key={p.dia_ar}
+                      type="button"
+                      onClick={() => handlePublicacionChange(i, p)}
+                      className={cn(
+                        "shrink-0 text-[10px] px-2 py-1 rounded-full border",
+                        i === currentPubIdx
+                          ? "bg-white/20 border-white/40 text-white"
+                          : "border-white/15 text-white/50",
+                      )}
+                    >
+                      {formatGaleriaFechaVisita(p.dia_ar).fecha}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-
-          {needsReevaluar && (
-            <div className="px-4 pb-4 pt-0 border-t border-white/10 hidden md:block">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full gap-1.5 h-9 text-xs border-white/25 text-white hover:bg-white/10 bg-transparent mt-3"
-                onClick={() => setReevalOpen(true)}
-              >
-                <RotateCcw size={13} />
-                Re-evaluar (Compañía)
-              </Button>
-            </div>
-          )}
+            )}
+          </div>
         </aside>
       </div>
 

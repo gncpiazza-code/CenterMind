@@ -19,10 +19,39 @@ export interface GaleriaPublicacion {
 
 const ESTADO_SCORE: Record<string, number> = {
   Destacado: 3,
+  Destacada: 3,
   Aprobado: 2,
+  Aprobada: 2,
   Rechazado: 1,
+  Rechazada: 1,
   Pendiente: 0,
 };
+
+export function scoreEstadoExhibicion(estado: string | null | undefined): number {
+  const key = (estado ?? "").trim();
+  if (!key) return 0;
+  return ESTADO_SCORE[key] ?? ESTADO_SCORE[key[0]?.toUpperCase() + key.slice(1).toLowerCase()] ?? 0;
+}
+
+export function isEstadoExhibicionPendiente(estado: string | null | undefined): boolean {
+  return scoreEstadoExhibicion(estado) <= 0;
+}
+
+/** Foto con mayor score del día (la evaluación lógica vigente). */
+export function pickFotoEvaluadaParaReeval(
+  fotos: GaleriaFotoPublicacion[],
+): GaleriaFotoPublicacion | null {
+  let best: GaleriaFotoPublicacion | null = null;
+  let bestScore = 0;
+  for (const foto of fotos) {
+    const score = scoreEstadoExhibicion(foto.estado);
+    if (score > bestScore) {
+      bestScore = score;
+      best = foto;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
 
 type RawExhibicionRow = {
   id_exhibicion: number;
@@ -84,7 +113,7 @@ export function groupTimelinePublicaciones(
     let maxScore = -1;
     let estadoDia = "Pendiente";
     for (const foto of fotos) {
-      const score = ESTADO_SCORE[foto.estado] ?? 0;
+      const score = scoreEstadoExhibicion(foto.estado);
       if (score > maxScore) {
         maxScore = score;
         estadoDia = foto.estado;

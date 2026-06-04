@@ -39,20 +39,28 @@ WEBHOOK_URL = _normalize_webhook_url(os.environ.get("WEBHOOK_URL"))
 AR_OFFSET = "-3 hours"
 
 # CORS — orígenes permitidos
-CORS_ORIGINS = [
+_CORS_ORIGINS_BASE = [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
+    "https://shelfycenter.com",
+    "https://www.shelfycenter.com",
     "https://shelfycenter.vercel.app",
     "https://shelfy.vercel.app",
     # Alias estable de preview para branch development.
     "https://center-mind-git-development-gncpiazza-codes-projects.vercel.app",
 ]
+_extra = os.environ.get("CORS_ORIGINS_EXTRA", "")
+CORS_ORIGINS = _CORS_ORIGINS_BASE + [
+    o.strip() for o in _extra.split(",") if o.strip()
+]
 
-# Regex para previews efímeros de Vercel de este proyecto.
-# Ejemplo: https://center-mind-ptzdp1k6s-gncpiazza-codes-projects.vercel.app
-CORS_ALLOW_ORIGIN_REGEX = r"^https://center-mind-[a-z0-9-]+-gncpiazza-codes-projects\.vercel\.app$"
+# Regex: previews Vercel + subdominios shelfycenter.com (Cloudflare / custom domain).
+CORS_ALLOW_ORIGIN_REGEX = (
+    r"^https://center-mind-[a-z0-9-]+-gncpiazza-codes-projects\.vercel\.app$"
+    r"|^https://([a-z0-9-]+\.)?shelfycenter\.com$"
+)
 
 # JWT library — opcional; si no está instalada /auth/login no estará disponible
 try:

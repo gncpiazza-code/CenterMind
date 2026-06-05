@@ -459,3 +459,26 @@ export function resolveObjetivoMes(o: Objetivo): string | null {
   if (o.fecha_inicio) return String(o.fecha_inicio).slice(0, 7);
   return o.created_at ? String(o.created_at).slice(0, 7) : null;
 }
+
+const MESES_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+] as const;
+
+/** Etiqueta legible para YYYY-MM (es-AR). */
+export function formatObjetivoMesLabel(mes: string): string {
+  const [y, m] = mes.split("-");
+  const idx = Number(m) - 1;
+  if (!y || idx < 0 || idx > 11) return mes;
+  return `${MESES_ES[idx]} ${y}`;
+}
+
+/** Meses distintos con al menos un objetivo, más reciente primero. */
+export function collectMesesConDatos(objetivos: Objetivo[]): string[] {
+  const set = new Set<string>();
+  for (const o of objetivos) {
+    const m = resolveObjetivoMes(o);
+    if (m) set.add(m);
+  }
+  return Array.from(set).sort((a, b) => b.localeCompare(a));
+}

@@ -4280,5 +4280,15 @@ export async function fetchLiquidacionPreview(distId: number, mes: string): Prom
 }
 
 export function getLiquidacionExportUrl(distId: number, mes: string): string {
-  return `/api/compania/objetivos/liquidacion/export.xlsx?dist_id=${distId}&mes=${encodeURIComponent(mes)}`;
+  return `${API_URL}/api/compania/objetivos/liquidacion/export.xlsx?dist_id=${distId}&mes=${encodeURIComponent(mes)}`;
+}
+
+export async function fetchLiquidacionExportBlob(distId: number, mes: string): Promise<Blob> {
+  const headers = getHeaders();
+  const res = await fetch(getLiquidacionExportUrl(distId, mes), { headers });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(errText || `liquidacion export error ${res.status}`);
+  }
+  return res.blob();
 }

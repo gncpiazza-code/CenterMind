@@ -29,10 +29,6 @@ import {
   fetchPDVCatalog,
   previewObjetivoTelegram,
   getWSUrl,
-  fetchLiquidacionConfig,
-  fetchLiquidacionPreview,
-  getLiquidacionExportUrl,
-  putLiquidacionConfig,
   type Objetivo,
   type ObjetivoCreate,
   type ObjetivoTipo,
@@ -43,7 +39,7 @@ import {
   type LiquidacionPreviewOut,
   type LiquidacionConfigOut,
 } from "@/lib/api";
-import { resolveObjetivoMes } from "@/lib/objetivo-utils";
+import { resolveObjetivoMes, collectMesesConDatos, formatObjetivoMesLabel } from "@/lib/objetivo-utils";
 import { ObjetivoLiquidacionPanel } from "@/components/objetivos/ObjetivoLiquidacionPanel";
 import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
 import { ObjetivoDetalleModal } from "@/components/objetivos/ObjetivoDetalleModal";
@@ -3363,6 +3359,10 @@ export default function ObjetivosPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }, []);
 
+  const mesesConDatos = useMemo(() => collectMesesConDatos(objetivos), [objetivos]);
+
+  const mesLiquidacion = filterMes ?? mesesConDatos[0] ?? currentMes;
+
   const canVerLiquidacion = user?.is_superadmin || user?.rol === 'compania';
 
   const kanbanGroups = useMemo(() => {
@@ -3569,25 +3569,21 @@ export default function ObjetivosPage() {
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
                 </div>
 
-                {/* Filtro por mes */}
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-[var(--shelfy-muted)] shrink-0" />
-                  <input
-                    type="month"
+                {/* Filtro por mes — solo meses con objetivos */}
+                <div className="relative">
+                  <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+                  <select
                     title="Filtrar por mes"
                     value={filterMes ?? ""}
                     onChange={e => setFilterMes(e.target.value || null)}
-                    className="bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  />
-                  {filterMes && (
-                    <button
-                      type="button"
-                      onClick={() => setFilterMes(null)}
-                      className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
+                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-8 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60 min-w-[10.5rem]"
+                  >
+                    <option value="">Todos los meses</option>
+                    {mesesConDatos.map(m => (
+                      <option key={m} value={m}>{formatObjetivoMesLabel(m)}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
                 </div>
 
               </div>
@@ -3691,8 +3687,7 @@ export default function ObjetivosPage() {
                   kanbanGroups={kanbanGroups}
                   canVerLiquidacion={canVerLiquidacion}
                   distId={distId}
-                  filterMes={filterMes}
-                  currentMes={currentMes}
+                  mesLiquidacion={mesLiquidacion}
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={handleDownloadCertificado}
@@ -3869,8 +3864,7 @@ function KanbanOrListaView({
   kanbanGroups,
   canVerLiquidacion,
   distId,
-  filterMes,
-  currentMes,
+  mesLiquidacion,
   onDelete,
   onReagendar,
   onDownloadCertificado,
@@ -3883,8 +3877,7 @@ function KanbanOrListaView({
   kanbanGroups: { planificado: Objetivo[]; pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[]; liquidacion: Objetivo[] };
   canVerLiquidacion: boolean;
   distId: number;
-  filterMes: string | null;
-  currentMes: string;
+  mesLiquidacion: string;
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
@@ -3956,8 +3949,11 @@ function KanbanOrListaView({
               );
               return (
                 <>
+                  {col.key === "liquidacion" && canVerLiquidacion && (
+                    <ObjetivoLiquidacionPanel distId={distId} mes={mesLiquidacion} />
+                  )}
                   {compania.length > 0 && (
-                    <div className="space-y-2">
+                    <div className={`space-y-2 ${col.key === "liquidacion" ? "mt-3" : ""}`}>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600/80 px-1 pt-1">
                         Objetivos de Compañía
                       </p>
@@ -3979,14 +3975,6 @@ function KanbanOrListaView({
                       <AnimatePresence mode="popLayout">
                         {distribuidora.map(renderCard)}
                       </AnimatePresence>
-                    </div>
-                  )}
-                  {col.key === "liquidacion" && canVerLiquidacion && (
-                    <div className={`${items.length > 0 ? "border-t border-[var(--shelfy-border)]/50 pt-3 mt-2" : ""}`}>
-                      <ObjetivoLiquidacionPanel
-                        distId={distId}
-                        mes={filterMes ?? currentMes}
-                      />
                     </div>
                   )}
                 </>

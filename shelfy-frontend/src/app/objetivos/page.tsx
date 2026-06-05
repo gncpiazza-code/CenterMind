@@ -1135,8 +1135,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           nombre_vendedor: previewVendorName,
         });
         if (preview?.preview_html) {
-          const stripped = stripTelegramHtml(preview.preview_html);
-          setDesc(stripped);
+          setDesc(preview.preview_html);
           descWasAutoFilled.current = true;
         }
       } catch {
@@ -2504,7 +2503,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
 
             {showTelegramMessage && (
-              <aside className="shrink-0 w-full lg:w-[min(400px,42%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[220px] lg:min-h-0 lg:max-h-none">
+              <aside className="shrink-0 w-full lg:w-[min(420px,44%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[280px] lg:min-h-0 lg:max-h-none">
                 <div className="shrink-0 px-4 pt-4 pb-2 flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-[var(--shelfy-accent)] shrink-0" />
                   <div className="min-w-0">
@@ -2516,7 +2515,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                     </p>
                   </div>
                 </div>
-                <div className="flex-1 min-h-[200px] lg:min-h-0 flex flex-col px-4 pb-4">
+                <div className="flex-1 min-h-[240px] lg:min-h-0 flex flex-col px-4 pb-4">
                   <TelegramRichEditor
                     value={desc}
                     onChange={(val) => {

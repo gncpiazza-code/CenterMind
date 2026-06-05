@@ -182,6 +182,15 @@ interface MapaRutasProps {
 // ── Google Maps API Key ───────────────────────────────────────────────────────
 const GMAPS_KEY = getGoogleMapsApiKey();
 
+const ROUTE_POLYGON_STYLE: google.maps.PolygonOptions = {
+  fillColor: '#8b5cf6',
+  fillOpacity: 0.18,
+  strokeColor: '#8b5cf6',
+  strokeWeight: 2,
+  editable: false,
+  clickable: false,
+};
+
 async function loadGmaps() {
   await loadGoogleMapsFull();
 }
@@ -264,8 +273,10 @@ export default function MapaRutas({
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
-  const drawingMgrRef = useRef<google.maps.drawing.DrawingManager | null>(null);
   const drawnPolyRef  = useRef<google.maps.Polygon[]>([]);
+  const activeDrawPathRef = useRef<google.maps.LatLng[]>([]);
+  const previewPolylineRef = useRef<google.maps.Polyline | null>(null);
+  const drawListenersRef = useRef<google.maps.MapsEventListener[]>([]);
   const fittedRef     = useRef(false);
 
   const [mapLoaded,    setMapLoaded]    = useState(false);
@@ -275,6 +286,7 @@ export default function MapaRutas({
   const [noKey,        setNoKey]        = useState(false);
   const [authFailed,   setAuthFailed]   = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
+  const [activeVertexCount, setActiveVertexCount] = useState(0);
   const [pinConfig, setPinConfig] = useState({ pin_size_activo: 35, pin_size_inactivo: 24 });
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -563,73 +575,108 @@ export default function MapaRutas({
     });
   }, [selectedPDVs, filteredPines, mapLoaded, pinConfig]);
 
-  // ── Drawing Manager (Armar Ruta mode) ─────────────────────────────────────
+  const clearActiveDrawPreview = useCallback(() => {
+    activeDrawPathRef.current = [];
+    previewPolylineRef.current?.setMap(null);
+    previewPolylineRef.current = null;
+    setActiveVertexCount(0);
+  }, []);
+
+  const applyPolygonSelection = useCallback((polygon: google.maps.Polygon) => {
+    const pdvIds: number[] = [];
+    filteredPinesRef.current.forEach(p => {
+      if (!p.lat || !p.lng) return;
+      const point = new window.google.maps.LatLng(p.lat, p.lng);
+      if (window.google.maps.geometry.poly.containsLocation(point, polygon)) {
+        pdvIds.push(p.id);
+      }
+    });
+
+    const path = polygon.getPath();
+    const coords: number[][] = path.getArray().map((ll: google.maps.LatLng) => [ll.lng(), ll.lat()]);
+    if (coords.length > 0) coords.push(coords[0]);
+    const geoJson: DrawnPolygon['geoJson'] = {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [coords] },
+      properties: {},
+    };
+
+    onPolygonSelectionChange?.(pdvIds, geoJson);
+  }, [onPolygonSelectionChange]);
+
+  const finishActivePolygon = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || !window.google) return;
+    const path = activeDrawPathRef.current;
+    if (path.length < 3) return;
+
+    previewPolylineRef.current?.setMap(null);
+    previewPolylineRef.current = null;
+
+    const polygon = new window.google.maps.Polygon({
+      paths: path,
+      map,
+      ...ROUTE_POLYGON_STYLE,
+    });
+    drawnPolyRef.current.push(polygon);
+    setPolygonCount(c => c + 1);
+    applyPolygonSelection(polygon);
+
+    activeDrawPathRef.current = [];
+    setActiveVertexCount(0);
+  }, [applyPolygonSelection]);
+
+  // ── Dibujo manual de polígono (reemplaza DrawingManager deprecado en Maps 3.65+) ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
 
+    const removeDrawListeners = () => {
+      drawListenersRef.current.forEach(l => l.remove());
+      drawListenersRef.current = [];
+    };
+
     if (routeBuildEnabled) {
-      if (!drawingMgrRef.current) {
-        const dm = new window.google.maps.drawing.DrawingManager({
-          drawingMode: window.google.maps.drawing.OverlayType.POLYGON,
-          drawingControl: false,
-          polygonOptions: {
-            fillColor: '#8b5cf6',
-            fillOpacity: 0.18,
-            strokeColor: '#8b5cf6',
-            strokeWeight: 2,
-            editable: false,
-            clickable: false,
-          },
+      map.setOptions({ draggableCursor: 'crosshair', disableDoubleClickZoom: true });
+
+      const clickL = map.addListener('click', (e: google.maps.MapMouseEvent) => {
+        const latLng = e.latLng;
+        if (!latLng) return;
+        activeDrawPathRef.current.push(latLng);
+        setActiveVertexCount(activeDrawPathRef.current.length);
+
+        previewPolylineRef.current?.setMap(null);
+        previewPolylineRef.current = new window.google.maps.Polyline({
+          path: activeDrawPathRef.current,
+          map,
+          strokeColor: '#8b5cf6',
+          strokeWeight: 2,
+          strokeOpacity: 0.9,
         });
+      });
 
-        window.google.maps.event.addListener(dm, 'polygoncomplete', (polygon: google.maps.Polygon) => {
-          drawnPolyRef.current.push(polygon);
-          setPolygonCount(c => c + 1);
+      const dblL = map.addListener('dblclick', (e: google.maps.MapMouseEvent) => {
+        e.stop();
+        finishActivePolygon();
+      });
 
-          // Spatial containment: find only VISIBLE PDVs (respects filter toggles)
-          const pdvIds: number[] = [];
-          filteredPinesRef.current.forEach(p => {
-            if (!p.lat || !p.lng) return;
-            const point = new window.google.maps.LatLng(p.lat, p.lng);
-            if (window.google.maps.geometry.poly.containsLocation(point, polygon)) {
-              pdvIds.push(p.id);
-            }
-          });
-
-          // Build GeoJSON Feature<Polygon>
-          const path = polygon.getPath();
-          const coords: number[][] = path.getArray().map((ll: google.maps.LatLng) => [ll.lng(), ll.lat()]);
-          if (coords.length > 0) coords.push(coords[0]); // close ring
-          const geoJson: DrawnPolygon['geoJson'] = {
-            type: 'Feature',
-            geometry: { type: 'Polygon', coordinates: [coords] },
-            properties: {},
-          };
-
-          onPolygonSelectionChange?.(pdvIds, geoJson);
-
-          // Switch back to pan mode after drawing
-          dm.setDrawingMode(null);
-        });
-
-        dm.setMap(map);
-        drawingMgrRef.current = dm;
-      } else {
-        drawingMgrRef.current.setMap(map);
-        drawingMgrRef.current.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
-      }
+      drawListenersRef.current = [clickL, dblL];
     } else {
-      if (drawingMgrRef.current) {
-        drawingMgrRef.current.setMap(null);
-        drawingMgrRef.current.setDrawingMode(null);
-      }
-      // Clear drawn polygons from map
+      removeDrawListeners();
+      map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+      clearActiveDrawPreview();
       drawnPolyRef.current.forEach(p => p.setMap(null));
       drawnPolyRef.current = [];
       setPolygonCount(0);
     }
-  }, [routeBuildEnabled, mapLoaded, pines, onPolygonSelectionChange]);
+
+    return () => {
+      removeDrawListeners();
+      if (mapRef.current) {
+        mapRef.current.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+      }
+    };
+  }, [routeBuildEnabled, mapLoaded, finishActivePolygon, clearActiveDrawPreview]);
 
   // ── ESC to exit fullscreen ────────────────────────────────────────────────
   useEffect(() => {
@@ -642,9 +689,10 @@ export default function MapaRutas({
   const clearPolygons = useCallback(() => {
     drawnPolyRef.current.forEach(p => p.setMap(null));
     drawnPolyRef.current = [];
+    clearActiveDrawPreview();
     setPolygonCount(0);
     onPolygonSelectionChange?.([], { type: 'Feature', geometry: { type: 'Polygon', coordinates: [] }, properties: {} });
-  }, [onPolygonSelectionChange]);
+  }, [onPolygonSelectionChange, clearActiveDrawPreview]);
 
   // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {
@@ -821,8 +869,20 @@ export default function MapaRutas({
             boxShadow: '0 4px 20px rgba(139,92,246,0.4)',
           }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-              ✏️ Dibujá un polígono para seleccionar PDVs
+              ✏️ Clic en el mapa para marcar vértices · doble clic o Cerrar para terminar
             </span>
+            {activeVertexCount >= 3 && (
+              <button
+                onClick={finishActivePolygon}
+                style={{
+                  background: 'rgba(255,255,255,0.95)', border: 'none',
+                  borderRadius: 6, color: '#6d28d9', fontSize: 10, fontWeight: 700,
+                  padding: '3px 10px', cursor: 'pointer',
+                }}
+              >
+                ✓ Cerrar polígono ({activeVertexCount})
+              </button>
+            )}
             {polygonCount > 0 && (
               <button
                 onClick={clearPolygons}

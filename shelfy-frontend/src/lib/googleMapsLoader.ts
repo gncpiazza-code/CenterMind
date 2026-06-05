@@ -91,12 +91,11 @@ export async function loadGoogleMapsLibrary(
   await importLibrary(lib);
 }
 
-/** Carga maps + drawing + geometry (MapaRutas). */
+/** Carga maps + geometry (MapaRutas — sin drawing library, deprecada en Maps 3.65+). */
 export async function loadGoogleMapsFull(): Promise<void> {
   const key = readGoogleMapsApiKey();
   if (!key && !isGoogleMapsAlreadyLoaded()) throw new Error("NO_GOOGLE_MAPS_KEY");
   ensureGoogleMapsConfigured();
   await importLibrary("maps");
-  await importLibrary("drawing");
   await importLibrary("geometry");
 }

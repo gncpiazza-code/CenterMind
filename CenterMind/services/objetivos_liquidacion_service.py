@@ -420,9 +420,14 @@ def compute_liquidacion(dist_id: int, mes_yyyy_mm: str) -> dict:
     # Filtrar por tipos activos (excluye cobranza y tipos sin tarifa)
     objs_todos_filtrados = [o for o in objs_todos if o.get("tipo") in tipos_activos]
 
-    # 5. Construir detalle por vendedor×objetivo
+    # 5. Construir detalle por vendedor×objetivo (dedup por id — terminados del mes ∪ liquidación)
     vendedor_rows: list[dict] = []
+    seen_obj_ids: set[str] = set()
     for obj in objs_cumplidos:
+        obj_id = str(obj.get("id") or "")
+        if not obj_id or obj_id in seen_obj_ids:
+            continue
+        seen_obj_ids.add(obj_id)
         id_vend = _safe_int(obj.get("id_vendedor"))
         tipo = str(obj.get("tipo") or "")
         meta = _safe_float(obj.get("valor_objetivo"))
@@ -803,13 +808,13 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
 def archivar_terminados_compania_7d(dist_id: int | None = None) -> dict:
     """
     Job de limpieza: marca liquidacion_at en objetivos compañía cumplidos
-    hace más de 7 días y aún sin liquidacion_at.
+    cuya fecha límite (fecha_objetivo) tiene al menos 7 días de antigüedad
+    y aún sin liquidacion_at.
 
     Si dist_id es None, recorre todos los distribuidores.
     """
     now_utc = datetime.now(timezone.utc)
-    cutoff = now_utc - timedelta(days=7)
-    cutoff_iso = cutoff.isoformat()
+    cutoff_fecha_limite = (now_utc.date() - timedelta(days=7)).isoformat()
     now_iso = now_utc.isoformat()
 
     # Obtener distribuidores a procesar
@@ -853,7 +858,7 @@ def archivar_terminados_compania_7d(dist_id: int | None = None) -> dict:
                     .eq("id_distribuidor", d_id)
                     .eq("origen", "compania")
                     .eq("cumplido", True)
-                    .lt("completed_at", cutoff_iso)
+                    .lte("fecha_objetivo", cutoff_fecha_limite)
                     .is_("liquidacion_at", "null")
                     .range(offset, offset + PAGE - 1)
                     .execute()

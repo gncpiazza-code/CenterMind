@@ -233,6 +233,13 @@ function daysSince(d: string | null | undefined): number | null {
   return Math.floor(diff / 86400000);
 }
 
+/** Compañía: elegible para columna Liquidación tras 7d desde fecha límite (fecha_objetivo). */
+function pasoPlazoLiquidacion(obj: Objetivo): boolean {
+  if (obj.origen !== "compania") return false;
+  const dias = daysSince(obj.fecha_objetivo);
+  return dias !== null && dias >= 7;
+}
+
 function monthEndISO(monthRef: string): string {
   const [y, m] = monthRef.split("-").map(Number);
   if (!y || !m) return "";
@@ -733,7 +740,7 @@ function KanbanCard({ obj, onDelete, onOpenDetalle }: {
             )}
             {obj.resultado_final === "falla" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 font-semibold border border-red-500/20">
-                Sin completar
+                No cumplido
               </span>
             )}
             {obj.alteo_con_venta && (
@@ -816,7 +823,12 @@ function KanbanCard({ obj, onDelete, onOpenDetalle }: {
         <div className="flex items-center gap-1.5 flex-wrap pt-1" onClick={(e) => e.stopPropagation()}>
           <DateBadge date={obj.created_at} label="Inicio" type="start" />
           <DateBadge date={obj.fecha_objetivo} label="Fin" type="end" />
-          {obj.cumplido && <DateBadge date={obj.completed_at || obj.updated_at} label="Cumplido" type="done" />}
+          {obj.cumplido && obj.resultado_final === "exito" && (
+            <DateBadge date={obj.completed_at || obj.updated_at} label="Cumplido" type="done" />
+          )}
+          {obj.cumplido && obj.resultado_final === "falla" && (
+            <DateBadge date={obj.completed_at || obj.updated_at} label="Cerrado" type="end" />
+          )}
         </div>
       </div>
     </motion.div>
@@ -3367,9 +3379,9 @@ export default function ObjetivosPage() {
 
     const allTerminados = filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado');
 
-    // Liquidación (compañía/superadmin): objetivos compañía terminados — exclusivos de esta columna
+    // Liquidación: compañía terminados con ≥7d desde fecha límite (fecha_objetivo)
     const liquidacionObjs = userCanLiq
-      ? allTerminados.filter(o => o.origen === 'compania')
+      ? allTerminados.filter(pasoPlazoLiquidacion)
       : [];
     const liquidacionIds = new Set(liquidacionObjs.map(o => o.id));
 
@@ -3378,12 +3390,8 @@ export default function ObjetivosPage() {
       if (liquidacionIds.has(o.id)) return false;
 
       if (o.origen === 'compania') {
-        // Tenant: ocultar tras 7d o archivados; con filtro de mes sí se muestran
-        if (!filterMes) {
-          if (o.liquidacion_at) return false;
-          const dias = daysSince(o.completed_at || o.updated_at);
-          if (dias !== null && dias > 7) return false;
-        }
+        // Tenant: ocultar tras plazo de liquidación; con filtro de mes sí se muestran
+        if (!filterMes && (o.liquidacion_at || pasoPlazoLiquidacion(o))) return false;
       }
       return true;
     });

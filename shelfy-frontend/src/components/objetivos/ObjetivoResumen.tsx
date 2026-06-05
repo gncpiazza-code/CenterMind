@@ -93,9 +93,14 @@ export function ObjetivoResumen({
               Compañía
             </span>
           )}
-          {obj.cumplido && (
+          {obj.cumplido && obj.resultado_final === "exito" && (
             <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-600">
               Cumplido
+            </span>
+          )}
+          {obj.cumplido && obj.resultado_final === "falla" && (
+            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/10 border border-red-500/20 text-red-600">
+              No cumplido
             </span>
           )}
           <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--shelfy-text)] ml-0.5">
@@ -175,9 +180,14 @@ export function ObjetivoResumen({
             Compañía
           </span>
         )}
-        {obj.cumplido && (
+        {obj.cumplido && obj.resultado_final === "exito" && (
           <span className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-600">
             Cumplido
+          </span>
+        )}
+        {obj.cumplido && obj.resultado_final === "falla" && (
+          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-600">
+            No cumplido
           </span>
         )}
       </div>

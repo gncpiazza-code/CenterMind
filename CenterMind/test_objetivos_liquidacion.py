@@ -196,13 +196,13 @@ class TestBonusMandoMedio:
 
 class TestArchivarTerminados7d:
     def test_objetivo_mayor_7d_recibe_liquidacion_at(self):
-        """Objetivo cumplido hace >7d y sin liquidacion_at → recibe liquidacion_at."""
+        """Objetivo con fecha límite >7d atrás y sin liquidacion_at → recibe liquidacion_at."""
         ahora = datetime.now(timezone.utc)
-        completed_at_antiguo = (ahora - timedelta(days=8)).isoformat()
+        fecha_limite_antigua = (ahora.date() - timedelta(days=8)).isoformat()
 
         obj_antiguo = {
             "id": "obj1",
-            "completed_at": completed_at_antiguo,
+            "fecha_objetivo": fecha_limite_antigua,
             "liquidacion_at": None,
         }
 
@@ -210,7 +210,7 @@ class TestArchivarTerminados7d:
         mock_q.select.return_value = mock_q
         mock_q.eq.return_value = mock_q
         mock_q.is_.return_value = mock_q
-        mock_q.lt.return_value = mock_q
+        mock_q.lte.return_value = mock_q
         mock_q.range.return_value = mock_q
         mock_q.execute.return_value = MagicMock(data=[obj_antiguo])
 
@@ -242,13 +242,13 @@ class TestArchivarTerminados7d:
         assert result.get("archivados", 0) >= 0  # la función no falla
 
     def test_objetivo_reciente_no_archiva(self):
-        """Objetivo cumplido hace <7d → NO recibe liquidacion_at."""
+        """Objetivo con fecha límite <7d → NO recibe liquidacion_at."""
         ahora = datetime.now(timezone.utc)
-        completed_at_reciente = (ahora - timedelta(days=2)).isoformat()
+        fecha_limite_reciente = (ahora.date() - timedelta(days=2)).isoformat()
 
         obj_reciente = {
             "id": "obj2",
-            "completed_at": completed_at_reciente,
+            "fecha_objetivo": fecha_limite_reciente,
             "liquidacion_at": None,
         }
 
@@ -257,12 +257,12 @@ class TestArchivarTerminados7d:
         def mock_table(table_name):
             m = MagicMock()
             if table_name == "objetivos":
-                # La query debería filtrar completed_at < (ahora - 7d) y no retornar obj_reciente
+                # La query filtra fecha_objetivo <= (hoy - 7d) y no retorna obj_reciente
                 mock_q = MagicMock()
                 mock_q.select.return_value = mock_q
                 mock_q.eq.return_value = mock_q
                 mock_q.is_.return_value = mock_q
-                mock_q.lt.return_value = mock_q
+                mock_q.lte.return_value = mock_q
                 mock_q.range.return_value = mock_q
                 mock_q.execute.return_value = MagicMock(data=[])  # sin resultados
                 m.select.return_value = mock_q

@@ -529,7 +529,7 @@ export default function SupervisionPage() {
                               if (!distId || !cuentasData?.vendedores?.length) return;
                               void openCuentasCorrientesPrintWindow({
                                 distId,
-                                sucursal: selectedSucursal ?? undefined,
+                                sucursal: sucursalParam,
                                 fecha: cuentasData.fecha ?? undefined,
                                 vendedor: selectedVendedorNombre ?? undefined,
                                 idVendedor: selectedVendedorId ?? undefined,

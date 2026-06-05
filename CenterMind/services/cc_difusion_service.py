@@ -61,6 +61,16 @@ def _norm(s: Any) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^A-Z0-9 ]", "", t)).strip()
 
 
+def _resolve_sucursal_filter(sucursal: str | None) -> str | None:
+    """Ignora sentinels del portal (__all__, vacío) para no vaciar el snapshot."""
+    if not sucursal:
+        return None
+    s = sucursal.strip()
+    if not s or s.lower() in ("__all__", "todas", "todas las sucursales", "all"):
+        return None
+    return s
+
+
 # ─── Rangos de antigüedad (mismo criterio que cuentas_parser / ingesta CC) ───
 
 _RANGO_LABELS = ("1-7 Días", "8-15 Días", "16-21 Días", "22-30 Días", "+30 Días")
@@ -1014,6 +1024,7 @@ def difundir_cc_telegram(
         return {"enviados": [], "errores": [{"vendedor": "—", "error": "Sin datos de CC para este distribuidor"}], "fecha_snapshot": None}
 
     # Filtrar por sucursal si se especificó
+    sucursal = _resolve_sucursal_filter(sucursal)
     if sucursal:
         t_suc = tenant_table_name("sucursales_v2", dist_id)
         t_vend = tenant_table_name("vendedores_v2", dist_id)
@@ -1079,6 +1090,7 @@ def export_cc_pdf_supervision(
     if not fecha_snapshot or not all_rows:
         raise ValueError("Sin datos de cuentas corrientes para este distribuidor")
 
+    sucursal = _resolve_sucursal_filter(sucursal)
     if sucursal:
         t_suc = tenant_table_name("sucursales_v2", dist_id)
         t_vend = tenant_table_name("vendedores_v2", dist_id)
@@ -1109,7 +1121,18 @@ def export_cc_pdf_supervision(
     vendors = _group_by_vendor(all_rows)
 
     if id_vendedor is not None:
-        vendors = {id_vendedor: vendors[id_vendedor]} if id_vendedor in vendors else {}
+        if id_vendedor in vendors:
+            vendors = {id_vendedor: vendors[id_vendedor]}
+        elif vendedor:
+            target = _norm(vendedor)
+            matched: dict = {}
+            for vid, vd in vendors.items():
+                raw_name = vd.get("vendedor_nombre") or ""
+                if _norm(raw_name) == target or _norm(_extract_display_name(raw_name)) == target:
+                    matched[vid] = vd
+            vendors = matched
+        else:
+            vendors = {}
     elif vendedor:
         target = _norm(vendedor)
         matched: dict = {}

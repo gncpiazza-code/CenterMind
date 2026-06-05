@@ -191,6 +191,9 @@ const ROUTE_POLYGON_STYLE: google.maps.PolygonOptions = {
   clickable: false,
 };
 
+/** Distancia mínima entre puntos al dibujar arrastrando (freehand). */
+const FREEHAND_SAMPLE_METERS = 10;
+
 async function loadGmaps() {
   await loadGoogleMapsFull();
 }
@@ -276,6 +279,8 @@ export default function MapaRutas({
   const drawnPolyRef  = useRef<google.maps.Polygon[]>([]);
   const activeDrawPathRef = useRef<google.maps.LatLng[]>([]);
   const previewPolylineRef = useRef<google.maps.Polyline | null>(null);
+  const previewPolygonRef = useRef<google.maps.Polygon | null>(null);
+  const isDrawingRef = useRef(false);
   const drawListenersRef = useRef<google.maps.MapsEventListener[]>([]);
   const fittedRef     = useRef(false);
 
@@ -445,6 +450,7 @@ export default function MapaRutas({
       const marker = new window.google.maps.Marker({
         position: { lat: p.lat, lng: p.lng },
         map,
+        clickable: !routeBuildEnabled,
         icon: {
           url: iconUrl,
           scaledSize: new window.google.maps.Size(iconSize, iconSize),
@@ -550,7 +556,7 @@ export default function MapaRutas({
       map.fitBounds(bounds, 60);
       if (conCoords.length === 1) map.setZoom(14);
     }
-  }, [filteredPines, mapLoaded, onTogglePDV, pinConfig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredPines, mapLoaded, onTogglePDV, pinConfig, routeBuildEnabled]);
 
   // ── Update selection style without recreating markers ─────────────────────
   useEffect(() => {
@@ -577,9 +583,62 @@ export default function MapaRutas({
 
   const clearActiveDrawPreview = useCallback(() => {
     activeDrawPathRef.current = [];
+    isDrawingRef.current = false;
     previewPolylineRef.current?.setMap(null);
-    previewPolylineRef.current = null;
+    previewPolygonRef.current?.setMap(null);
     setActiveVertexCount(0);
+    if (mapRef.current) {
+      mapRef.current.setOptions({ draggable: true });
+    }
+  }, []);
+
+  const updateDrawPreview = useCallback((cursor?: google.maps.LatLng | null) => {
+    const map = mapRef.current;
+    if (!map || !window.google?.maps) return;
+
+    const verts = activeDrawPathRef.current;
+    if (verts.length === 0) {
+      previewPolylineRef.current?.setMap(null);
+      previewPolygonRef.current?.setMap(null);
+      return;
+    }
+
+    const path = cursor ? [...verts, cursor] : [...verts];
+    if (path.length < 2) return;
+
+    if (!previewPolylineRef.current) {
+      previewPolylineRef.current = new window.google.maps.Polyline({
+        path,
+        map,
+        strokeColor: '#8b5cf6',
+        strokeWeight: 3,
+        strokeOpacity: 1,
+        zIndex: 2000,
+        clickable: false,
+      });
+    } else {
+      previewPolylineRef.current.setPath(path);
+      previewPolylineRef.current.setMap(map);
+    }
+
+    if (path.length >= 3) {
+      if (!previewPolygonRef.current) {
+        previewPolygonRef.current = new window.google.maps.Polygon({
+          paths: path,
+          map,
+          fillColor: '#8b5cf6',
+          fillOpacity: 0.16,
+          strokeColor: '#8b5cf6',
+          strokeWeight: 2,
+          strokeOpacity: 0.85,
+          clickable: false,
+          zIndex: 1999,
+        });
+      } else {
+        previewPolygonRef.current.setPaths(path);
+        previewPolygonRef.current.setMap(map);
+      }
+    }
   }, []);
 
   const applyPolygonSelection = useCallback((polygon: google.maps.Polygon) => {
@@ -611,7 +670,7 @@ export default function MapaRutas({
     if (path.length < 3) return;
 
     previewPolylineRef.current?.setMap(null);
-    previewPolylineRef.current = null;
+    previewPolygonRef.current?.setMap(null);
 
     const polygon = new window.google.maps.Polygon({
       paths: path,
@@ -626,10 +685,10 @@ export default function MapaRutas({
     setActiveVertexCount(0);
   }, [applyPolygonSelection]);
 
-  // ── Dibujo manual de polígono (reemplaza DrawingManager deprecado en Maps 3.65+) ──
+  // ── Dibujo freehand (arrastrar) — reemplaza DrawingManager deprecado ───────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded || !window.google) return;
+    if (!map || !mapLoaded || !window.google?.maps?.geometry) return;
 
     const removeDrawListeners = () => {
       drawListenersRef.current.forEach(l => l.remove());
@@ -637,33 +696,58 @@ export default function MapaRutas({
     };
 
     if (routeBuildEnabled) {
+      infoWindowRef.current?.close();
       map.setOptions({ draggableCursor: 'crosshair', disableDoubleClickZoom: true });
+      markersMapRef.current.forEach(m => m.setClickable(false));
 
-      const clickL = map.addListener('click', (e: google.maps.MapMouseEvent) => {
+      const sampleIfFarEnough = (latLng: google.maps.LatLng) => {
+        const verts = activeDrawPathRef.current;
+        const last = verts[verts.length - 1];
+        if (!last) return true;
+        const dist = window.google.maps.geometry.spherical.computeDistanceBetween(last, latLng);
+        return dist >= FREEHAND_SAMPLE_METERS;
+      };
+
+      const downL = map.addListener('mousedown', (e: google.maps.MapMouseEvent) => {
         const latLng = e.latLng;
         if (!latLng) return;
-        activeDrawPathRef.current.push(latLng);
-        setActiveVertexCount(activeDrawPathRef.current.length);
-
-        previewPolylineRef.current?.setMap(null);
-        previewPolylineRef.current = new window.google.maps.Polyline({
-          path: activeDrawPathRef.current,
-          map,
-          strokeColor: '#8b5cf6',
-          strokeWeight: 2,
-          strokeOpacity: 0.9,
-        });
+        isDrawingRef.current = true;
+        map.setOptions({ draggable: false });
+        activeDrawPathRef.current = [latLng];
+        setActiveVertexCount(1);
+        updateDrawPreview(latLng);
       });
 
-      const dblL = map.addListener('dblclick', (e: google.maps.MapMouseEvent) => {
-        e.stop();
-        finishActivePolygon();
+      const moveL = map.addListener('mousemove', (e: google.maps.MapMouseEvent) => {
+        const latLng = e.latLng;
+        if (!latLng) return;
+        if (isDrawingRef.current) {
+          if (sampleIfFarEnough(latLng)) {
+            activeDrawPathRef.current.push(latLng);
+            setActiveVertexCount(activeDrawPathRef.current.length);
+          }
+          updateDrawPreview(latLng);
+        } else if (activeDrawPathRef.current.length > 0) {
+          updateDrawPreview(latLng);
+        }
       });
 
-      drawListenersRef.current = [clickL, dblL];
+      const upL = map.addListener('mouseup', () => {
+        if (!isDrawingRef.current) return;
+        isDrawingRef.current = false;
+        map.setOptions({ draggable: true });
+        if (activeDrawPathRef.current.length >= 3) {
+          finishActivePolygon();
+        } else {
+          clearActiveDrawPreview();
+        }
+      });
+
+      drawListenersRef.current = [downL, moveL, upL];
     } else {
       removeDrawListeners();
-      map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+      map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false, draggable: true });
+      markersMapRef.current.forEach(m => m.setClickable(true));
       clearActiveDrawPreview();
       drawnPolyRef.current.forEach(p => p.setMap(null));
       drawnPolyRef.current = [];
@@ -673,10 +757,11 @@ export default function MapaRutas({
     return () => {
       removeDrawListeners();
       if (mapRef.current) {
-        mapRef.current.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+        mapRef.current.setOptions({ draggableCursor: null, disableDoubleClickZoom: false, draggable: true });
       }
+      isDrawingRef.current = false;
     };
-  }, [routeBuildEnabled, mapLoaded, finishActivePolygon, clearActiveDrawPreview]);
+  }, [routeBuildEnabled, mapLoaded, finishActivePolygon, clearActiveDrawPreview, updateDrawPreview]);
 
   // ── ESC to exit fullscreen ────────────────────────────────────────────────
   useEffect(() => {
@@ -869,20 +954,8 @@ export default function MapaRutas({
             boxShadow: '0 4px 20px rgba(139,92,246,0.4)',
           }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-              ✏️ Clic en el mapa para marcar vértices · doble clic o Cerrar para terminar
+              ✏️ Mantené clic y arrastrá para dibujar la zona · soltá para confirmar
             </span>
-            {activeVertexCount >= 3 && (
-              <button
-                onClick={finishActivePolygon}
-                style={{
-                  background: 'rgba(255,255,255,0.95)', border: 'none',
-                  borderRadius: 6, color: '#6d28d9', fontSize: 10, fontWeight: 700,
-                  padding: '3px 10px', cursor: 'pointer',
-                }}
-              >
-                ✓ Cerrar polígono ({activeVertexCount})
-              </button>
-            )}
             {polygonCount > 0 && (
               <button
                 onClick={clearPolygons}

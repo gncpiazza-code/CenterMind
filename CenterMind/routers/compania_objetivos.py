@@ -12,6 +12,7 @@ Rutas:
   GET  /api/compania/objetivos/liquidacion/export.xlsx
 """
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -33,6 +34,19 @@ router = APIRouter()
 def _require_compania(user_payload: dict) -> None:
     """Lanza 403 si el usuario no es compañía ni superadmin."""
     require_compania_role(user_payload)
+
+
+def _jwt_updated_by_uuid(user_payload: dict) -> str | None:
+    """Solo devuelve updated_by si el claim del JWT es un UUID válido."""
+    for key in ("id_usuario", "sub"):
+        raw = user_payload.get(key)
+        if raw is None:
+            continue
+        try:
+            return str(uuid.UUID(str(raw)))
+        except (ValueError, AttributeError, TypeError):
+            continue
+    return None
 
 
 # ─── Config endpoints ─────────────────────────────────────────────────────────
@@ -64,14 +78,7 @@ def put_liquidacion_config(
 ):
     """Actualiza la configuración de tarifas y bono de mando medio."""
     _require_compania(payload)
-    updated_by = (
-        payload.get("id_usuario")
-        or payload.get("sub")
-        or None
-    )
-    # Convertir a str si es int para compatibilidad UUID
-    if updated_by is not None:
-        updated_by = str(updated_by)
+    updated_by = _jwt_updated_by_uuid(payload)
 
     from services.objetivos_liquidacion_service import put_config
     try:

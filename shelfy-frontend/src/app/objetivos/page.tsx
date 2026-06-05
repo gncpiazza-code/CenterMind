@@ -3498,12 +3498,7 @@ export default function ObjetivosPage() {
           </div>
 
           {canVerLiquidacion && viewMode === "kanban" && (
-            <ObjetivoLiquidacionToolbar
-              distId={distId}
-              mesesConDatos={mesesConDatos}
-              filterMes={filterMes}
-              onFilterMesChange={setFilterMes}
-            />
+            <ObjetivoLiquidacionToolbar distId={distId} filterMes={filterMes} />
           )}
 
           {/* Stats (hidden on dedicated stats/timeline/supervisor views) */}
@@ -3569,24 +3564,23 @@ export default function ObjetivosPage() {
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
                 </div>
 
-                {/* Filtro por mes (no compañía: selector en toolbar de liquidación) */}
-                {!canVerLiquidacion && (
-                  <div className="relative">
-                    <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
-                    <select
-                      title="Filtrar por mes"
-                      value={filterMes ?? ""}
-                      onChange={e => setFilterMes(e.target.value || null)}
-                      className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-8 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60 w-[11rem]"
-                    >
-                      <option value="">Todos los meses</option>
-                      {mesesConDatos.map(m => (
-                        <option key={m} value={m}>{formatObjetivoMesLabel(m)}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
-                  </div>
-                )}
+                {/* Filtro por mes — visible para todos los roles */}
+                <div className="relative">
+                  <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none z-10" />
+                  <select
+                    title="Filtrar por mes"
+                    aria-label="Filtrar por mes"
+                    value={filterMes ?? ""}
+                    onChange={e => setFilterMes(e.target.value || null)}
+                    className="appearance-none h-[38px] w-[11rem] rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] pl-8 pr-8 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  >
+                    <option value="">Todos los meses</option>
+                    {mesesConDatos.map(m => (
+                      <option key={m} value={m}>{formatObjetivoMesLabel(m)}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+                </div>
 
               </div>
 

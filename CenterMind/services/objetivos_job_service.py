@@ -151,16 +151,36 @@ def run_job(job_id: str, objetivo_id: str, dist_id: int) -> None:
             _update_job(job_id, PASO_DESGLOSE, error=str(e_watch)[:500], estado="error")
             return
 
-        # Paso telegram
+        # Paso telegram (post-retro; setea lanzado_at para próximas corridas del watcher)
         _update_job(job_id, PASO_TELEGRAM, _MENSAJES[PASO_TELEGRAM])
-        if origen != "compania" or obj.get("lanzado_at"):
+        if tipo != "ruteo":
             try:
-                from services.objetivos_notification_service import notify_objetivo_creado  # noqa: F401
-                notify_objetivo_creado(obj, dist_id)
-            except ImportError:
-                # notify_objetivo_creado no existe como función standalone; la
-                # notificación Telegram ya fue enviada inline en crear_objetivo.
-                logger.debug("[Job] notify_objetivo_creado no disponible (stub OK)")
+                from datetime import datetime, timezone
+
+                from services.objetivos_notification_service import objetivos_notification
+
+                refreshed = (
+                    sb.table("objetivos").select("*").eq("id", objetivo_id).limit(1).execute()
+                )
+                obj_fresh = (refreshed.data or [obj])[0]
+                notif_meta = objetivos_notification.notify_new_objective_telegram(
+                    dist_id, obj_fresh, obj_id=objetivo_id
+                )
+                ahora = datetime.now(timezone.utc).isoformat()
+                sb.table("objetivos").update({"lanzado_at": ahora}).eq("id", objetivo_id).execute()
+                if notif_meta and notif_meta.get("chat_id") and notif_meta.get("message_id"):
+                    sb.table("objetivos_tracking").upsert(
+                        {
+                            "id_objetivo": objetivo_id,
+                            "id_referencia": str(notif_meta["message_id"]),
+                            "tipo_evento": "telegram_objetivo_asignado",
+                            "metadata": {
+                                "chat_id": int(notif_meta["chat_id"]),
+                                "message_id": int(notif_meta["message_id"]),
+                            },
+                        },
+                        on_conflict="id_objetivo,id_referencia,tipo_evento",
+                    ).execute()
             except Exception as e_tg:
                 logger.warning("[Job] telegram error job=%s: %s", job_id, e_tg)
 

@@ -74,6 +74,25 @@ def _compania_retro_since(
         return default_since
 
 
+def _objetivo_listo_para_watcher(obj: dict) -> bool:
+    """
+    Distribuidora: requiere lanzado_at (objetivo notificado / activo).
+    Compañía: retroactividad desde mes_referencia si fecha_inicio <= hoy,
+    aunque aún no haya Telegram (lanzado_at NULL).
+    """
+    if obj.get("lanzado_at"):
+        return True
+    if _norm_origen(obj.get("origen")) != "compania":
+        return False
+    fi = str(obj.get("fecha_inicio") or "")[:10]
+    if not fi:
+        return True
+    try:
+        return date.fromisoformat(fi) <= date.today()
+    except ValueError:
+        return True
+
+
 class ObjetivosWatcherService:
     """
     Actualiza valor_actual mediante detección de diferencias.
@@ -112,8 +131,7 @@ class ObjetivosWatcherService:
 
             for obj in objetivos:
                 try:
-                    # Skip objetivos planificados aún no lanzados — sin avance antes del lanzamiento
-                    if not obj.get("lanzado_at"):
+                    if not _objetivo_listo_para_watcher(obj):
                         continue
 
                     result = self._process_objetivo(obj, dist_id)

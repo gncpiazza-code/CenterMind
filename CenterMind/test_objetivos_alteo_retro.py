@@ -1,5 +1,10 @@
 """Retroactividad compañía: alteo (ruteo_alteo) cuenta desde día 1 del mes_referencia."""
-from services.objetivos_watcher_service import _compania_retro_since
+from datetime import date, timedelta
+
+from services.objetivos_watcher_service import (
+    _compania_retro_since,
+    _objetivo_listo_para_watcher,
+)
 
 
 def test_alteo_compania_desde_primer_dia_mes():
@@ -37,3 +42,23 @@ def test_exhibicion_compania_timestamp():
         as_timestamp=True,
     )
     assert since == "2026-06-01T00:00:00"
+
+
+def test_watcher_compania_sin_lanzado_at_si_fecha_inicio_hoy():
+    hoy = date.today().isoformat()
+    assert _objetivo_listo_para_watcher(
+        {"origen": "compania", "fecha_inicio": hoy, "lanzado_at": None}
+    )
+
+
+def test_watcher_distribuidora_requiere_lanzado_at():
+    assert not _objetivo_listo_para_watcher(
+        {"origen": "distribuidora", "lanzado_at": None}
+    )
+
+
+def test_watcher_compania_planificado_futuro_no_procesa():
+    futuro = (date.today() + timedelta(days=3)).isoformat()
+    assert not _objetivo_listo_para_watcher(
+        {"origen": "compania", "fecha_inicio": futuro, "lanzado_at": None}
+    )

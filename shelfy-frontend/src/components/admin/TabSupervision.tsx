@@ -36,6 +36,7 @@ import {
   fetchReporteExhibiciones,
   resolveImageUrl,
   createObjetivoAsync,
+  previewObjetivoTelegram,
   type VendedorSupervision,
   type RutaSupervision,
   type ClienteSupervision,
@@ -79,6 +80,7 @@ import {
 import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 import { AltasCompradoresPanel } from "@/components/supervision/AltasCompradoresPanel";
 import { ObjetivoCreateProgress } from "@/components/objetivos/ObjetivoCreateProgress";
+import { TelegramRichEditor } from "@/components/objetivos/TelegramRichEditor";
 import {
   useAltasCompradoresQuery,
   usePrefetchAltasCompradores,
@@ -619,6 +621,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const setObjMesReferencia     = useObjetivosMenuStore(s => s.setObjMesReferencia);
   const objTasaPendientes       = useObjetivosMenuStore(s => s.objTasaPendientes);
   const setObjTasaPendientes    = useObjetivosMenuStore(s => s.setObjTasaPendientes);
+
+  const objDescWasAutoFilled = useRef(true);
+  const objPreviewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const objDescRef = useRef(objDesc);
+  objDescRef.current = objDesc;
 
   // ── CC Upload Dialog ──────────────────────────────────────────────────────
   type CCUploadStatus = "idle" | "uploading" | "polling" | "done" | "error";
@@ -1418,6 +1425,110 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     }
     return "";
   }
+
+  const selectedPdvsKey = selectedPDVsForObjective.join(",");
+
+  // Refrescar pre-mensaje al cambiar PDVs seleccionados
+  useEffect(() => {
+    objDescWasAutoFilled.current = true;
+  }, [selectedPdvsKey]);
+
+  useEffect(() => {
+    if (objTipo === "ruteo") {
+      setObjDesc("");
+      objDescWasAutoFilled.current = false;
+    }
+  }, [objTipo, setObjDesc]);
+
+  // Auto-fill mensaje Telegram (preview API — mismo flujo que /objetivos)
+  useEffect(() => {
+    if (!selectedDist || selectedPDVsForObjective.length === 0) return;
+    if (objTipo === "ruteo") return;
+
+    const primaryPin = selectedPDVsForObjective
+      .map((id) => pines.find((p) => p.id === id))
+      .find((p) => p?.id_vendedor);
+    if (!primaryPin?.id_vendedor) return;
+
+    const pdvItems = selectedPDVsForObjective
+      .map((id) => pines.find((p) => p.id === id))
+      .filter((p): p is PinCliente => !!p)
+      .map((pin) => ({
+        nombre_pdv: pin.nombre,
+        id_cliente_erp: pin.idClienteErp ?? undefined,
+      }));
+
+    const normMes =
+      objMesReferencia && /^\d{4}-\d{2}$/.test(objMesReferencia)
+        ? `${objMesReferencia}-01`
+        : objMesReferencia || undefined;
+
+    if (objPreviewDebounceRef.current) clearTimeout(objPreviewDebounceRef.current);
+    objPreviewDebounceRef.current = setTimeout(async () => {
+      const vendorName = primaryPin.vendedor;
+      const canOverwrite =
+        objDescWasAutoFilled.current || !objDescRef.current.trim();
+
+      try {
+        const preview = await previewObjetivoTelegram({
+          id_distribuidor: selectedDist,
+          id_vendedor: primaryPin.id_vendedor!,
+          tipo: objTipo,
+          fecha_objetivo: objOrigen === "distribuidora" ? objFecha || undefined : undefined,
+          valor_objetivo:
+            objTipo === "ruteo_alteo"
+              ? objCantidadAlteo !== ""
+                ? Number(objCantidadAlteo)
+                : pdvItems.length
+              : pdvItems.length,
+          pdv_items: pdvItems,
+          origen: objOrigen,
+          mes_referencia: objOrigen === "compania" ? normMes : undefined,
+          nombre_vendedor: vendorName,
+          ...(objTipo === "ruteo_alteo" && objSelectedDias.length > 0
+            ? { estado_inicial: objSelectedDias.map((d) => d.toUpperCase()).join(", ") }
+            : {}),
+        });
+        if (preview?.preview_html && canOverwrite) {
+          setObjDesc(preview.preview_html);
+          objDescWasAutoFilled.current = true;
+        }
+      } catch {
+        const fallback = buildObjectivePhrase(
+          objTipo,
+          vendorName,
+          objSelectedDias,
+          objFecha,
+          objCantidadAlteo,
+          objSelectedDeudor,
+          objCobranzaMode,
+          objCobranzaMonto,
+        );
+        if (fallback && canOverwrite) {
+          setObjDesc(fallback);
+          objDescWasAutoFilled.current = true;
+        }
+      }
+    }, 500);
+
+    return () => {
+      if (objPreviewDebounceRef.current) clearTimeout(objPreviewDebounceRef.current);
+    };
+  }, [
+    selectedDist,
+    selectedPdvsKey,
+    pines,
+    objTipo,
+    objFecha,
+    objOrigen,
+    objMesReferencia,
+    objCantidadAlteo,
+    objSelectedDias,
+    objSelectedDeudor,
+    objCobranzaMode,
+    objCobranzaMonto,
+    setObjDesc,
+  ]);
 
   // ── Floating Objetivos submit ─────────────────────────────────────────────
   const handleSubmitObjectives = async () => {
@@ -3650,12 +3761,14 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 ) : (
                   <div className="sm:hidden space-y-1">
                     <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block">Mensaje al vendedor</label>
-                    <textarea
-                      rows={4}
-                      placeholder="Qué debe lograr el vendedor..."
-                      className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none leading-relaxed"
+                    <TelegramRichEditor
                       value={objDesc}
-                      onChange={e => setObjDesc(e.target.value)}
+                      onChange={(val) => {
+                        setObjDesc(val);
+                        objDescWasAutoFilled.current = false;
+                      }}
+                      placeholder="Qué debe lograr el vendedor..."
+                      rows={5}
                     />
                   </div>
                 )}
@@ -3719,13 +3832,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Vista previa Telegram — editá antes de crear</p>
                   </div>
                 </div>
-                <div className="flex-1 min-h-0 p-3 flex flex-col">
-                  <textarea
-                    rows={16}
-                    placeholder="Qué debe lograr el vendedor..."
-                    className="flex-1 w-full min-h-[240px] bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none leading-relaxed"
+                <div className="flex-1 min-h-0 p-3 flex flex-col min-h-[280px]">
+                  <TelegramRichEditor
                     value={objDesc}
-                    onChange={e => setObjDesc(e.target.value)}
+                    onChange={(val) => {
+                      setObjDesc(val);
+                      objDescWasAutoFilled.current = false;
+                    }}
+                    placeholder="Qué debe lograr el vendedor..."
+                    rows={12}
+                    className="flex-1 min-h-[240px]"
                   />
                 </div>
               </div>

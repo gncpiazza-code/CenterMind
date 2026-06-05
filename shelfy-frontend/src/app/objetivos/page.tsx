@@ -3367,20 +3367,23 @@ export default function ObjetivosPage() {
 
     const allTerminados = filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado');
 
-    // Liquidación: todos los terminados compañía — sin esperar 7d ni liquidacion_at
+    // Liquidación (compañía/superadmin): objetivos compañía terminados — exclusivos de esta columna
     const liquidacionObjs = userCanLiq
       ? allTerminados.filter(o => o.origen === 'compania')
       : [];
+    const liquidacionIds = new Set(liquidacionObjs.map(o => o.id));
 
     const terminadoObjs = allTerminados.filter(o => {
+      // Sin duplicar: si ya está en Liquidación, no aparece en Terminado
+      if (liquidacionIds.has(o.id)) return false;
+
       if (o.origen === 'compania') {
-        // Compañía/superadmin: también en Terminados (duplicado en Liquidación para liquidar ya)
-        if (userCanLiq) return true;
-        // Tenant: ocultar archivados y los cumplidos hace más de 7 días
-        if (o.liquidacion_at) return false;
-        const dias = daysSince(o.completed_at || o.updated_at);
-        if (dias !== null && dias > 7) return false;
-        return true;
+        // Tenant: ocultar tras 7d o archivados; con filtro de mes sí se muestran
+        if (!filterMes) {
+          if (o.liquidacion_at) return false;
+          const dias = daysSince(o.completed_at || o.updated_at);
+          if (dias !== null && dias > 7) return false;
+        }
       }
       return true;
     });
@@ -3392,7 +3395,7 @@ export default function ObjetivosPage() {
       terminado:   terminadoObjs,
       liquidacion: liquidacionObjs,
     };
-  }, [filtered, user]);
+  }, [filtered, user, filterMes]);
 
   // ── Detalle objetivo (modal) ──────────────────────────────────────────────
 

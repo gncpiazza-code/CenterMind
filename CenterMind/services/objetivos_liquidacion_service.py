@@ -236,7 +236,7 @@ def _load_objetivos_compania_mes(dist_id: int, mes_inicio: str, mes_fin: str) ->
         return (
             sb.table(_OBJETIVOS_TABLE)
             .select(
-                "id,id_vendedor,tipo,descripcion,meta,valor_actual,"
+                "id,id_vendedor,tipo,descripcion,valor_objetivo,valor_actual,"
                 "cumplido,resultado_final,mes_referencia,fecha_objetivo,"
                 "created_at,desglose_cache"
             )
@@ -268,7 +268,7 @@ def _load_objetivos_cumplidos_compania_mes(
         return (
             sb.table(_OBJETIVOS_TABLE)
             .select(
-                "id,id_vendedor,tipo,descripcion,meta,valor_actual,"
+                "id,id_vendedor,tipo,descripcion,valor_objetivo,valor_actual,"
                 "cumplido,resultado_final,mes_referencia,fecha_objetivo,"
                 "created_at,desglose_cache"
             )
@@ -318,7 +318,7 @@ def compute_liquidacion(dist_id: int, mes_yyyy_mm: str) -> dict:
     for obj in objs_cumplidos:
         id_vend = _safe_int(obj.get("id_vendedor"))
         tipo = str(obj.get("tipo") or "")
-        meta = _safe_float(obj.get("meta"))
+        meta = _safe_float(obj.get("valor_objetivo"))
         avance = _safe_float(obj.get("valor_actual"))
         pct = min(100.0, round(avance / meta * 100, 1)) if meta > 0 else 100.0
         monto = tarifas_activas.get(tipo, 0.0)

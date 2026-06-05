@@ -105,6 +105,16 @@ interface ObjetivosMenuStore {
   objTasaPendientes: number | '';
   setObjTasaPendientes: (v: number | '') => void;
 
+  // Alteo con venta
+  objAlteoConVenta: boolean;
+  setObjAlteoConVenta: (v: boolean) => void;
+
+  // Exhibición: PDVs distintos mínimo
+  objEnableMinPdvs: boolean;
+  setObjEnableMinPdvs: (v: boolean) => void;
+  objMinPdvsDistintos: number | '';
+  setObjMinPdvsDistintos: (v: number | '') => void;
+
   // Reset everything except open state
   resetObjForm: () => void;
 }
@@ -121,6 +131,8 @@ const INITIAL_FORM: Omit<
   | 'setObjRuteoAccionGlobal' | 'setObjRuteoItemsMap' | 'updateObjRuteoItem'
   | 'setObjRuteoConfigMode' | 'setObjRuteoGlobalDestinoId' | 'setObjRuteoGlobalMotivo'
   | 'setObjOrigen' | 'setObjMesReferencia' | 'setObjTasaPendientes'
+  | 'setObjAlteoConVenta'
+  | 'setObjEnableMinPdvs' | 'setObjMinPdvsDistintos'
   | 'resetObjForm'
 > = {
   objTipo: 'exhibicion',
@@ -145,6 +157,9 @@ const INITIAL_FORM: Omit<
   objOrigen: 'distribuidora',
   objMesReferencia: '',
   objTasaPendientes: '',
+  objAlteoConVenta: false,
+  objEnableMinPdvs: false,
+  objMinPdvsDistintos: '',
 };
 
 export const useObjetivosMenuStore = create<ObjetivosMenuStore>()((set) => ({
@@ -184,6 +199,10 @@ export const useObjetivosMenuStore = create<ObjetivosMenuStore>()((set) => ({
   setObjOrigen: (v) => set({ objOrigen: v }),
   setObjMesReferencia: (v) => set({ objMesReferencia: v }),
   setObjTasaPendientes: (v) => set({ objTasaPendientes: v }),
+
+  setObjAlteoConVenta: (v) => set({ objAlteoConVenta: v }),
+  setObjEnableMinPdvs: (v) => set({ objEnableMinPdvs: v }),
+  setObjMinPdvsDistintos: (v) => set({ objMinPdvsDistintos: v }),
 
   resetObjForm: () => set(INITIAL_FORM),
 }));

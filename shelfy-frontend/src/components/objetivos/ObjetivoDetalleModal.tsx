@@ -332,6 +332,48 @@ export function ObjetivoDetalleModal({
         {/* Cuerpo con scroll: calendario + PDVs + acciones */}
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3">
           <div className="space-y-3">
+            {/* Alteo con venta: dual métricas */}
+            {obj.tipo === "ruteo_alteo" && obj.alteo_con_venta && obj.desglose_cache && (
+              <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 space-y-1">
+                <p className="text-xs font-semibold text-violet-700">Alteo con venta requerida</p>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div>
+                    <div className="text-[10px] text-[var(--shelfy-muted)]">Altas totales</div>
+                    <div className="font-bold text-violet-700">{obj.desglose_cache.alteos_totales ?? obj.valor_actual ?? 0}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-[var(--shelfy-muted)]">Con venta</div>
+                    <div className="font-bold text-emerald-600">{obj.desglose_cache.alteos_con_venta ?? "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-[var(--shelfy-muted)]">Sin venta aún</div>
+                    <div className="font-bold text-amber-600">{obj.desglose_cache.alteos_sin_venta ?? "—"}</div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-[var(--shelfy-muted)]">Meta: {Math.round(obj.valor_objetivo ?? 0)} PDVs con primera venta</p>
+              </div>
+            )}
+
+            {/* Exhibición con PDVs distintos: dual métricas */}
+            {obj.tipo === "exhibicion" && obj.min_pdvs_distintos && obj.desglose_cache && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-1">
+                <p className="text-xs font-semibold text-emerald-700">Meta doble: exhibiciones + PDVs distintos</p>
+                <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                  <div>
+                    <div className="text-[10px] text-[var(--shelfy-muted)]">Exhibiciones aprobadas</div>
+                    <div className="font-bold text-emerald-700">{Math.round(obj.valor_actual ?? 0)} / {Math.round(obj.valor_objetivo ?? 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-[var(--shelfy-muted)]">PDVs distintos</div>
+                    <div className={`font-bold ${(obj.desglose_cache.pdvs_distintos_count ?? 0) >= obj.min_pdvs_distintos ? "text-emerald-600" : "text-amber-600"}`}>
+                      {obj.desglose_cache.pdvs_distintos_count ?? "—"} / {obj.min_pdvs_distintos}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-[var(--shelfy-muted)]">Cumplido cuando se alcanzan AMBAS metas simultáneamente.</p>
+              </div>
+            )}
+
             {needsCalendar && (
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
                 <ObjetivoProrrateoCalendario obj={obj} visualActual={visualActual} compact />

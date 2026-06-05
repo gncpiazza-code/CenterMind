@@ -621,6 +621,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const setObjMesReferencia     = useObjetivosMenuStore(s => s.setObjMesReferencia);
   const objTasaPendientes       = useObjetivosMenuStore(s => s.objTasaPendientes);
   const setObjTasaPendientes    = useObjetivosMenuStore(s => s.setObjTasaPendientes);
+  const objAlteoConVenta        = useObjetivosMenuStore(s => s.objAlteoConVenta);
+  const setObjAlteoConVenta     = useObjetivosMenuStore(s => s.setObjAlteoConVenta);
+  const objEnableMinPdvs        = useObjetivosMenuStore(s => s.objEnableMinPdvs);
+  const setObjEnableMinPdvs     = useObjetivosMenuStore(s => s.setObjEnableMinPdvs);
+  const objMinPdvsDistintos     = useObjetivosMenuStore(s => s.objMinPdvsDistintos);
+  const setObjMinPdvsDistintos  = useObjetivosMenuStore(s => s.setObjMinPdvsDistintos);
 
   const objDescWasAutoFilled = useRef(true);
   const objPreviewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1783,6 +1789,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               ...(objTipo === "ruteo_alteo" && objSelectedDias.length > 0
                 ? { estado_inicial: objSelectedDias.map((d) => d.toUpperCase()).join(", ") }
                 : {}),
+              ...(objTipo === "ruteo_alteo" ? { alteo_con_venta: objAlteoConVenta } : {}),
               origen: objOrigen,
               mes_referencia: objOrigen === 'compania' ? (normMesReferencia(objMesReferencia) || undefined) : undefined,
               tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,

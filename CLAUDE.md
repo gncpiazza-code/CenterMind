@@ -126,6 +126,39 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Tipo `ruteo` (guía de cambio de ruta): **solo uso interno** (portal/PDF); **no** enviar mensaje Telegram, **no** preview Telegram en UI.
 - En `ruteo_alteo`, el cumplimiento debe evaluarse por `fecha_alta` de padrón; no usar cambio de ruta como señal.
 
+### Alteo con venta (implementado 2026-06-05)
+
+- Flag `alteo_con_venta` en tabla `objetivos` (BOOLEAN DEFAULT false).
+- Solo aplica a `ruteo_alteo`; incompatible con `pdv_items` fijos.
+- Módulo: `CenterMind/core/objetivos_alteo_venta.py` → `split_alteos_con_sin_venta`.
+- Batch: 1 query a `ventas_enriched_v2` para todos los ERPs; filtro por PDV en Python (venta >= fecha_alta del PDV).
+- Watcher usa solo `con_venta` como progreso_diario efectivo.
+
+### Exhibicion con PDVs distintos (implementado 2026-06-05)
+
+- Campo `min_pdvs_distintos INTEGER NULL` en tabla `objetivos`.
+- Condicion dual: puntos >= meta AND pdvs_distintos >= min_pdvs.
+- Módulo puro: `CenterMind/core/objetivos_exhibicion_pdvs.py` → `ajustar_valor_aprobados_con_pdvs`.
+- Si no cumple PDVs: retorna `valor_objetivo - 0.01` para impedir cumplido sin modificar la lógica del watcher.
+- Incompatible con `pdv_items`. API valida: `min_pdvs_distintos <= valor_objetivo`.
+
+### Liquidacion compania (implementado 2026-06-05)
+
+- Campo `liquidacion_at TIMESTAMPTZ NULL`; cron `archivar_terminados_compania_7d` a 01:00 UTC lo setea tras 7d.
+- Tablas: `objetivos_liquidacion_tarifas` (monto por tipo) + `objetivos_liquidacion_bono` (bono mando medio, singleton id=1).
+- Servicio: `CenterMind/services/objetivos_liquidacion_service.py` — compute, export XLSX (openpyxl lazy).
+- Router: `CenterMind/routers/compania_objetivos.py` — 4 endpoints `/api/compania/objetivos/liquidacion/*`.
+- Factor bono mando medio: 0.5 si 1 asignado y 1 cumplido; 1.0 si todos cumplidos (>=2); 0 en otro caso.
+- Kanban FE: 5ta columna "liquidación" virtual — solo compañía/superadmin la ve; tenant no ve terminados archivados.
+- **NO** usar `_compute_kanban_phase` para retornar "liquidacion" — es 100% frontend.
+- SQL: `CenterMind/migrations/20260605_objetivos_flags_liquidacion.sql` — **PENDIENTE ejecutar en Supabase**.
+
+### Filtro mes kanban (fix 2026-06-05)
+
+- Helper canónico: `shelfy-frontend/src/lib/objetivo-utils.ts` → `resolveObjetivoMes(o)`.
+- Compañía: siempre `mes_referencia`. Distribuidora: `fecha_objetivo → fecha_inicio → created_at`.
+- **NO** filtrar mes solo por `mes_referencia`; siempre usar `resolveObjetivoMes`.
+
 ### Filtro `/objetivos` bot (implementado 2026-05-22)
 
 - Helper canonico: `CenterMind/core/objetivos_filters.py` → `objetivo_activo_para_vendedor(obj, hoy)`.

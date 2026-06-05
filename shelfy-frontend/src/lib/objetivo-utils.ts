@@ -445,3 +445,17 @@ export function buildProrrateoGrid(
     metaAcumulada,
   };
 }
+
+/**
+ * Resuelve el mes "YYYY-MM" de un objetivo de forma consistente:
+ * - Compañía: siempre usa mes_referencia
+ * - Distribuidora: fecha_objetivo → fecha_inicio → created_at
+ */
+export function resolveObjetivoMes(o: Objetivo): string | null {
+  if (o.origen === 'compania' && o.mes_referencia) {
+    return String(o.mes_referencia).slice(0, 7);
+  }
+  if (o.fecha_objetivo) return String(o.fecha_objetivo).slice(0, 7);
+  if (o.fecha_inicio) return String(o.fecha_inicio).slice(0, 7);
+  return o.created_at ? String(o.created_at).slice(0, 7) : null;
+}

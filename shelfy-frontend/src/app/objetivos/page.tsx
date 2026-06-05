@@ -29,6 +29,10 @@ import {
   fetchPDVCatalog,
   previewObjetivoTelegram,
   getWSUrl,
+  fetchLiquidacionConfig,
+  fetchLiquidacionPreview,
+  getLiquidacionExportUrl,
+  putLiquidacionConfig,
   type Objetivo,
   type ObjetivoCreate,
   type ObjetivoTipo,
@@ -36,7 +40,11 @@ import {
   type RutaSupervision,
   type ObjetivoTimeline,
   type PDVCatalogItem,
+  type LiquidacionPreviewOut,
+  type LiquidacionConfigOut,
 } from "@/lib/api";
+import { resolveObjetivoMes } from "@/lib/objetivo-utils";
+import { ObjetivoLiquidacionPanel } from "@/components/objetivos/ObjetivoLiquidacionPanel";
 import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
 import { ObjetivoDetalleModal } from "@/components/objetivos/ObjetivoDetalleModal";
 import { ObjetivoCreateProgress } from "@/components/objetivos/ObjetivoCreateProgress";
@@ -70,6 +78,9 @@ import {
   Rocket,
   CalendarDays,
   MessageSquare,
+  DollarSign,
+  Banknote,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   Dialog,
@@ -724,6 +735,16 @@ function KanbanCard({ obj, onDelete, onOpenDetalle }: {
                 Sin completar
               </span>
             )}
+            {obj.alteo_con_venta && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-700 font-semibold border border-violet-500/20">
+                c/venta
+              </span>
+            )}
+            {!!obj.min_pdvs_distintos && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/10 text-emerald-700 font-semibold border border-emerald-500/20">
+                {obj.min_pdvs_distintos} PDVs dist.
+              </span>
+            )}
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
@@ -936,6 +957,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   // Compradores: cantidad de PDVs distintos (N)
   const [cantidadCompradores, setCantidadCompradores] = useState<number | "">("");
 
+  // Alteo con venta
+  const [alteoConVenta, setAlteoConVenta] = useState(false);
+
+  // Exhibición: PDVs distintos mínimo
+  const [enableMinPdvs, setEnableMinPdvs] = useState(false);
+  const [minPdvsDistintos, setMinPdvsDistintos] = useState<number | "">("");
+
   // Ruteo per-PDV actions
   type RuteoAccion = 'cambio_ruta' | 'baja';
   const [ruteoAccionGlobal, setRuteoAccionGlobal] = useState<RuteoAccion>('cambio_ruta');
@@ -1001,6 +1029,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     setCantidadCompradores("");
     setRuteoAccionGlobal('cambio_ruta');
     setRuteoItemsMap({});
+    setAlteoConVenta(false);
+    setEnableMinPdvs(false);
+    setMinPdvsDistintos("");
   }
 
   useEffect(() => {
@@ -1398,6 +1429,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           }
         }
         base.descripcion = desc;
+        base.alteo_con_venta = alteoConVenta;
         creates.push(base);
         continue;
       }
@@ -1452,6 +1484,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
           base.valor_objetivo = qty;
           base.descripcion = desc;
+          base.min_pdvs_distintos = enableMinPdvs && minPdvsDistintos !== "" ? Number(minPdvsDistintos) : null;
           creates.push(base);
           continue;
         }
@@ -1842,6 +1875,19 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   />
                 </div>
               </div>
+              {/* Switch: Alteo con venta */}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-violet-50 border border-violet-200">
+                <input
+                  type="checkbox"
+                  id="alteo-con-venta"
+                  checked={alteoConVenta}
+                  onChange={e => setAlteoConVenta(e.target.checked)}
+                  className="w-4 h-4 accent-violet-600"
+                />
+                <label htmlFor="alteo-con-venta" className="text-sm text-violet-800">
+                  <span className="font-medium">Exigir venta</span> — solo cuentan PDVs alteos que facturen al menos una vez antes del vencimiento.
+                </label>
+              </div>
             </div>
           )}
 
@@ -2165,21 +2211,62 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
               {exhibicionMode === "general" || paraTodosFDV ? (
                 /* ── General: just set a quantity ── */
-                <div>
-                  <label className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                    Cantidad de exhibiciones
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    placeholder="Ej: 5"
-                    className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                    value={cantidadExhibicion}
-                    onChange={e => setCantidadExhibicion(e.target.value ? Number(e.target.value) : "")}
-                  />
-                  <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
-                    El vendedor debe completar X exhibiciones sin restricción de PDV específico.
-                  </p>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                      Cantidad de exhibiciones
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder="Ej: 5"
+                      className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      value={cantidadExhibicion}
+                      onChange={e => setCantidadExhibicion(e.target.value ? Number(e.target.value) : "")}
+                    />
+                    <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+                      El vendedor debe completar X exhibiciones sin restricción de PDV específico.
+                    </p>
+                  </div>
+                  {/* Switch: PDVs distintos */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                      <input
+                        type="checkbox"
+                        id="enable-min-pdvs"
+                        checked={enableMinPdvs}
+                        onChange={e => { setEnableMinPdvs(e.target.checked); if (!e.target.checked) setMinPdvsDistintos(""); }}
+                        className="w-4 h-4 accent-emerald-600"
+                      />
+                      <label htmlFor="enable-min-pdvs" className="text-sm text-emerald-800">
+                        <span className="font-medium">Exigir PDVs distintos</span> — el cumplimiento requiere también alcanzar un mínimo de PDVs únicos con exhibición aprobada/destacada.
+                      </label>
+                    </div>
+                    {enableMinPdvs && (
+                      <div className="space-y-1">
+                        <label className="text-xs text-[var(--shelfy-muted)]">
+                          Mínimo PDVs distintos <span className="text-[10px]">(N ≤ meta)</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={cantidadExhibicion !== "" ? Number(cantidadExhibicion) : undefined}
+                          value={minPdvsDistintos}
+                          onChange={e => setMinPdvsDistintos(e.target.value === "" ? "" : Number(e.target.value))}
+                          className="w-32 text-sm border border-[var(--shelfy-border)] rounded px-2 py-1"
+                          placeholder="ej. 80"
+                        />
+                        {minPdvsDistintos !== "" && cantidadExhibicion !== "" && (Number(minPdvsDistintos) / Number(cantidadExhibicion)) >= 0.85 && (
+                          <p className="text-[11px] text-amber-600 flex items-center gap-1">
+                            ⚠️ N ≥ 85% de la meta puede hacer el objetivo muy difícil de cumplir.
+                          </p>
+                        )}
+                        {minPdvsDistintos !== "" && cantidadExhibicion !== "" && Number(minPdvsDistintos) > Number(cantidadExhibicion) && (
+                          <p className="text-[11px] text-red-500">PDVs distintos no puede superar la meta.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 /* ── Por PDV: catalog ordered by exhibition age ── */
@@ -3246,20 +3333,9 @@ export default function ObjetivosPage() {
       list = list.filter(o => o.id_vendedor === selectedVendedorId);
     }
 
-    // Filtro por mes (YYYY-MM) — usa mes_referencia para compañía, fecha_inicio o fecha_objetivo para distribuidora
+    // Filtro por mes (YYYY-MM) — usa resolveObjetivoMes para consistencia compañía/distribuidora
     if (filterMes) {
-      list = list.filter(o => {
-        const ref = (o as any).mes_referencia
-          ? String((o as any).mes_referencia).slice(0, 7)
-          : o.fecha_inicio
-            ? String(o.fecha_inicio).slice(0, 7)
-            : o.fecha_objetivo
-              ? String(o.fecha_objetivo).slice(0, 7)
-              : o.created_at
-                ? String(o.created_at).slice(0, 7)
-                : null;
-        return ref === filterMes;
-      });
+      list = list.filter(o => resolveObjetivoMes(o) === filterMes);
     }
 
     // Nota: filterKanbanPhase NO se aplica al `filtered` global.
@@ -3282,12 +3358,41 @@ export default function ObjetivosPage() {
 
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
-  const kanbanGroups = useMemo(() => ({
-    planificado: filtered.filter(o => getObjectiveKanbanPhase(o) === 'planificado'),
-    pendiente:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'pendiente'),
-    en_progreso: filtered.filter(o => getObjectiveKanbanPhase(o) === 'en_progreso'),
-    terminado:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado'),
-  }), [filtered]);
+  const currentMes = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  const canVerLiquidacion = user?.is_superadmin || user?.rol === 'compania';
+
+  const kanbanGroups = useMemo(() => {
+    const userCanLiq = user?.is_superadmin || user?.rol === 'compania';
+
+    const allTerminados = filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado');
+
+    // Liquidación: objetivos compañía terminados (solo para compañía/superadmin)
+    const liquidacionObjs = userCanLiq
+      ? allTerminados.filter(o => o.origen === 'compania')
+      : [];
+
+    // Terminados para tenant: excluir los que ya pasaron a liquidación (liquidacion_at != null y son de compañía)
+    const terminadoObjs = allTerminados.filter(o => {
+      if (o.origen === 'compania') {
+        if (userCanLiq) return false; // compañía los ve en Liquidación
+        if (o.liquidacion_at) return false; // tenant: ocultar si ya liquidados
+        return true;
+      }
+      return true; // distribuidora siempre visible en Terminados
+    });
+
+    return {
+      planificado: filtered.filter(o => getObjectiveKanbanPhase(o) === 'planificado'),
+      pendiente:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'pendiente'),
+      en_progreso: filtered.filter(o => getObjectiveKanbanPhase(o) === 'en_progreso'),
+      terminado:   terminadoObjs,
+      liquidacion: liquidacionObjs,
+    };
+  }, [filtered, user]);
 
   // ── Detalle objetivo (modal) ──────────────────────────────────────────────
 
@@ -3459,6 +3564,7 @@ export default function ObjetivosPage() {
                     <option value="pendiente">Pendiente</option>
                     <option value="en_progreso">En progreso</option>
                     <option value="terminado">Terminado</option>
+                    {canVerLiquidacion && <option value="liquidacion">Liquidación</option>}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
                 </div>
@@ -3583,6 +3689,10 @@ export default function ObjetivosPage() {
                 /* ── Kanban ── */
                 <KanbanOrListaView
                   kanbanGroups={kanbanGroups}
+                  canVerLiquidacion={canVerLiquidacion}
+                  distId={distId}
+                  filterMes={filterMes}
+                  currentMes={currentMes}
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={handleDownloadCertificado}
@@ -3757,6 +3867,10 @@ export default function ObjetivosPage() {
 
 function KanbanOrListaView({
   kanbanGroups,
+  canVerLiquidacion,
+  distId,
+  filterMes,
+  currentMes,
   onDelete,
   onReagendar,
   onDownloadCertificado,
@@ -3766,21 +3880,32 @@ function KanbanOrListaView({
   filterKanbanPhase,
   setFilterKanbanPhase,
 }: {
-  kanbanGroups: { planificado: Objetivo[]; pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[] };
+  kanbanGroups: { planificado: Objetivo[]; pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[]; liquidacion: Objetivo[] };
+  canVerLiquidacion: boolean;
+  distId: number;
+  filterMes: string | null;
+  currentMes: string;
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
   onOpenRuteoPdf: (obj: Objetivo) => void;
   onLanzar: (obj: Objetivo) => void;
   onOpenDetalle: (obj: Objetivo) => void;
-  filterKanbanPhase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | null;
-  setFilterKanbanPhase: (phase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
+  filterKanbanPhase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | 'liquidacion' | null;
+  setFilterKanbanPhase: (phase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | 'liquidacion' | null) => void;
 }) {
   const COLUMNS = [
     { key: "planificado" as const, label: "Planificados", Icon: CalendarDays, headerClass: "text-slate-500",              borderClass: "border-t-2 border-t-slate-400" },
     { key: "pendiente" as const,   label: "Pendiente",    Icon: Clock,        headerClass: "text-[var(--shelfy-muted)]",  borderClass: "border-t-2 border-t-slate-300" },
     { key: "en_progreso" as const, label: "En progreso",  Icon: TrendingUp,   headerClass: "text-violet-600",              borderClass: "border-t-2 border-t-violet-500" },
     { key: "terminado" as const,   label: "Terminado",    Icon: CheckCircle2, headerClass: "text-emerald-600",             borderClass: "border-t-2 border-t-emerald-500" },
+    ...(canVerLiquidacion ? [{
+      key: "liquidacion" as const,
+      label: "Liquidación",
+      Icon: DollarSign,
+      headerClass: "text-amber-600",
+      borderClass: "border-t-2 border-t-amber-500",
+    }] : []),
   ];
 
   return (
@@ -3813,7 +3938,8 @@ function KanbanOrListaView({
               const items = kanbanGroups[col.key];
               const compania = items.filter(o => o.origen === "compania");
               const distribuidora = items.filter(o => o.origen !== "compania");
-              if (items.length === 0) {
+              const showEmptyMsg = items.length === 0 && col.key !== "liquidacion";
+              if (showEmptyMsg) {
                 return (
                   <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
                     Sin objetivos
@@ -3853,6 +3979,14 @@ function KanbanOrListaView({
                       <AnimatePresence mode="popLayout">
                         {distribuidora.map(renderCard)}
                       </AnimatePresence>
+                    </div>
+                  )}
+                  {col.key === "liquidacion" && canVerLiquidacion && (
+                    <div className={`${items.length > 0 ? "border-t border-[var(--shelfy-border)]/50 pt-3 mt-2" : ""}`}>
+                      <ObjetivoLiquidacionPanel
+                        distId={distId}
+                        mes={filterMes ?? currentMes}
+                      />
                     </div>
                   )}
                 </>

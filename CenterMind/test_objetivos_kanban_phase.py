@@ -157,6 +157,60 @@ def test_exhibicion_en_progreso_con_foto():
     assert _compute_kanban_phase(obj) == "en_progreso"
 
 
+# ── Regresión: liquidacion phase (virtual frontend column) ────────────────────
+
+def test_compania_terminado_backend_intacto():
+    """Objetivo compania cumplido=True → backend sigue retornando 'terminado'.
+    El FE lo mueve a la columna virtual 'liquidacion' — el backend NO cambia su phase."""
+    obj = {
+        "cumplido": True, "lanzado_at": "2026-06-01T00:00:00Z",
+        "tipo": "exhibicion", "origen": "compania",
+    }
+    assert _compute_kanban_phase(obj) == "terminado"
+
+
+def test_liquidacion_at_no_cambia_phase():
+    """liquidacion_at set → backend sigue retornando 'terminado' (no nueva fase BE)."""
+    obj = {
+        "cumplido": True, "lanzado_at": "2026-05-01T00:00:00Z",
+        "tipo": "compradores", "origen": "compania",
+        "liquidacion_at": "2026-06-08T01:00:00Z",  # campo nuevo
+    }
+    assert _compute_kanban_phase(obj) == "terminado"
+
+
+def test_alteo_con_venta_no_rompe_phase():
+    """alteo_con_venta=True en campo extra no interfiere con lógica de phase."""
+    obj = {
+        "lanzado_at": "2026-06-01T00:00:00Z", "cumplido": False,
+        "tipo": "ruteo_alteo", "valor_actual": 3, "valor_objetivo": 10,
+        "items_count": 0, "alteo_con_venta": True,
+    }
+    assert _compute_kanban_phase(obj) == "en_progreso"
+
+
+def test_min_pdvs_distintos_no_cumple_sigue_en_progreso():
+    """min_pdvs_distintos sin cumplir → valor_actual < valor_objetivo → en_progreso.
+    El ajuste de valor_aprobados lo hace el watcher, aquí el objetivo llega con
+    valor_actual < meta, por lo que phase = en_progreso."""
+    obj = {
+        "lanzado_at": "2026-06-01T00:00:00Z", "cumplido": False,
+        "tipo": "exhibicion", "valor_actual": 99.99, "valor_objetivo": 100,
+        "items_count": 0, "min_pdvs_distintos": 80,
+    }
+    assert _compute_kanban_phase(obj) == "en_progreso"
+
+
+def test_min_pdvs_distintos_cumple_termina():
+    """min_pdvs_distintos cumplido: watcher envía valor_actual == meta → terminado."""
+    obj = {
+        "lanzado_at": "2026-06-01T00:00:00Z", "cumplido": True,
+        "tipo": "exhibicion", "valor_actual": 100, "valor_objetivo": 100,
+        "items_count": 0, "min_pdvs_distintos": 80,
+    }
+    assert _compute_kanban_phase(obj) == "terminado"
+
+
 if __name__ == "__main__":
     tests = [
         test_planificado_cuando_fecha_futura_y_sin_lanzar,
@@ -167,6 +221,11 @@ if __name__ == "__main__":
         test_en_progreso_cuando_valor_actual_positivo,
         test_terminado_cuando_objetivo_alcanzado,
         test_exhibicion_en_progreso_con_foto,
+        test_compania_terminado_backend_intacto,
+        test_liquidacion_at_no_cambia_phase,
+        test_alteo_con_venta_no_rompe_phase,
+        test_min_pdvs_distintos_no_cumple_sigue_en_progreso,
+        test_min_pdvs_distintos_cumple_termina,
     ]
     passed = 0
     for t in tests:

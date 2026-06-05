@@ -1559,8 +1559,21 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
   const showTelegramMessage = tipo !== "ruteo";
 
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-hidden overscroll-none">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-4xl lg:max-w-5xl rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between shrink-0 px-6 pt-6 pb-4 border-b border-[var(--shelfy-border)]/60">
@@ -1573,9 +1586,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-          <div className="flex flex-1 min-h-0 flex-col lg:flex-row">
-            <div className="flex-1 min-w-0 overflow-y-auto px-6 py-4 space-y-4 custom-scrollbar">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex flex-1 min-h-0 overflow-hidden flex-col lg:flex-row">
+            <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain px-6 py-4 space-y-4 custom-scrollbar">
           {/* Origen selector — solo visible para directorio/superadmin */}
           {canCrearCompania && (
             <div className="flex gap-1.5 p-1 bg-[var(--shelfy-bg)] rounded-xl border border-[var(--shelfy-border)]">
@@ -2503,7 +2516,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
 
             {showTelegramMessage && (
-              <aside className="shrink-0 w-full lg:w-[min(420px,44%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[280px] lg:min-h-0 lg:max-h-none">
+              <aside className="shrink-0 w-full lg:w-[min(420px,44%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[280px] lg:min-h-0 lg:overflow-y-auto overscroll-contain">
                 <div className="shrink-0 px-4 pt-4 pb-2 flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-[var(--shelfy-accent)] shrink-0" />
                   <div className="min-w-0">
@@ -2515,7 +2528,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                     </p>
                   </div>
                 </div>
-                <div className="flex-1 min-h-[240px] lg:min-h-0 flex flex-col px-4 pb-4">
+                <div className="flex-1 min-h-0 flex flex-col px-4 pb-4 overflow-hidden">
                   <TelegramRichEditor
                     value={desc}
                     onChange={(val) => {
@@ -2523,8 +2536,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       descWasAutoFilled.current = false;
                     }}
                     placeholder="Seleccioná vendedor y tipo para generar el mensaje, o escribí uno propio (mín. 5 caracteres)..."
-                    rows={3}
-                    className="flex-1"
+                    rows={8}
+                    maxHeight={360}
+                    className="flex-1 min-h-0"
                   />
                   {desc && desc.trim().length < 5 && (
                     <p className="text-[10px] text-red-500 mt-1.5 shrink-0">Mínimo 5 caracteres</p>

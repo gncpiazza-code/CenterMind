@@ -10,6 +10,26 @@ import {
   telegramHtmlToRenderHtml,
 } from "@/lib/telegram-html";
 
+type FormatCmd = "bold" | "italic" | "underline" | "code";
+
+const MIN_HEIGHT_PX = 160;
+
+function findCodeAncestor(node: Node | null, root: Node): HTMLElement | null {
+  let n: Node | null = node;
+  while (n && n !== root) {
+    if (n instanceof HTMLElement && n.tagName === "CODE") return n;
+    n = n.parentNode;
+  }
+  return null;
+}
+
+function unwrapElement(el: HTMLElement) {
+  const parent = el.parentNode;
+  if (!parent) return;
+  while (el.firstChild) parent.insertBefore(el.firstChild, el);
+  parent.removeChild(el);
+}
+
 interface Props {
   value: string;
   onChange: (val: string) => void;
@@ -17,11 +37,9 @@ interface Props {
   rows?: number;
   className?: string;
   disabled?: boolean;
+  /** Altura máxima del área editable (scroll interno). */
+  maxHeight?: number;
 }
-
-type FormatCmd = "bold" | "italic" | "underline" | "code";
-
-const MIN_HEIGHT_PX = 160;
 
 export function TelegramRichEditor({
   value,
@@ -30,6 +48,7 @@ export function TelegramRichEditor({
   rows = 4,
   className,
   disabled,
+  maxHeight,
 }: Props) {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastEmittedRef = useRef(value);
@@ -70,15 +89,26 @@ export function TelegramRichEditor({
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
-      const selected = range.toString();
-      if (!selected) return;
-      const codeEl = document.createElement("code");
-      codeEl.textContent = selected;
-      range.deleteContents();
-      range.insertNode(codeEl);
+
+      const codeEl =
+        findCodeAncestor(range.startContainer, el) ??
+        findCodeAncestor(range.endContainer, el);
+
+      if (codeEl) {
+        unwrapElement(codeEl);
+        emitChange();
+        return;
+      }
+
+      if (range.collapsed) return;
+
+      const fragment = range.extractContents();
+      const code = document.createElement("code");
+      code.appendChild(fragment);
+      range.insertNode(code);
       sel.removeAllRanges();
       const after = document.createRange();
-      after.setStartAfter(codeEl);
+      after.setStartAfter(code);
       after.collapse(true);
       sel.addRange(after);
     } else {
@@ -152,7 +182,10 @@ export function TelegramRichEditor({
             "[&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px]",
             disabled && "opacity-60 pointer-events-none",
           )}
-          style={{ minHeight }}
+          style={{
+            minHeight,
+            ...(maxHeight ? { maxHeight, overflowY: "auto" as const } : {}),
+          }}
         />
       </div>
     </div>

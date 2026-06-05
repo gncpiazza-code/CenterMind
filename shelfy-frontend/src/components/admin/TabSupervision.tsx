@@ -3769,6 +3769,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                       }}
                       placeholder="Qué debe lograr el vendedor..."
                       rows={5}
+                      maxHeight={280}
                     />
                   </div>
                 )}
@@ -3832,7 +3833,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Vista previa Telegram — editá antes de crear</p>
                   </div>
                 </div>
-                <div className="flex-1 min-h-0 p-3 flex flex-col min-h-[280px]">
+                <div className="flex-1 min-h-0 p-3 flex flex-col overflow-hidden">
                   <TelegramRichEditor
                     value={objDesc}
                     onChange={(val) => {
@@ -3840,8 +3841,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                       objDescWasAutoFilled.current = false;
                     }}
                     placeholder="Qué debe lograr el vendedor..."
-                    rows={12}
-                    className="flex-1 min-h-[240px]"
+                    rows={10}
+                    maxHeight={320}
+                    className="flex-1 min-h-0"
                   />
                 </div>
               </div>

@@ -49,6 +49,7 @@ def _find_objetivos_activos(dist_id: int, mes: str) -> list[dict]:
     """Objetivos compañía activos del mes dado."""
     hoy = date.today().isoformat()
     mes_prefix = mes[:7]  # YYYY-MM
+    mes_ref = f"{mes_prefix}-01"
     res = (
         sb.table("objetivos")
         .select("id,tipo,origen,nombre_vendedor,mes_referencia,fecha_objetivo,valor_actual,id_distribuidor")
@@ -56,7 +57,7 @@ def _find_objetivos_activos(dist_id: int, mes: str) -> list[dict]:
         .eq("origen", "compania")
         .not_.is_("lanzado_at", "null")
         .gte("fecha_objetivo", hoy)
-        .like("mes_referencia", f"{mes_prefix}%")
+        .eq("mes_referencia", mes_ref)
         .execute()
     )
     rows = res.data or []
@@ -111,7 +112,7 @@ def main() -> None:
 
     dist_ids: list[int] = []
     if args.all_dists:
-        dist_ids = load_dist_ids()
+        dist_ids = load_dist_ids(sb)
         print(f"Procesando {len(dist_ids)} distribuidoras...")
     elif args.dist_id:
         dist_ids = [args.dist_id]

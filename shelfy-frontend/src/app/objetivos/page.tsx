@@ -226,6 +226,13 @@ function daysUntil(d: string | null | undefined): number | null {
   return Math.ceil(diff / 86400000);
 }
 
+function daysSince(d: string | null | undefined): number | null {
+  if (!d) return null;
+  const diff = Date.now() - new Date(d).getTime();
+  if (diff < 0) return 0;
+  return Math.floor(diff / 86400000);
+}
+
 function monthEndISO(monthRef: string): string {
   const [y, m] = monthRef.split("-").map(Number);
   if (!y || !m) return "";
@@ -2597,7 +2604,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
 
             {showTelegramMessage && (
-              <aside className="shrink-0 w-full lg:w-[min(420px,44%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[280px] lg:min-h-0 lg:overflow-y-auto overscroll-contain">
+              <aside className="shrink-0 w-full lg:w-[min(420px,44%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[280px] lg:min-h-0 lg:overflow-y-auto overscroll-contain lg:self-stretch">
                 <div className="shrink-0 px-4 pt-4 pb-2 flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-[var(--shelfy-accent)] shrink-0" />
                   <div className="min-w-0">
@@ -2609,7 +2616,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                     </p>
                   </div>
                 </div>
-                <div className="flex-1 min-h-0 flex flex-col px-4 pb-4 overflow-hidden">
+                <div className="w-full flex flex-col px-4 pb-4">
                   <TelegramRichEditor
                     value={desc}
                     onChange={(val) => {
@@ -2617,9 +2624,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       descWasAutoFilled.current = false;
                     }}
                     placeholder="Seleccioná vendedor y tipo para generar el mensaje, o escribí uno propio (mín. 5 caracteres)..."
-                    rows={8}
-                    maxHeight={360}
-                    className="flex-1 min-h-0"
+                    rows={6}
+                    className="w-full"
                   />
                   {desc && desc.trim().length < 5 && (
                     <p className="text-[10px] text-red-500 mt-1.5 shrink-0">Mínimo 5 caracteres</p>
@@ -3361,19 +3367,22 @@ export default function ObjetivosPage() {
 
     const allTerminados = filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado');
 
-    // Liquidación: objetivos compañía terminados (solo para compañía/superadmin)
+    // Liquidación: todos los terminados compañía — sin esperar 7d ni liquidacion_at
     const liquidacionObjs = userCanLiq
       ? allTerminados.filter(o => o.origen === 'compania')
       : [];
 
-    // Terminados para tenant: excluir los que ya pasaron a liquidación (liquidacion_at != null y son de compañía)
     const terminadoObjs = allTerminados.filter(o => {
       if (o.origen === 'compania') {
-        if (userCanLiq) return false; // compañía los ve en Liquidación
-        if (o.liquidacion_at) return false; // tenant: ocultar si ya liquidados
+        // Compañía/superadmin: también en Terminados (duplicado en Liquidación para liquidar ya)
+        if (userCanLiq) return true;
+        // Tenant: ocultar archivados y los cumplidos hace más de 7 días
+        if (o.liquidacion_at) return false;
+        const dias = daysSince(o.completed_at || o.updated_at);
+        if (dias !== null && dias > 7) return false;
         return true;
       }
-      return true; // distribuidora siempre visible en Terminados
+      return true;
     });
 
     return {

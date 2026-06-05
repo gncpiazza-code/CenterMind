@@ -1297,6 +1297,7 @@ export function VisorPageContent() {
                             nombreFantasia={pdvInfo.nombre_fantasia}
                             nombreRazon={pdvInfo.nombre_razon_social}
                             codigoCliente={nroForErp || grupo.nro_cliente}
+                            fechaAlta={pdvInfo.fecha_alta ?? erpContext?.fecha_alta}
                           />
                           <VisorPanelFieldList>
                             <VisorPanelLocationFields
@@ -1327,6 +1328,7 @@ export function VisorPageContent() {
                             nombreFantasia={erpContext.nombre_fantasia}
                             nombreRazon={erpContext.razon_social}
                             codigoCliente={nroForErp || grupo.nro_cliente}
+                            fechaAlta={erpContext.fecha_alta}
                           />
                           <VisorPanelFieldList>
                             <VisorPanelLocationFields

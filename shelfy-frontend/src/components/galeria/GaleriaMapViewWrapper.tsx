@@ -7,6 +7,9 @@ import {
   getGoogleMapsApiKey,
   hasGoogleMapsApiKey,
   isGoogleMapsAlreadyLoaded,
+  isGoogleMapsAuthFailed,
+  subscribeGoogleMapsAuthFailure,
+  ensureGoogleMapsConfigured,
 } from "@/lib/googleMapsLoader";
 import type { GaleriaMapaPin } from "@/lib/api";
 
@@ -39,18 +42,25 @@ export interface GaleriaMapViewWrapperProps {
   className?: string;
 }
 
+type MapEngine = "pending" | "google" | "maplibre";
+
 /**
- * Usa Google Maps si hay API key o el script ya fue cargado (p. ej. desde Modo Mapa).
- * Si no, cae a MapLibre (Carto) como antes.
+ * Prefiere Google Maps si hay API key; si falla auth (dominio no autorizado), cae a MapLibre.
  */
 export function GaleriaMapViewWrapper(props: GaleriaMapViewWrapperProps) {
-  const [useGoogle, setUseGoogle] = useState<boolean | null>(null);
+  const [engine, setEngine] = useState<MapEngine>("pending");
 
   useEffect(() => {
-    setUseGoogle(hasGoogleMapsApiKey());
+    ensureGoogleMapsConfigured();
+    if (!hasGoogleMapsApiKey() || isGoogleMapsAuthFailed()) {
+      setEngine("maplibre");
+      return;
+    }
+    setEngine("google");
+    return subscribeGoogleMapsAuthFailure(() => setEngine("maplibre"));
   }, []);
 
-  if (useGoogle === null) {
+  if (engine === "pending") {
     return (
       <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
         Cargando mapa...
@@ -58,8 +68,13 @@ export function GaleriaMapViewWrapper(props: GaleriaMapViewWrapperProps) {
     );
   }
 
-  if (useGoogle) {
-    return <GaleriaGoogleMapView {...props} />;
+  if (engine === "google") {
+    return (
+      <GaleriaGoogleMapView
+        {...props}
+        onAuthFailure={() => setEngine("maplibre")}
+      />
+    );
   }
 
   const hasKey = Boolean(getGoogleMapsApiKey());

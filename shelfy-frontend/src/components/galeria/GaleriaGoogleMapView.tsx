@@ -8,7 +8,7 @@ import { useGaleriaMapPrefetch, prefetchGaleriaOnPinHover } from "@/hooks/useGal
 import { GaleriaMapPhotoPin } from "./GaleriaMapPhotoPin";
 import { GaleriaMapClusterPin } from "./GaleriaMapClusterPin";
 import type { GaleriaMapaPin } from "@/lib/api";
-import { loadGoogleMapsLibrary } from "@/lib/googleMapsLoader";
+import { loadGoogleMapsLibrary, notifyGoogleMapsAuthFailure, subscribeGoogleMapsAuthFailure } from "@/lib/googleMapsLoader";
 import {
   clusterGaleriaPins,
   ZOOM_CLUSTER_CLICK_STEP,
@@ -31,6 +31,8 @@ interface GaleriaGoogleMapViewProps {
   /** Con el visor abierto: desactiva flechas de pan en Google Maps */
   disableMapKeyboard?: boolean;
   className?: string;
+  /** Si Google rechaza el dominio (referrer), el wrapper puede caer a MapLibre */
+  onAuthFailure?: () => void;
 }
 
 const DEFAULT_CENTER = { lat: -38.4161, lng: -63.6167 };
@@ -100,6 +102,7 @@ export function GaleriaGoogleMapView({
   onPinsChange,
   disableMapKeyboard = false,
   className,
+  onAuthFailure,
 }: GaleriaGoogleMapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -321,6 +324,29 @@ export function GaleriaGoogleMapView({
   }, [vendedorId, desde, hasta]);
 
   useEffect(() => {
+    return subscribeGoogleMapsAuthFailure(() => {
+      onAuthFailure?.();
+    });
+  }, [onAuthFailure]);
+
+  useEffect(() => {
+    if (!mapReady || !mapContainerRef.current) return;
+    const el = mapContainerRef.current;
+    const check = () => {
+      if (el.querySelector(".gm-err-container")) {
+        notifyGoogleMapsAuthFailure();
+        onAuthFailure?.();
+      }
+    };
+    const t1 = window.setTimeout(check, 800);
+    const t2 = window.setTimeout(check, 2500);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [mapReady, onAuthFailure]);
+
+  useEffect(() => {
     const el = mapContainerRef.current;
     if (!el) return;
 
@@ -360,7 +386,8 @@ export function GaleriaGoogleMapView({
             "Falta NEXT_PUBLIC_GOOGLE_MAPS_API_KEY en shelfy-frontend/.env.local (reiniciá npm run dev).",
           );
         } else {
-          setMapError("No se pudo cargar Google Maps");
+          notifyGoogleMapsAuthFailure();
+          onAuthFailure?.();
         }
       });
 

@@ -10,6 +10,9 @@ function readGoogleMapsApiKey(): string {
 }
 
 let configured = false;
+let authFailed = false;
+let authFailureHandlerInstalled = false;
+const authFailureListeners = new Set<() => void>();
 
 export function getGoogleMapsApiKey(): string {
   return readGoogleMapsApiKey();
@@ -23,10 +26,52 @@ export function hasGoogleMapsApiKey(): boolean {
   return Boolean(readGoogleMapsApiKey()) || isGoogleMapsAlreadyLoaded();
 }
 
+export function isGoogleMapsAuthFailed(): boolean {
+  return authFailed;
+}
+
+export function subscribeGoogleMapsAuthFailure(cb: () => void): () => void {
+  authFailureListeners.add(cb);
+  return () => {
+    authFailureListeners.delete(cb);
+  };
+}
+
+export function notifyGoogleMapsAuthFailure(): void {
+  if (authFailed) return;
+  authFailed = true;
+  for (const cb of authFailureListeners) cb();
+}
+
+/** Dominio actual — útil para mensajes de whitelist en Google Cloud Console. */
+export function currentMapsReferrerHost(): string {
+  if (typeof window === "undefined") return "shelfycenter.com";
+  return window.location.hostname || "shelfycenter.com";
+}
+
+export function googleMapsReferrerWhitelistHint(): string {
+  const host = currentMapsReferrerHost();
+  return `https://${host}/*, https://shelfycenter.com/*, http://localhost:3000/*`;
+}
+
+function installGoogleMapsAuthFailureHandler(): void {
+  if (typeof window === "undefined" || authFailureHandlerInstalled) return;
+  authFailureHandlerInstalled = true;
+  (window as Window & { gm_authFailure?: () => void }).gm_authFailure = () => {
+    notifyGoogleMapsAuthFailure();
+  };
+}
+
 export function ensureGoogleMapsConfigured(): void {
+  installGoogleMapsAuthFailureHandler();
   const key = readGoogleMapsApiKey();
   if (!configured && key) {
-    setOptions({ key, v: "weekly" });
+    setOptions({
+      key,
+      v: "weekly",
+      // Necesario con keys restringidas por referrer tras cambio de dominio (shelfycenter.com).
+      authReferrerPolicy: "origin",
+    });
     configured = true;
   }
 }

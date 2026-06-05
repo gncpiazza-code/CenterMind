@@ -1925,6 +1925,7 @@ export interface ClienteContacto {
   latitud: number | null;
   longitud: number | null;
   fecha_ultima_compra: string | null;
+  fecha_alta?: string | null;
   /** Legacy DB; usar padron_anulado + activo_comercial en UI. */
   estado: string | null;
   motivo_inactivo?: string | null;

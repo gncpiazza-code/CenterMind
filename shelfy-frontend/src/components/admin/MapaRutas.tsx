@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Settings } from "lucide-react";
-import { loadGoogleMapsFull, getGoogleMapsApiKey } from "@/lib/googleMapsLoader";
+import { loadGoogleMapsFull, getGoogleMapsApiKey, ensureGoogleMapsConfigured, subscribeGoogleMapsAuthFailure, googleMapsReferrerWhitelistHint } from "@/lib/googleMapsLoader";
 import type { DrawnPolygon } from "@/store/useSupervisionStore";
 import { diasCalendarioDesdeFechaCompra, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
 import { MapLegendTooltip } from "./MapLegendTooltip";
@@ -273,6 +273,7 @@ export default function MapaRutas({
   const [showSidePanel, setShowSidePanel] = useState(true);
   const [svPos,        setSvPos]        = useState<{ lat: number; lng: number } | null>(null);
   const [noKey,        setNoKey]        = useState(false);
+  const [authFailed,   setAuthFailed]   = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
   const [pinConfig, setPinConfig] = useState({ pin_size_activo: 35, pin_size_inactivo: 24 });
   const [configOpen, setConfigOpen] = useState(false);
@@ -329,6 +330,9 @@ export default function MapaRutas({
     if (!containerRef.current) return;
     if (!GMAPS_KEY) { setNoKey(true); return; }
 
+    ensureGoogleMapsConfigured();
+    const unsubAuth = subscribeGoogleMapsAuthFailure(() => setAuthFailed(true));
+
     let cancelled = false;
     loadGmaps().then(() => {
       if (cancelled || !containerRef.current) return;
@@ -355,8 +359,28 @@ export default function MapaRutas({
       setMapLoaded(true);
     }).catch(() => { if (!cancelled) setNoKey(true); });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      unsubAuth();
+    };
   }, []);
+
+  // Respaldo si gm_authFailure no dispara: detectar overlay de error de Google
+  useEffect(() => {
+    if (!mapLoaded || authFailed || !containerRef.current) return;
+    const el = containerRef.current;
+    const check = () => {
+      if (el.querySelector(".gm-err-container")) {
+        setAuthFailed(true);
+      }
+    };
+    const t1 = window.setTimeout(check, 800);
+    const t2 = window.setTimeout(check, 2500);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [mapLoaded, authFailed]);
 
   // ── Resize on fullscreen toggle ────────────────────────────────────────────
   useEffect(() => {
@@ -717,6 +741,30 @@ export default function MapaRutas({
         <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>
           Agregá <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> a tus variables de entorno para activar el mapa.
         </div>
+      </div>
+    );
+  }
+
+  if (authFailed) {
+    return (
+      <div style={{
+        position: 'relative', height: '100%', width: '100%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        background: '#f8fafc', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 16,
+        gap: 12, padding: '24px 32px',
+      }}>
+        <div style={{ fontSize: 36 }}>🗺️</div>
+        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 15 }}>Google Maps: dominio no autorizado</div>
+        <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center', maxWidth: 360, lineHeight: 1.6 }}>
+          Tras el cambio a <strong>shelfycenter.com</strong>, hay que agregar estos referrers en Google Cloud Console
+          (API key → Restricciones de aplicación → Referentes HTTP):
+        </div>
+        <code style={{
+          background: '#f1f5f9', padding: '10px 12px', borderRadius: 8, fontSize: 11,
+          color: '#334155', textAlign: 'left', maxWidth: 360, lineHeight: 1.7, wordBreak: 'break-all',
+        }}>
+          {googleMapsReferrerWhitelistHint()}
+        </code>
       </div>
     );
   }

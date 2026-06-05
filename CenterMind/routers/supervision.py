@@ -2880,7 +2880,7 @@ def supervision_cliente_info(
         fields       = (
             "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, "
             "localidad, provincia, canal, telefono, celular, latitud, longitud, "
-            "fecha_ultima_compra, estado, motivo_inactivo"
+            "fecha_ultima_compra, fecha_alta, estado, motivo_inactivo"
         )
         nombre_s     = nombre.strip()
         nombre_plain = _strip_accents(nombre_s)

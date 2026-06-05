@@ -121,7 +121,7 @@ def comprobante_from_venta_row(row: dict[str, Any]) -> dict[str, Any]:
 def _venta_cuenta_como_compra(row: dict[str, Any]) -> bool:
     if row.get("anulado"):
         return False
-    return float(row.get("importe_final") or 0) >= 0
+    return float(row.get("importe_final") or 0) > 0
 
 
 def _mejor_ultima(actual: dict[str, Any] | None, candidato: dict[str, Any]) -> dict[str, Any]:

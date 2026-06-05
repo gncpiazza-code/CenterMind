@@ -47,7 +47,7 @@ def _ventas_uc_map(
 
     best: dict[int, dict] = {}
     for row in ventas_rows:
-        if float(row.get("importe_final") or 0) < 0:
+        if float(row.get("importe_final") or 0) <= 0:
             continue
         f = str(row.get("fecha_factura") or "")[:10]
         if len(f) < 10 or f < desde_d or f > hasta_d:
@@ -214,7 +214,7 @@ def _primera_venta_map(
 
     primera: dict[int, str] = {}
     for row in ventas_rows:
-        if float(row.get("importe_final") or 0) < 0:
+        if float(row.get("importe_final") or 0) <= 0:
             continue
         f = str(row.get("fecha_factura") or "")[:10]
         if len(f) < 10 or f < desde_d or f > hasta_d:
@@ -359,6 +359,171 @@ def test_activacion_sin_impacto():
     assert "conversion_estado" not in source, "El módulo compradores no debe referenciar conversion_estado"
     assert "_diff_activacion" not in source, "El módulo compradores no debe referenciar _diff_activacion"
     assert "thirty_days" not in source, "El módulo compradores no debe tener lógica de 30 días de inactividad"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests ORDEN 3 — _venta_cuenta_como_compra: importe_final == 0 no cuenta
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_importe_cero_no_cuenta_como_compra():
+    """importe_final == 0 no debe contar como compra (cambio >= 0 → > 0)."""
+    from core.ultima_compra import _venta_cuenta_como_compra
+
+    row_cero = {"importe_final": 0, "anulado": False}
+    row_negativo = {"importe_final": -5.0, "anulado": False}
+    row_valida = {"importe_final": 1.0, "anulado": False}
+    row_none = {"importe_final": None, "anulado": False}
+
+    assert not _venta_cuenta_como_compra(row_cero), "importe 0 debe retornar False"
+    assert not _venta_cuenta_como_compra(row_negativo), "importe negativo debe retornar False"
+    assert _venta_cuenta_como_compra(row_valida), "importe positivo debe retornar True"
+    assert not _venta_cuenta_como_compra(row_none), "importe None (→ 0) debe retornar False"
+
+
+def test_importe_cero_anulado_no_cuenta():
+    """Filas anuladas tampoco cuentan, independientemente del importe."""
+    from core.ultima_compra import _venta_cuenta_como_compra
+
+    row_anulado = {"importe_final": 100.0, "anulado": True}
+    assert not _venta_cuenta_como_compra(row_anulado)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests ORDEN 3b — FUC gated: no usar FUC si ERP tiene ventas en ventas_enriched
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestFucGating:
+    """FUC no se aplica a PDVs cuyos ERPs aparecen en ventas_enriched del período."""
+
+    def test_fuc_no_aplica_si_erp_en_ventas_enriched(self):
+        """
+        PDV sin match de vendedor pero con ERP en ventas_enriched → no debe usar FUC.
+        """
+        client_by_id = {
+            1: _make_client_row(1, "ABC", fuc="2026-05-10"),
+        }
+        # ventas_uc vacío: el vendedor específico no tuvo match
+        ventas_uc: dict = {}
+
+        # _erps_con_ventas_en_periodo retorna "ABC" normalizado → ERP en ventas
+        from core.objetivos_compradores import _norm_erp
+        abc_norm = _norm_erp("ABC")
+
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value=ventas_uc,
+        ), patch(
+            "core.objetivos_compradores._erps_con_ventas_en_periodo",
+            return_value={abc_norm},
+        ):
+            from core.objetivos_compradores import compradores_en_periodo_for_clients
+            result = compradores_en_periodo_for_clients(
+                1, client_by_id, "2026-05-01", "2026-05-31"
+            )
+        # FUC gateado: no debe contar el PDV porque su ERP existe en ventas_enriched
+        assert result == set(), f"Esperado set() (FUC gateado), got {result}"
+
+    def test_fuc_aplica_si_erp_ausente_de_ventas_enriched(self):
+        """
+        PDV sin match de vendedor y sin ERP en ventas_enriched → usar FUC si cae en período.
+        """
+        client_by_id = {
+            1: _make_client_row(1, "XYZ", fuc="2026-05-10"),
+        }
+        ventas_uc: dict = {}
+
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value=ventas_uc,
+        ), patch(
+            "core.objetivos_compradores._erps_con_ventas_en_periodo",
+            return_value=set(),  # ERP ausente de ventas_enriched
+        ):
+            from core.objetivos_compradores import compradores_en_periodo_for_clients
+            result = compradores_en_periodo_for_clients(
+                1, client_by_id, "2026-05-01", "2026-05-31"
+            )
+        # FUC debe aplicar: PDV sin ERP en ventas_enriched y con FUC en período
+        assert result == {1}, f"Esperado {{1}} (FUC aplica), got {result}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests ORDEN 3b — invariante progreso_diario
+# ──────────────────────────────────────────────────────────────────────────────
+
+class TestInvarianteProgresoDiario:
+    """sum(progreso_diario.values()) == len(comprador_ids)."""
+
+    def test_invariante_suma_igual_compradores(self):
+        """Todos los compradores deben aparecer exactamente 1 vez en el progreso diario."""
+        client_by_id = {
+            1: _make_client_row(1, "A"),
+            2: _make_client_row(2, "B"),
+            3: _make_client_row(3, "C"),
+        }
+        ventas = [
+            _make_ventas_row("A", "2026-06-01"),
+            _make_ventas_row("B", "2026-06-05"),
+            _make_ventas_row("C", "2026-06-10"),
+        ]
+        ventas_uc = _ventas_uc_map(
+            client_by_id, ventas, desde="2026-06-01", hasta="2026-06-30"
+        )
+        primera = _primera_venta_map(
+            client_by_id, ventas, desde="2026-06-01", hasta="2026-06-30"
+        )
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value=ventas_uc,
+        ), patch(
+            "core.objetivos_compradores._primera_compra_fecha_vendedor",
+            return_value=primera,
+        ), patch(
+            "core.objetivos_compradores._comprador_ids_desde_ventas_vendedor",
+            return_value={1, 2, 3},
+        ):
+            from core.objetivos_compradores import compradores_progreso_diario_for_clients
+
+            progreso = compradores_progreso_diario_for_clients(
+                1,
+                client_by_id,
+                "2026-06-01",
+                "2026-06-30",
+                id_vendedor=7,
+            )
+
+        assert sum(progreso.values()) == 3, (
+            f"Invariante violada: sum={sum(progreso.values())} != 3 compradores"
+        )
+        assert progreso == {"2026-06-01": 1, "2026-06-05": 1, "2026-06-10": 1}
+
+    def test_invariante_con_fuc_fallback(self):
+        """Comprador vía FUC también debe aparecer exactamente 1 vez."""
+        client_by_id = {
+            1: _make_client_row(1, "Z", fuc="2026-06-07"),
+        }
+        with patch(
+            "core.ultima_compra.ultima_compra_en_periodo_por_cliente",
+            return_value={},
+        ), patch(
+            "core.objetivos_compradores._primera_compra_fecha_vendedor",
+            return_value={},
+        ), patch(
+            "core.objetivos_compradores._comprador_ids_desde_ventas_vendedor",
+            return_value=set(),
+        ):
+            from core.objetivos_compradores import compradores_progreso_diario_for_clients
+
+            progreso = compradores_progreso_diario_for_clients(
+                1,
+                client_by_id,
+                "2026-06-01",
+                "2026-06-30",
+                id_vendedor=7,
+            )
+        # comprador_ids tiene 1 (vía FUC), sum debe ser 1
+        assert sum(progreso.values()) == 1
+        assert "2026-06-07" in progreso
 
 
 if __name__ == "__main__":

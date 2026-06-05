@@ -58,6 +58,12 @@ export interface ProrrateoGridData {
   futuros: number;
   diasValidos: number;
   label: string;
+  /** true si sum(progreso_diario) === valor_actual o valor_actual === 0 */
+  invarianteOk: boolean;
+  /** diferencia entre valor_actual y meta acumulada hasta hoy (positivo = adelantado, negativo = atrasado) */
+  avanceVsMeta: number;
+  /** meta acumulada esperada hasta hoy según días hábiles pasados */
+  metaAcumulada: number;
 }
 
 function addDays(d: Date, n: number): Date {
@@ -410,6 +416,20 @@ export function buildProrrateoGrid(
       };
     });
 
+  // Verificar invariante: sum(progreso_diario) === valor_actual
+  const sumaProgreso = Object.values(progresoDiario).reduce((a, b) => a + b, 0);
+  const valorActual = actual;
+  const invarianteOk = sumaProgreso === valorActual || valorActual === 0;
+
+  // Badge atraso/avance: meta acumulada hasta hoy (días hábiles pasados, sin incluir hoy)
+  const totalDiasValidos = diasValidos.length;
+  const diasHastaHoy = diasValidos.filter((d) => d.isPast && !d.isToday).length;
+  const metaAcumulada =
+    totalDiasValidos > 0
+      ? Math.round((diasHastaHoy / totalDiasValidos) * (meta))
+      : 0;
+  const avanceVsMeta = valorActual - metaAcumulada;
+
   return {
     semanas,
     metaDiariaFutura,
@@ -420,5 +440,8 @@ export function buildProrrateoGrid(
       obj.origen === "compania"
         ? "Prorrateo mensual (lun–sáb)"
         : "Prorrateo por período (lun–sáb)",
+    invarianteOk,
+    avanceVsMeta,
+    metaAcumulada,
   };
 }

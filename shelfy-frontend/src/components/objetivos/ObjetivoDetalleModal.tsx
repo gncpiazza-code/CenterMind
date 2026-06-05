@@ -1,6 +1,8 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import type { Objetivo } from "@/lib/api";
+import { recalcularObjetivo, fetchObjetivoJob } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +19,7 @@ import {
   MapPin,
   CheckCircle2,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 
 function ProgressSection({
@@ -262,6 +265,30 @@ export function ObjetivoDetalleModal({
   onDownloadCertificado,
   onOpenRuteoPdf,
 }: ObjetivoDetalleModalProps) {
+  const [recalcState, setRecalcState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+
+  const handleRecalcular = useCallback(async () => {
+    if (!obj) return;
+    setRecalcState('running');
+    try {
+      const { job_id } = await recalcularObjetivo(obj.id, obj.id_distribuidor);
+      // Poll until done
+      const poll = async () => {
+        const status = await fetchObjetivoJob(job_id, obj.id_distribuidor);
+        if (status.estado === 'done') {
+          setRecalcState('done');
+        } else if (status.estado === 'error') {
+          setRecalcState('error');
+        } else {
+          setTimeout(poll, 2000);
+        }
+      };
+      await poll();
+    } catch {
+      setRecalcState('error');
+    }
+  }, [obj]);
+
   if (!obj) return null;
 
   const pendingEvidenceCount =
@@ -279,6 +306,10 @@ export function ObjetivoDetalleModal({
 
   const hasItems = !!(obj.items && obj.items.length > 0);
 
+  const isRetroCompania =
+    obj.origen === "compania" &&
+    (obj.tipo === "exhibicion" || obj.tipo === "compradores");
+
   return (
     <Dialog open={!!obj} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-2xl w-[calc(100%-1.5rem)] max-h-[min(90vh,720px)] flex flex-col overflow-hidden p-0 gap-0">
@@ -292,6 +323,9 @@ export function ObjetivoDetalleModal({
         {/* Cabecera fija compacta */}
         <div className="shrink-0 px-4 py-2.5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] space-y-2">
           <ObjetivoResumen obj={obj} compact />
+          {isRetroCompania && (
+            <p className="text-xs text-zinc-400">Período: desde el 1° del mes</p>
+          )}
           <ProgressSection obj={obj} visualActual={visualActual} compact />
         </div>
 
@@ -314,6 +348,28 @@ export function ObjetivoDetalleModal({
               onOpenRuteoPdf={onOpenRuteoPdf}
               onClose={onClose}
             />
+
+            {/* Botón Recalcular avance */}
+            <div className="flex items-center justify-end pt-1">
+              <button
+                onClick={() => { void handleRecalcular(); }}
+                disabled={recalcState === 'running'}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] hover:border-[var(--shelfy-accent)]/40 transition-colors disabled:opacity-50"
+              >
+                {recalcState === 'running' ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                {recalcState === 'running'
+                  ? 'Recalculando…'
+                  : recalcState === 'done'
+                    ? 'Recalculado'
+                    : recalcState === 'error'
+                      ? 'Error al recalcular'
+                      : 'Recalcular avance'}
+              </button>
+            </div>
           </div>
         </div>
       </DialogContent>

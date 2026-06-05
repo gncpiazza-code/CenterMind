@@ -500,6 +500,56 @@ def resolve_integrante_for_objetivos(
         )
         return None
 
+# ── Telegram HTML sanitizer ───────────────────────────────────────────────────
+
+# Whitelist HTML compatible con Telegram Bot API (parse_mode=HTML)
+_TG_ALLOWED_TAGS = {"b", "i", "u", "s", "code", "pre"}
+
+
+def sanitize_telegram_html(text: str) -> str:
+    """
+    Sanitiza HTML para envío por Telegram (parse_mode=HTML).
+
+    Mantiene solo las etiquetas permitidas: <b>, <i>, <u>, <s>, <code>, <pre>, <a href="...">
+    Convierte markdown básico: **bold** → <b>bold</b>, _italic_ → <i>italic</i>.
+    Escapa el resto de caracteres HTML en texto plano.
+    Preserva saltos de línea.
+    """
+    import re as _re
+
+    if not text:
+        return text
+
+    # Primero convertir markdown básico a HTML antes de sanitizar
+    # **text** → <b>text</b>
+    text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=_re.DOTALL)
+    # _text_ → <i>text</i> (solo si no es __)
+    text = _re.sub(r'(?<![_])_([^_]+?)_(?![_])', r'<i>\1</i>', text)
+    # `text` → <code>text</code>
+    text = _re.sub(r'`([^`]+?)`', r'<code>\1</code>', text)
+
+    # Ahora sanitizar: mantener solo tags permitidos, escapar el resto
+    allowed_pattern = '|'.join(
+        [rf'<{tag}(?:\s[^>]*)?>.*?</{tag}>' for tag in _TG_ALLOWED_TAGS]
+        + [r'<a\s+href="[^"]*"[^>]*>.*?</a>']
+        + [rf'</?{tag}>' for tag in _TG_ALLOWED_TAGS]
+    )
+
+    result_parts = []
+    last_end = 0
+    for m in _re.finditer(allowed_pattern, text, flags=_re.DOTALL | _re.IGNORECASE):
+        # Texto entre tags: escapar <, > y & que no son parte de tags permitidos
+        between = text[last_end:m.start()]
+        result_parts.append(html.escape(between, quote=False))
+        result_parts.append(m.group(0))
+        last_end = m.end()
+
+    # Resto después del último tag
+    result_parts.append(html.escape(text[last_end:], quote=False))
+
+    return ''.join(result_parts)
+
+
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_SEND_PHOTO = "https://api.telegram.org/bot{token}/sendPhoto"
 TELEGRAM_DELETE_API = "https://api.telegram.org/bot{token}/deleteMessage"
@@ -659,8 +709,8 @@ class ObjetivosNotificationService:
                     flags=re.IGNORECASE,
                 ).strip()
                 if desc_s:
-                    desc_esc = html.escape(desc_s, quote=False)
-                    desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_esc}</i>"
+                    desc_safe = sanitize_telegram_html(desc_s)
+                    desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_safe}</i>"
 
             dias_str = ""
             if fecha:
@@ -1097,8 +1147,8 @@ class ObjetivosNotificationService:
                 flags=re.IGNORECASE,
             ).strip()
             if desc_s:
-                desc_esc = html.escape(desc_s, quote=False)
-                desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_esc}</i>"
+                desc_safe = sanitize_telegram_html(desc_s)
+                desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_safe}</i>"
 
         dias_str = ""
         if fecha:
@@ -1660,3 +1710,12 @@ class ObjetivosNotificationService:
 
 # Singleton
 objetivos_notification = ObjetivosNotificationService()
+
+
+# Alias para job service — definido después del singleton para evitar forward reference
+def notify_objetivo_creado(obj: dict, dist_id: int) -> None:
+    """Wrapper para notificación de objetivo creado desde job async."""
+    try:
+        objetivos_notification.notify_new_objective_telegram(dist_id, obj)
+    except Exception as e:
+        logger.warning("[Notify] notify_objetivo_creado: %s", e)

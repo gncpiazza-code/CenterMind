@@ -35,7 +35,7 @@ import {
   fetchClienteInfo,
   fetchReporteExhibiciones,
   resolveImageUrl,
-  createObjetivo,
+  createObjetivoAsync,
   type VendedorSupervision,
   type RutaSupervision,
   type ClienteSupervision,
@@ -78,6 +78,7 @@ import {
 } from "@/lib/cuentasCorrientes";
 import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 import { AltasCompradoresPanel } from "@/components/supervision/AltasCompradoresPanel";
+import { ObjetivoCreateProgress } from "@/components/objetivos/ObjetivoCreateProgress";
 import {
   useAltasCompradoresQuery,
   usePrefetchAltasCompradores,
@@ -576,6 +577,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const setObjDesc           = useObjetivosMenuStore(s => s.setObjDesc);
   const objSubmitting        = useObjetivosMenuStore(s => s.objSubmitting);
   const setObjSubmitting     = useObjetivosMenuStore(s => s.setObjSubmitting);
+  const [activeJobId, setActiveJobId]       = useState<string | null>(null);
+  const [activeJobDistId, setActiveJobDistId] = useState<number | null>(null);
   const objVendedorRoutes    = useObjetivosMenuStore(s => s.objVendedorRoutes);
   const setObjVendedorRoutes = useObjetivosMenuStore(s => s.setObjVendedorRoutes);
   const objSelectedDias      = useObjetivosMenuStore(s => s.objSelectedDias);
@@ -1406,6 +1409,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     if (tipo === "exhibicion") {
       return `${vendorName} debe exhibir en PDVs${fechaLabel}.`;
     }
+    if (tipo === "compradores") {
+      const n = cantidadAlteo || '';
+      return `Compradores${n ? ` — meta ${n}` : ''}`;
+    }
     if (tipo === "ruteo") {
       return `${vendorName} debe reasignar PDVs${fechaLabel}.`;
     }
@@ -1416,6 +1423,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const handleSubmitObjectives = async () => {
     if (selectedPDVsForObjective.length === 0) return;
     setObjSubmitting(true);
+    // Normalizar mes_referencia: YYYY-MM → YYYY-MM-01
+    const normMesReferencia = (mr: string | undefined) => {
+      if (!mr) return mr;
+      if (/^\d{4}-\d{2}$/.test(mr)) return `${mr}-01`;
+      return mr;
+    };
     try {
       if (objTipo === "ruteo") {
         if (objOrigen === "distribuidora" && !objFecha) {
@@ -1544,7 +1557,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           const autoDesc =
             objDesc ||
             buildObjectivePhrase(objTipo, cabeceraNombre, [], objFecha);
-          await createObjetivo({
+          const _jobResult0 = await createObjetivoAsync({
             id_distribuidor: selectedDist,
             id_vendedor: cabeceraVendId,
             tipo: objTipo,
@@ -1556,16 +1569,21 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             ruteo_build_mode: hasValidPolygon ? "polygon" : "manual",
             origen: objOrigen,
             mes_referencia:
-              objOrigen === "compania" ? objMesReferencia || undefined : undefined,
+              objOrigen === "compania" ? normMesReferencia(objMesReferencia) || undefined : undefined,
             tasa_pendientes:
               objTasaPendientes !== "" ? Number(objTasaPendientes) : undefined,
           } as ObjetivoCreate);
+          if (_jobResult0.job_id) {
+            setActiveJobId(_jobResult0.job_id);
+            setActiveJobDistId(selectedDist);
+          }
           created = 1;
         } else {
+          let isFirstRuteo = true;
           for (const [vendedorId, { vendedor, pdvIds }] of byVendedor) {
             const autoDesc =
               objDesc || buildObjectivePhrase(objTipo, vendedor, [], objFecha);
-            await createObjetivo({
+            const _jobResultR = await createObjetivoAsync({
               id_distribuidor: selectedDist,
               id_vendedor: vendedorId,
               tipo: objTipo,
@@ -1577,10 +1595,15 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               ruteo_build_mode: hasValidPolygon ? "polygon" : "manual",
               origen: objOrigen,
               mes_referencia:
-                objOrigen === "compania" ? objMesReferencia || undefined : undefined,
+                objOrigen === "compania" ? normMesReferencia(objMesReferencia) || undefined : undefined,
               tasa_pendientes:
                 objTasaPendientes !== "" ? Number(objTasaPendientes) : undefined,
             } as ObjetivoCreate);
+            if (isFirstRuteo && _jobResultR.job_id) {
+              setActiveJobId(_jobResultR.job_id);
+              setActiveJobDistId(selectedDist);
+              isFirstRuteo = false;
+            }
             created += 1;
           }
         }
@@ -1602,12 +1625,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           byVendedor.get(pin.id_vendedor)!.pdvs.push(pin);
         }
 
+        let isFirstCreate = true;
         for (const [vendedorId, { vendedor, pdvs }] of byVendedor) {
           const autoDesc = objDesc || buildObjectivePhrase(objTipo, vendedor, objSelectedDias, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
 
           // Para cobranza (objetivo de deuda, no multi-PDV) usar id_target_pdv del primer pin
           if (objTipo === "cobranza") {
-            await createObjetivo({
+            const _jobResultC = await createObjetivoAsync({
               id_distribuidor: selectedDist,
               id_vendedor: vendedorId,
               tipo: objTipo,
@@ -1620,12 +1644,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
               } : {}),
               origen: objOrigen,
-              mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
+              mes_referencia: objOrigen === 'compania' ? (normMesReferencia(objMesReferencia) || undefined) : undefined,
               tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
             } as ObjetivoCreate);
+            if (isFirstCreate && _jobResultC.job_id) {
+              setActiveJobId(_jobResultC.job_id);
+              setActiveJobDistId(selectedDist);
+              isFirstCreate = false;
+            }
           } else {
             // Un solo objetivo con todos los PDVs como pdv_items
-            await createObjetivo({
+            const _jobResultE = await createObjetivoAsync({
               id_distribuidor: selectedDist,
               id_vendedor: vendedorId,
               tipo: objTipo,
@@ -1644,9 +1673,14 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 ? { estado_inicial: objSelectedDias.map((d) => d.toUpperCase()).join(", ") }
                 : {}),
               origen: objOrigen,
-              mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
+              mes_referencia: objOrigen === 'compania' ? (normMesReferencia(objMesReferencia) || undefined) : undefined,
               tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
             } as ObjetivoCreate);
+            if (isFirstCreate && _jobResultE.job_id) {
+              setActiveJobId(_jobResultE.job_id);
+              setActiveJobDistId(selectedDist);
+              isFirstCreate = false;
+            }
           }
         }
       }
@@ -3792,6 +3826,19 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           </div>
         </DialogContent>
       </Dialog>
+
+      {activeJobId && activeJobDistId && (
+        <ObjetivoCreateProgress
+          jobId={activeJobId}
+          distId={activeJobDistId}
+          onDone={() => {
+            setActiveJobId(null);
+            void queryClient.invalidateQueries({ queryKey: ['supervision-objetivos'] });
+          }}
+          onError={() => setActiveJobId(null)}
+          onDismiss={() => setActiveJobId(null)}
+        />
+      )}
     </div>
   );
 }

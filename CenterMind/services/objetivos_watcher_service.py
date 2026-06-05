@@ -138,6 +138,7 @@ class ObjetivosWatcherService:
                     if progreso_diario:
                         dc = obj.get("desglose_cache") or {}
                         dc["progreso_diario"] = progreso_diario
+                        dc["progreso_diario_updated_at"] = date.today().isoformat()
                         updates["desglose_cache"] = dc
 
                     valor_obj = obj.get("valor_objetivo")

@@ -2531,6 +2531,36 @@ export async function createObjetivo(data: ObjetivoCreate): Promise<Objetivo> {
   });
 }
 
+export interface ObjetivoJobStatus {
+  id: string;
+  id_objetivo: string;
+  estado: 'pending' | 'running' | 'done' | 'error';
+  paso: number;
+  pct: number;
+  mensaje: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createObjetivoAsync(data: ObjetivoCreate): Promise<{ id: string; job_id: string }> {
+  return apiFetch<{ id: string; job_id: string }>('/api/supervision/objetivos', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchObjetivoJob(jobId: string, distId: number): Promise<ObjetivoJobStatus> {
+  return apiFetch<ObjetivoJobStatus>(`/api/supervision/objetivos/jobs/${jobId}?dist_id=${distId}`);
+}
+
+export async function recalcularObjetivo(objetivoId: string, distId: number): Promise<{ job_id: string; id_objetivo: string }> {
+  return apiFetch<{ job_id: string; id_objetivo: string }>(
+    `/api/supervision/objetivos/${objetivoId}/recalcular?dist_id=${distId}`,
+    { method: 'POST' }
+  );
+}
+
 export async function updateObjetivo(id: string, data: ObjetivoUpdate): Promise<Objetivo> {
   return apiFetch<Objetivo>(`/api/supervision/objetivos/${id}`, {
     method: 'PUT',

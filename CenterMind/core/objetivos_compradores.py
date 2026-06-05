@@ -376,6 +376,71 @@ def compradores_progreso_diario_en_periodo(
     )
 
 
+def _erps_con_ventas_en_periodo(
+    dist_id: int,
+    erp_rows: list[dict],
+    desde_d: str,
+    hasta_d: str,
+) -> set[str]:
+    """
+    Retorna el set de ERPs normalizados que tienen al menos 1 fila en ventas_enriched
+    para el período [desde_d, hasta_d], sin filtrar por vendedor y sin filtrar anulados.
+
+    Usado para gating FUC: si un PDV tiene ERP en ventas_enriched del período → no usar FUC
+    aunque el vendedor específico no matcheara.
+    """
+    from core.ultima_compra import _norm_erp as _uc_norm_erp
+    from core.ventas_enriched_tenant import (
+        filter_ventas_rows_for_tenant,
+        ventas_enriched_base_query,
+    )
+
+    erp_list: list[str] = []
+    erp_norm_set: set[str] = set()
+    for row in erp_rows:
+        raw = str(row.get("id_cliente_erp") or "").strip()
+        if not raw:
+            continue
+        if raw not in erp_list:
+            erp_list.append(raw)
+        n = _uc_norm_erp(raw)
+        if n:
+            erp_norm_set.add(n)
+
+    if not erp_list:
+        return set()
+
+    ventas_ctx, _ = ventas_enriched_base_query(sb, dist_id, "id_cliente_erp,fecha_factura,anulado")
+    erps_en_ventas: set[str] = set()
+
+    for i in range(0, len(erp_list), 400):
+        chunk = erp_list[i : i + 400]
+        _, q_ventas = ventas_enriched_base_query(sb, dist_id, "id_cliente_erp,fecha_factura,anulado")
+        offset = 0
+        while True:
+            batch = (
+                q_ventas.eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde_d)
+                .lte("fecha_factura", hasta_d)
+                .order("id")
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+            batch = filter_ventas_rows_for_tenant(batch, ventas_ctx)
+            for row in batch:
+                n = _uc_norm_erp(row.get("id_cliente_erp"))
+                if n and n in erp_norm_set:
+                    erps_en_ventas.add(n)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    return erps_en_ventas
+
+
 def compradores_en_periodo_for_clients(
     dist_id: int,
     client_by_id: dict[int, dict],
@@ -415,10 +480,19 @@ def compradores_en_periodo_for_clients(
         )
         comprador_ids.update(int(cid) for cid in ventas_en_periodo.keys())
 
-    # Fallback padrón solo para PDVs sin venta en el motor (distribuidoras sin ingesta).
+    # Fallback padrón: solo para PDVs cuyo ERP no tiene ninguna fila en ventas_enriched
+    # en el período (distribuidoras sin ingesta). Si el ERP aparece en ventas_enriched
+    # del período (aunque no matcheara el vendedor), no usar FUC para evitar falsos positivos.
+    erps_en_ventas = _erps_con_ventas_en_periodo(
+        dist_id, list(client_by_id.values()), desde_d, hasta_d
+    )
     for cid, row in client_by_id.items():
         if int(cid) in comprador_ids:
             continue
+        raw = str(row.get("id_cliente_erp") or "").strip()
+        n = _norm_erp(raw)
+        if n and n in erps_en_ventas:
+            continue  # tiene ventas en consolido pero no matcheó → no usar FUC
         fuc = str(row.get("fecha_ultima_compra") or "")[:10]
         if len(fuc) >= 10 and desde_d <= fuc <= hasta_d:
             comprador_ids.add(int(cid))
@@ -515,12 +589,24 @@ def compradores_cids_by_vend_from_snapshot(
                 vid, cid = picked
         compradores[vid].add(int(cid))
 
+    # FUC fallback gated: para cada vendedor, solo usar FUC si el ERP no tiene ventas
+    # en ventas_enriched del período (misma regla que compradores_en_periodo_for_clients).
+    # Construir set global de ERPs con ventas (union de todas las carteras del batch).
+    all_client_rows: list[dict] = []
+    for client_by_id in client_by_id_by_vend.values():
+        all_client_rows.extend(client_by_id.values())
+    erps_en_ventas = _erps_con_ventas_en_periodo(dist_id, all_client_rows, desde_d, hasta_d)
+
     for vid, client_by_id in client_by_id_by_vend.items():
         seen = compradores[vid]
         for cid, row in client_by_id.items():
             icid = int(cid)
             if icid in seen:
                 continue
+            raw = str(row.get("id_cliente_erp") or "").strip()
+            n = _norm_erp(raw)
+            if n and n in erps_en_ventas:
+                continue  # tiene ventas en consolido pero no matcheó → no usar FUC
             fuc = str(row.get("fecha_ultima_compra") or "")[:10]
             if len(fuc) >= 10 and desde_d <= fuc <= hasta_d:
                 seen.add(icid)

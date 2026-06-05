@@ -19,6 +19,7 @@ import {
   fetchResumenSupervisorObjetivos,
   regenerateObjetivoRuteoPDF,
   createObjetivo,
+  createObjetivoAsync,
   updateObjetivo,
   deleteObjetivo,
   lanzarObjetivo,
@@ -38,6 +39,8 @@ import {
 } from "@/lib/api";
 import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
 import { ObjetivoDetalleModal } from "@/components/objetivos/ObjetivoDetalleModal";
+import { ObjetivoCreateProgress } from "@/components/objetivos/ObjetivoCreateProgress";
+import { TelegramRichEditor } from "@/components/objetivos/TelegramRichEditor";
 import {
   Target,
   Plus,
@@ -257,215 +260,6 @@ function DateChip({ date }: { date: string | null | undefined }) {
       {isOverdue && ` (vencido)`}
       {isSoon && !isOverdue && ` (${days}d)`}
     </span>
-  );
-}
-
-function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?: number }) {
-  if (obj.origen !== "compania" || !obj.mes_referencia || !obj.valor_objetivo) return null;
-  const mesRefDate = new Date(`${obj.mes_referencia}T00:00:00`);
-  if (Number.isNaN(mesRefDate.getTime())) return null;
-  
-  let base = mesRefDate;
-  if (obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado") {
-    // No retroactivity for Alteo/Activacion: start prorating from creation/objective date
-    const startStr = obj.created_at || obj.fecha_objetivo || obj.mes_referencia;
-    if (startStr) {
-      base = new Date(startStr.substring(0, 10) + "T00:00:00");
-    }
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const y = mesRefDate.getFullYear();
-  const m = mesRefDate.getMonth();
-  const monthEnd = new Date(y, m + 1, 0);
-  
-  // For Alteo/Activacion, prorating only happens on days AFTER the objective was created
-  const startDay = new Date(Math.max(base.getTime(), new Date(y, m, 1).getTime()));
-  
-  // We need to know ALL possible business days in the month to build the week grid properly
-  const allBusinessDaysInMonth: Date[] = [];
-  for (let d = 1; d <= monthEnd.getDate(); d++) {
-    const dt = new Date(y, m, d);
-    const wd = dt.getDay();
-    if (wd >= 1 && wd <= 6) allBusinessDaysInMonth.push(dt);
-  }
-  
-  const remainingBusinessDays = allBusinessDaysInMonth.filter(d => d.getTime() >= startDay.getTime());
-  
-  if (allBusinessDaysInMonth.length === 0) return null;
-
-  const isNoRetro = obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado";
-  const validBusinessDays = isNoRetro ? remainingBusinessDays : allBusinessDaysInMonth;
-  
-  const pastDays = validBusinessDays.filter(d => d <= today); // Include today in past/current evaluation
-  const futureDays = validBusinessDays.filter(d => d > today);
-  
-  const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
-  
-  // Obtain exact daily progress from backend tracking if available
-  const progresoDiarioReal = (obj.desglose_cache as any)?.progreso_diario || {};
-  
-  // Check if we have real tracking data. If not, fallback to average.
-  const hasRealTracking = Object.keys(progresoDiarioReal).length > 0;
-  
-  // Calculate how much was already done in the past days to deduce what's left for the future
-  let totalPastDoneEst = 0;
-  if (hasRealTracking) {
-    pastDays.forEach(d => {
-      totalPastDoneEst += progresoDiarioReal[d.toISOString().split('T')[0]] || 0;
-    });
-  } else {
-    totalPastDoneEst = shownActual; // fallback
-  }
-  
-  // Safe bounds: don't let it be negative or exceed shownActual drastically
-  const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
-  
-  const originalDailyTarget = validBusinessDays.length > 0 ? (obj.valor_objetivo ?? 0) / validBusinessDays.length : 0;
-  const futureDailyTarget = futureDays.length > 0 ? remainingMeta / futureDays.length : remainingMeta;
-  const avgPastPerDay = pastDays.length > 0 ? shownActual / pastDays.length : shownActual;
-
-  const allWeeks = new Map<string, Date[]>();
-  for (const dt of allBusinessDaysInMonth) {
-    const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
-    const key = `Semana ${weekIdx}`;
-    if (!allWeeks.has(key)) allWeeks.set(key, []);
-    allWeeks.get(key)!.push(dt);
-  }
-  const weekEntries = Array.from(allWeeks.entries());
-  
-  const remainingFutureBusinessDays = remainingBusinessDays.filter(d => d >= today).length;
-  const diasRestantesStr = remainingFutureBusinessDays;
-
-  return (
-    <div
-      className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 space-y-2"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold text-amber-700">Prorrateo mensual (lun-sáb)</p>
-        <span className="text-[10px] text-amber-700/80">{diasRestantesStr} días restantes</span>
-      </div>
-      <div className="space-y-1.5">
-        {weekEntries.map(([weekLabel, days], weekIndex) => {
-          const applicableDaysInWeek = isNoRetro ? days.filter(d => d.getTime() >= startDay.getTime()) : days;
-          
-          if (isNoRetro && applicableDaysInWeek.length === 0) {
-            return (
-              <details
-                key={weekLabel}
-                className="rounded border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-2 py-1 opacity-50"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <summary className="cursor-pointer text-[11px] text-[var(--shelfy-text)] flex items-center justify-between gap-2">
-                  <span>{weekLabel}</span>
-                  <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">
-                    No aplicable
-                  </span>
-                </summary>
-                <div className="mt-1.5 space-y-1.5">
-                  <div className="text-[10px] text-[var(--shelfy-muted)]">
-                    El objetivo no existía en esta semana.
-                  </div>
-                </div>
-              </details>
-            );
-          }
-          
-          let weeklyTarget = 0;
-          let weekDoneEst = 0;
-          
-          applicableDaysInWeek.forEach(dt => {
-            const isPast = dt <= today;
-            if (isPast) {
-              weeklyTarget += originalDailyTarget;
-              const dayStr = dt.toISOString().split('T')[0];
-              weekDoneEst += hasRealTracking ? (progresoDiarioReal[dayStr] || 0) : avgPastPerDay;
-            } else {
-              weeklyTarget += futureDailyTarget;
-            }
-          });
-          
-          const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : (weekDoneEst > 0 ? 100 : 0);
-          
-          return (
-            <details
-              key={weekLabel}
-              className="rounded border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-2 py-1"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <summary className="cursor-pointer text-[11px] text-[var(--shelfy-text)] flex items-center justify-between gap-2">
-                <span>{weekLabel}</span>
-                <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">
-                  Meta: {Math.round(weeklyTarget)}
-                </span>
-              </summary>
-              <div className="mt-1.5 space-y-1.5">
-                <div className="text-[10px] text-[var(--shelfy-muted)] flex items-center justify-between tabular-nums">
-                  <span>Avance semanal</span>
-                  <span>{Math.round(weekDoneEst)} / {Math.round(weeklyTarget)}</span>
-                </div>
-                <Progress value={weekPct} className="h-1.5" />
-                
-                {futureDailyTarget > 0 && remainingMeta > 0 && (
-                  <div className="text-[10px] text-amber-700">
-                    Debe avanzar {Math.ceil(futureDailyTarget)} por día (lun-sáb) para cumplir la meta.
-                  </div>
-                )}
-                {remainingMeta === 0 && (
-                  <div className="text-[10px] text-emerald-600 font-medium">
-                    ¡Objetivo cumplido!
-                  </div>
-                )}
-                {futureDays.length === 0 && remainingMeta > 0 && (
-                  <div className="text-[10px] text-red-500 font-medium">
-                    Sin días restantes. Faltaron {Math.round(remainingMeta)}.
-                  </div>
-                )}
-
-                {days.map((dt) => {
-                  const isBeforeCreation = isNoRetro && dt.getTime() < startDay.getTime();
-                  if (isBeforeCreation) return null;
-                  
-                  const isPast = dt <= today;
-                  const dayTarget = isPast ? originalDailyTarget : futureDailyTarget;
-                  const dayStr = dt.toISOString().split('T')[0];
-                  const dayDoneEst = isPast ? (hasRealTracking ? (progresoDiarioReal[dayStr] || 0) : avgPastPerDay) : 0;
-                  const dayPct = dayTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dayTarget) * 100)) : (dayDoneEst > 0 ? 100 : 0);
-                  
-                  return (
-                    <details
-                      key={`${weekIndex}-${dt.toISOString()}`}
-                      className="rounded border border-[var(--shelfy-border)]/80 px-2 py-1 bg-white/60"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <summary className="cursor-pointer text-[10px] text-[var(--shelfy-text)] flex items-center justify-between gap-2 capitalize">
-                        <span>{dt.toLocaleDateString("es-AR", { weekday: "long" })} {String(dt.getDate()).padStart(2, "0")}</span>
-                        <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">Meta diaria: {Math.ceil(dayTarget)}</span>
-                      </summary>
-                      <div className="mt-1 space-y-1">
-                        <div className="text-[10px] text-[var(--shelfy-muted)] tabular-nums flex items-center justify-between">
-                          <span>Progreso diario</span>
-                          <span>{Math.round(dayDoneEst)} / {Math.round(dayTarget)}</span>
-                        </div>
-                        <Progress value={dayPct} className="h-1" />
-                        {dayTarget > 0 && !isPast && (
-                          <p className="text-[10px] text-emerald-700">
-                            Objetivo del día: avanzar al menos {Math.ceil(dayTarget)} para llegar a la meta.
-                          </p>
-                        )}
-                      </div>
-                    </details>
-                  );
-                })}
-              </div>
-            </details>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -2723,15 +2517,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   </div>
                 </div>
                 <div className="flex-1 min-h-[200px] lg:min-h-0 flex flex-col px-4 pb-4">
-                  <textarea
-                    rows={14}
-                    placeholder="Seleccioná vendedor y tipo para generar el mensaje, o escribí uno propio (mín. 5 caracteres)..."
-                    className="flex-1 w-full min-h-[200px] bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-3 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none leading-relaxed"
+                  <TelegramRichEditor
                     value={desc}
-                    onChange={e => {
-                      setDesc(e.target.value);
+                    onChange={(val) => {
+                      setDesc(val);
                       descWasAutoFilled.current = false;
                     }}
+                    placeholder="Seleccioná vendedor y tipo para generar el mensaje, o escribí uno propio (mín. 5 caracteres)..."
+                    rows={3}
+                    className="flex-1"
                   />
                   {desc && desc.trim().length < 5 && (
                     <p className="text-[10px] text-red-500 mt-1.5 shrink-0">Mínimo 5 caracteres</p>
@@ -3238,6 +3032,7 @@ export default function ObjetivosPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const pageTab: PageTab = "objetivos"; // legacy — view routing now uses viewMode
 
   const {
@@ -3288,13 +3083,24 @@ export default function ObjetivosPage() {
 
   const createMut = useMutation({
     mutationFn: async (items: ObjetivoCreate[]) => {
+      // Use async job flow when available (single-item creation)
+      if (items.length === 1) {
+        const result = await createObjetivoAsync(items[0]);
+        return result;
+      }
+      // Batch: sequential sync fallback for multi-vendedor
       for (const d of items) await createObjetivo(d);
+      return null;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["objetivos", distId] });
       qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
       setModalOpen(false);
-      toast.success("Objetivo creado correctamente");
+      if (result?.job_id) {
+        setActiveJobId(result.job_id);
+      } else {
+        toast.success("Objetivo creado correctamente");
+      }
     },
     onError: (err: unknown) => {
       const apiErr = err as { status?: number; message?: string; detail?: { code?: string; mensaje?: string } | string };
@@ -3814,6 +3620,21 @@ export default function ObjetivosPage() {
         onConfirm={handleLanzarConfirm}
         onCancel={() => setLanzarObj(null)}
       />
+
+      {/* Async job progress — toast flotante */}
+      {activeJobId && (
+        <ObjetivoCreateProgress
+          jobId={activeJobId}
+          distId={distId}
+          onDone={() => {
+            qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+            qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
+            toast.success("Objetivo creado correctamente");
+          }}
+          onError={(msg) => toast.error(msg || "Error al crear el objetivo")}
+          onDismiss={() => setActiveJobId(null)}
+        />
+      )}
 
       {/* Dialog Re-agendar */}
       <Dialog open={!!reagendarObj} onOpenChange={(open) => { if (!open) setReagendarObj(null); }}>

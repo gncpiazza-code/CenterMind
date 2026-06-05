@@ -40,6 +40,7 @@ from core.tenant_tables import (
 )
 from db import sb
 from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoPreviewTelegramIn, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
+from services.objetivos_job_service import enqueue_create_objetivo, run_job as run_objetivo_job, get_job_status
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -3145,8 +3146,8 @@ def _compute_kanban_phase(obj: dict) -> str:
         return "en_progreso"
     return "pendiente"
 
-@router.post("/api/supervision/objetivos", tags=["Supervisión"])
-def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
+@router.post("/api/supervision/objetivos", tags=["Supervisión"], status_code=202)
+def crear_objetivo(body: ObjetivoCreate, background_tasks: BackgroundTasks, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, body.id_distribuidor)
     TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "ruteo", "compradores"}
     if body.tipo not in TIPOS_VALIDOS:
@@ -3178,6 +3179,11 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             raise HTTPException(status_code=403, detail="Solo usuarios de Compañía pueden crear objetivos de compañía")
         if not body.mes_referencia:
             raise HTTPException(status_code=422, detail="mes_referencia requerido para objetivos de compañía")
+        # Normalizar mes_referencia si viene en formato YYYY-MM (sin día)
+        if body.mes_referencia:
+            mr = str(body.mes_referencia).strip()
+            if len(mr) == 7 and mr[4] == '-':  # YYYY-MM → YYYY-MM-01
+                body.mes_referencia = mr + "-01"
         # Validar unicidad de objetivo de compañía activo para ese vendedor/tipo/mes
         try:
             dup_q = (
@@ -3403,52 +3409,64 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             except Exception as e_pdf:
                 logger.warning(f"[Objetivo] PDF ruteo omitido: {e_pdf}")
 
-        # Telegram Notification for NEW objective (enriched: supervisor + timestamps)
+        # Para tipo ruteo: notificación Telegram inline (no aplica async job)
         # Regla de negocio: objetivos de tipo ruteo NO se notifican por Telegram.
         # Regla de planificación: si fecha_inicio > hoy, NO notificar — lanzamiento diferido.
         if body.tipo != "ruteo" and not es_planificado:
+            # Watcher + Telegram corren en background para respuesta rápida
             try:
-                from services.objetivos_notification_service import objetivos_notification
-                notify_payload = {
-                    **payload,
-                    "created_at": rows[0].get("created_at"),
-                    "asignado_por_usuario": user_payload.get("sub"),
-                    "pdv_items": [item.model_dump() for item in (body.pdv_items or [])],
-                }
-                notif_meta = objetivos_notification.notify_new_objective_telegram(
-                    body.id_distribuidor, notify_payload, obj_id=obj_id
-                )
-                if notif_meta and notif_meta.get("chat_id") and notif_meta.get("message_id"):
-                    try:
-                        from datetime import timezone as _tz
-                        # Marcar lanzado_at inmediatamente al notificar
-                        sb.table("objetivos").update(
-                            {"lanzado_at": datetime.now(_tz.utc).isoformat()}
-                        ).eq("id", obj_id).execute()
-                        sb.table("objetivos_tracking").upsert(
-                            {
-                                "id_objetivo": obj_id,
-                                "id_referencia": str(notif_meta["message_id"]),
-                                "tipo_evento": "telegram_objetivo_asignado",
-                                "metadata": {
-                                    "chat_id": int(notif_meta["chat_id"]),
-                                    "message_id": int(notif_meta["message_id"]),
+                job_id = enqueue_create_objetivo(obj_id, body.id_distribuidor)
+                background_tasks.add_task(run_objetivo_job, job_id, obj_id, body.id_distribuidor)
+                return {"id": obj_id, "job_id": job_id}
+            except Exception as e_job:
+                logger.warning(f"[Objetivo] No se pudo encolar job async para {obj_id}: {e_job}")
+                # Fallback inline: watcher + telegram síncronos
+                try:
+                    from services.objetivos_notification_service import objetivos_notification
+                    notify_payload = {
+                        **payload,
+                        "created_at": rows[0].get("created_at"),
+                        "asignado_por_usuario": user_payload.get("sub"),
+                        "pdv_items": [item.model_dump() for item in (body.pdv_items or [])],
+                    }
+                    notif_meta = objetivos_notification.notify_new_objective_telegram(
+                        body.id_distribuidor, notify_payload, obj_id=obj_id
+                    )
+                    if notif_meta and notif_meta.get("chat_id") and notif_meta.get("message_id"):
+                        try:
+                            from datetime import timezone as _tz
+                            sb.table("objetivos").update(
+                                {"lanzado_at": datetime.now(_tz.utc).isoformat()}
+                            ).eq("id", obj_id).execute()
+                            sb.table("objetivos_tracking").upsert(
+                                {
+                                    "id_objetivo": obj_id,
+                                    "id_referencia": str(notif_meta["message_id"]),
+                                    "tipo_evento": "telegram_objetivo_asignado",
+                                    "metadata": {
+                                        "chat_id": int(notif_meta["chat_id"]),
+                                        "message_id": int(notif_meta["message_id"]),
+                                    },
                                 },
-                            },
-                            on_conflict="id_objetivo,id_referencia,tipo_evento",
-                        ).execute()
-                    except Exception as e_track_tg:
-                        logger.warning(f"[Objetivo] No se pudo guardar ref Telegram objetivo {obj_id}: {e_track_tg}")
-            except Exception as e_notif:
-                logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
+                                on_conflict="id_objetivo,id_referencia,tipo_evento",
+                            ).execute()
+                        except Exception as e_track_tg:
+                            logger.warning(f"[Objetivo] No se pudo guardar ref Telegram objetivo {obj_id}: {e_track_tg}")
+                except Exception as e_notif:
+                    logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
+                try:
+                    from services.objetivos_watcher_service import objetivos_watcher
+                    objetivos_watcher.run_watcher(body.id_distribuidor, obj_id=obj_id)
+                except Exception as e_watch:
+                    logger.warning(f"[Objetivo] Watcher post-create omitido: {e_watch}")
 
-        # Watcher refresh: compute valor_actual immediately SÓLO para el nuevo
-        # objetivo (no todos), para no pisar valor_actual de objetivos en progreso.
+        # Encolar job async para tipos ruteo planificados (solo watcher, sin Telegram)
         try:
-            from services.objetivos_watcher_service import objetivos_watcher
-            objetivos_watcher.run_watcher(body.id_distribuidor, obj_id=obj_id)
-        except Exception as e_watch:
-            logger.warning(f"[Objetivo] Watcher post-create omitido: {e_watch}")
+            job_id = enqueue_create_objetivo(obj_id, body.id_distribuidor)
+            background_tasks.add_task(run_objetivo_job, job_id, obj_id, body.id_distribuidor)
+            return {"id": obj_id, "job_id": job_id}
+        except Exception as e_job2:
+            logger.warning(f"[Objetivo] No se pudo encolar job para ruteo/planificado {obj_id}: {e_job2}")
 
         # Re-fetch to return the row with updated valor_actual
         try:
@@ -3480,6 +3498,36 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             )
         logger.error(f"Error en crear_objetivo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/supervision/objetivos/jobs/{job_id}", tags=["Supervisión"])
+async def get_objetivo_job_status(
+    job_id: str,
+    auth=Depends(verify_auth),
+    dist_id: int = Query(...),
+):
+    check_dist_permission(auth, dist_id)
+    status = get_job_status(job_id, dist_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return status
+
+
+@router.post("/api/supervision/objetivos/{objetivo_id}/recalcular", tags=["Supervisión"])
+async def recalcular_objetivo(
+    objetivo_id: str,
+    background_tasks: BackgroundTasks,
+    auth=Depends(verify_auth),
+    dist_id: int = Query(...),
+):
+    check_dist_permission(auth, dist_id)
+    # Verificar que el objetivo existe y pertenece a este dist
+    res = sb.table("objetivos").select("id,id_distribuidor").eq("id", objetivo_id).eq("id_distribuidor", dist_id).limit(1).execute()
+    if not (res.data or []):
+        raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+    job_id = enqueue_create_objetivo(objetivo_id, dist_id)
+    background_tasks.add_task(run_objetivo_job, job_id, objetivo_id, dist_id)
+    return {"job_id": job_id, "id_objetivo": objetivo_id}
 
 
 @router.post("/api/supervision/objetivos/{obj_id}/lanzar", tags=["Supervisión"])

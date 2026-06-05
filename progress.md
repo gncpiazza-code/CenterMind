@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 2 de Junio, 2026 (v9)  
+**Ultima actualizacion:** 5 de Junio, 2026 (v10)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -21,9 +21,11 @@
 - 🟢 RPA: padron y cuentas corrientes en scheduler operativo.
 - 🟢 Padrón RPA (2026-05-28): scheduler con **1 job por tenant** (escalonado 8 min), lock Consolido, catch-up por `motor_runs`; orden chicos→tabaco/aloma. Ver `ShelfMind-RPA/lib/padron_schedule.py`.
 - 🟢 Galería: mapa Apple Photos (MapLibre), viewer IG unificado, rol `compania` (ex `directorio`).
-- 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase.
+- 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase; SQL `20260605_objetivo_jobs.sql` en Supabase; runbook post-deploy objetivos compradores.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+31. Objetivos compradores — motor Consolido-first + creación async + prorrateo retro + mapa fix + WYSIWYG (2026-06-05): **Regla global importe:** `_venta_cuenta_como_compra` cambiada de `>= 0` a `> 0` — facturas en $0 y notas de crédito neutras ya no cuentan. **FUC gated:** helper `_erps_con_ventas_en_periodo` en `core/objetivos_compradores.py`; fallback padrón solo si el ERP del PDV no tiene ninguna fila en ventas_enriched del período (no solo "no matcheó vendedor"). **Invariante desglose:** `progreso_diario_updated_at` escrito atómicamente junto con `desglose_cache`. **Job async:** nueva tabla `objetivo_jobs` + `services/objetivos_job_service.py` (6 pasos con mensajes/pct); endpoint `POST /api/supervision/objetivos` retorna `{ id, job_id }` con 202; endpoints `GET .../jobs/{job_id}` y `POST .../objetivos/{id}/recalcular`. **Fix 422 mapa:** `mes_referencia` YYYY-MM → YYYY-MM-01 en FE (normMesReferencia) y normalización defensiva en BE. **Progress bar FE:** `ObjetivoCreateProgress.tsx` (flotante, polling 2s, dismiss). **WYSIWYG:** `TelegramRichEditor.tsx` con toolbar negrita/cursiva/subrayado/código; `sanitize_telegram_html` en `objetivos_notification_service.py`; integrado en mapa (TabSupervision) y modal objetivos. **Prorrateo:** `buildProrrateoGrid` retorna `invarianteOk`, `avanceVsMeta`, `metaAcumulada`; `ObjetivoProrrateoCalendario` muestra badge adelantado/atrasado y spinner "Recalculando" si la suma no cierra. **Modal detalle:** label "Desde el 1° del mes" + botón "Recalcular avance" para compañía. **CompaniaProrrateo:** componente legacy eliminado de `objetivos/page.tsx`. **Scripts:** `audit_compradores_objetivo_vendedor.py` (diagnóstico ALDECOA-style), `recalcular_objetivos_activos.py` (batch post-deploy). **Tests:** `test_objetivo_job_service.py` (lifecycle + pasos + error watcher); `test_objetivos_compradores.py` ampliado (importe 0, FUC gating, invariante). **SQL PENDIENTE:** `CenterMind/migrations/20260605_objetivo_jobs.sql` (tabla objetivo_jobs + índices + trigger). **Runbook post-deploy:** correr `recalcular_objetivos_activos.py --dist-id <id> --mes 2026-06` por tenant con objetivos activos compañía antes de dar por cerrado el release.
 
 30. Galería Mapa Apple Viewer + rol `compania` (2026-06-01/02): Vista mapa MapLibre Carto Positron como default en galería. Clustering nativo zoom<12 (WebGL) / pins HTML zoom>=12 con cap 250 DOM. `GaleriaExhibicionViewer` unificado (Dialog IG fullscreen) con publicaciones por PDV+día AR, blur peek framer-motion y navegación por vecino haversine. `ExhibicionesTimelineDialog` deprecado como thin wrapper. Rol `directorio` renombrado a `compania` en 23 archivos BE+FE; `normalize_rol()` en `core/roles.py` normaliza JWTs legacy; `verify_auth` lo llama en cada token. Nuevos endpoints en `routers/fuerza_ventas.py`: mapa bbox, sin-coords, vecino. Nuevo módulo `core/galeria_publicaciones.py`. Persistencia: URL sync (`galeria-url.ts`) + Zustand persist extendido. Tests: `test_galeria_mapa_bbox.py`, `test_rol_compania_migration.py`, E2E `galeria-exhibiciones.spec.ts`. **SQL PENDIENTE:** `CenterMind/migrations/20260601_rol_compania.sql` (UPDATE usuarios + roles_permisos SET rol='compania' WHERE rol='directorio').
 

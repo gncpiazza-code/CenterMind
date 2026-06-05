@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { Loader2 } from "lucide-react";
 import type { Objetivo } from "@/lib/api";
 import {
   buildProrrateoGrid,
@@ -75,18 +76,50 @@ export function ObjetivoProrrateoCalendario({
 
   if (!data) return null;
 
+  // Si el invariante no está OK (progreso_diario desincronizado), mostrar estado de recalculo
+  if (!data.invarianteOk) {
+    return (
+      <div className={compact ? "space-y-2" : "space-y-3"}>
+        <div className="flex items-center gap-2 text-[10px] text-amber-700">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span className="font-medium">Recalculando…</span>
+          <span className="text-amber-700/70">El progreso diario se está actualizando.</span>
+        </div>
+      </div>
+    );
+  }
+
   const semanasActivas = data.semanas.filter((s) => s.aplicable);
   const semanasInactivas = data.semanas.filter((s) => !s.aplicable);
+
+  const isCompania = obj.origen === "compania";
+  const isRetroTipo = obj.tipo === "exhibicion" || obj.tipo === "compradores";
 
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[10px] font-semibold text-amber-800">{data.label}</p>
-        <span className="text-[10px] text-amber-800/80">
-          {data.futuros} día{data.futuros !== 1 ? "s" : ""} hábil
-          {data.futuros !== 1 ? "es" : ""} restante{data.futuros !== 1 ? "s" : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          {data.avanceVsMeta > 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 font-medium">
+              Adelantado +{data.avanceVsMeta}
+            </span>
+          )}
+          {data.avanceVsMeta < 0 && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 font-medium">
+              Atrasado {data.avanceVsMeta}
+            </span>
+          )}
+          <span className="text-[10px] text-amber-800/80">
+            {data.futuros} día{data.futuros !== 1 ? "s" : ""} hábil
+            {data.futuros !== 1 ? "es" : ""} restante{data.futuros !== 1 ? "s" : ""}
+          </span>
+        </div>
       </div>
+
+      {isCompania && isRetroTipo && (
+        <p className="text-[9px] text-zinc-400 italic">Avance desde el 1° del mes</p>
+      )}
 
       <p className="text-[9px] text-[var(--shelfy-muted)] leading-snug">
         Meta diaria recalculada según pendiente y días hábiles restantes (misma meta cada día).

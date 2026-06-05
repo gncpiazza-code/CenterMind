@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { Bold, Italic, Underline, Code } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 

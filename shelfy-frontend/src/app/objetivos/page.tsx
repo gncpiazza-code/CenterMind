@@ -36,8 +36,6 @@ import {
   type RutaSupervision,
   type ObjetivoTimeline,
   type PDVCatalogItem,
-  type LiquidacionPreviewOut,
-  type LiquidacionConfigOut,
 } from "@/lib/api";
 import { resolveObjetivoMes, collectMesesConDatos, formatObjetivoMesLabel } from "@/lib/objetivo-utils";
 import { ObjetivoLiquidacionPanel } from "@/components/objetivos/ObjetivoLiquidacionPanel";

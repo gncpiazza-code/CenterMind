@@ -79,7 +79,7 @@ export function TelegramRichEditor({
     onChange(normalized);
   }, [onChange]);
 
-  const applyFormat = (cmd: FormatCmd) => {
+  const applyFormat = useCallback((cmd: FormatCmd) => {
     if (disabled) return;
     const el = editorRef.current;
     if (!el) return;
@@ -120,12 +120,35 @@ export function TelegramRichEditor({
       document.execCommand(map[cmd], false);
     }
     emitChange();
-  };
+  }, [disabled, emitChange]);
 
-  const BUTTONS: { cmd: FormatCmd; Icon: React.ComponentType<{ className?: string }>; label: string }[] = [
-    { cmd: "bold", Icon: Bold, label: "Negrita" },
-    { cmd: "italic", Icon: Italic, label: "Cursiva" },
-    { cmd: "underline", Icon: Underline, label: "Subrayado" },
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (disabled || (!e.metaKey && !e.ctrlKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "b") {
+        e.preventDefault();
+        applyFormat("bold");
+      } else if (key === "i") {
+        e.preventDefault();
+        applyFormat("italic");
+      } else if (key === "u") {
+        e.preventDefault();
+        applyFormat("underline");
+      }
+    },
+    [disabled, applyFormat],
+  );
+
+  const BUTTONS: {
+    cmd: FormatCmd;
+    Icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    shortcut?: string;
+  }[] = [
+    { cmd: "bold", Icon: Bold, label: "Negrita", shortcut: "B" },
+    { cmd: "italic", Icon: Italic, label: "Cursiva", shortcut: "I" },
+    { cmd: "underline", Icon: Underline, label: "Subrayado", shortcut: "U" },
     { cmd: "code", Icon: Code, label: "Código" },
   ];
 
@@ -134,14 +157,14 @@ export function TelegramRichEditor({
   return (
     <div className={cn("flex flex-col gap-2 min-h-0", className)}>
       <div className="flex gap-1 flex-wrap shrink-0">
-        {BUTTONS.map(({ cmd, Icon, label }) => (
+        {BUTTONS.map(({ cmd, Icon, label, shortcut }) => (
           <Button
             key={cmd}
             type="button"
             variant="outline"
             size="icon"
             className="h-7 w-7"
-            title={label}
+            title={shortcut ? `${label} (⌘/Ctrl+${shortcut})` : label}
             disabled={disabled}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => applyFormat(cmd)}
@@ -150,7 +173,7 @@ export function TelegramRichEditor({
           </Button>
         ))}
         <span className="text-[10px] text-zinc-400 self-center ml-1 leading-snug">
-          Seleccioná texto y aplicá formato — se ve como en Telegram
+          ⌘/Ctrl+B I U · seleccioná texto — se ve como en Telegram
         </span>
       </div>
 
@@ -172,6 +195,7 @@ export function TelegramRichEditor({
           aria-label="Mensaje Telegram"
           onInput={emitChange}
           onBlur={emitChange}
+          onKeyDown={handleKeyDown}
           className={cn(
             "w-full rounded-xl border border-violet-200/80 dark:border-violet-900/50",
             "bg-white dark:bg-zinc-900/80 px-4 py-3.5",

@@ -798,11 +798,32 @@ def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, payload=Depends(
 
 @router.delete("/api/admin/usuarios/{user_id}", summary="Eliminar usuario del portal")
 def admin_eliminar_usuario(user_id: int, payload=Depends(verify_auth)):
-    check_q = sb.table("usuarios_portal").select("id_distribuidor").eq("id_usuario", user_id).execute()
-    if check_q.data:
-        check_dist_permission(payload, check_q.data[0]["id_distribuidor"])
-    sb.table("usuarios_portal").delete().eq("id_usuario", user_id).execute()
-    return {"ok": True}
+    check_q = (
+        sb.table("usuarios_portal")
+        .select("id_distribuidor")
+        .eq("id_usuario", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not check_q.data:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    check_dist_permission(payload, check_q.data[0]["id_distribuidor"])
+
+    # FK NO ACTION: desvincular antes de borrar (auditoría y exhibiciones conservan filas)
+    try:
+        sb.table("exhibiciones").update({"evaluado_por_id": None}).eq("evaluado_por_id", user_id).execute()
+        sb.table("auditoria_evaluaciones").update({"id_usuario": None}).eq("id_usuario", user_id).execute()
+        sb.table("supervisores_tenant").update({"id_usuario_portal": None}).eq("id_usuario_portal", user_id).execute()
+        sb.table("usuarios_portal").delete().eq("id_usuario", user_id).execute()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Admin] eliminar usuario id={user_id}: {e}")
+        raise HTTPException(
+            status_code=409,
+            detail="No se pudo eliminar el usuario. Puede tener datos vinculados en el sistema.",
+        ) from e
 
 
 # ─── Integrantes Telegram ─────────────────────────────────────────────────────

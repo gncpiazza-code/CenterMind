@@ -545,10 +545,11 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
     openpyxl, Font, PatternFill, Alignment, Border, Side, get_column_letter = mods
     border = _xlsx_thin_border(Border, Side)
 
-    NCOLS = 13
+    NCOLS = 9
     fill_section = PatternFill(fill_type="solid", fgColor="F3F4F6")
+    fill_vend_header = PatternFill(fill_type="solid", fgColor="DDD6FE")
+    fill_vend_detail = PatternFill(fill_type="solid", fgColor="F5F3FF")
     fill_subtotal = PatternFill(fill_type="solid", fgColor="EDE9FE")
-    fill_zebra = PatternFill(fill_type="solid", fgColor="FAFAFA")
     fill_total = PatternFill(fill_type="solid", fgColor="5B21B6")
     font_total = Font(bold=True, color="FFFFFF", size=11)
 
@@ -556,6 +557,7 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
     ws = wb.active
     ws.title = "Liquidación"
     ws.sheet_view.showGridLines = False
+    ws.sheet_properties.outlinePr.summaryBelow = True
 
     r = 1
 
@@ -630,12 +632,8 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
     # ── Detalle liquidación ────────────────────────────────────────────────────
     section_bar("DETALLE DE LIQUIDACIÓN POR OBJETIVO")
     headers_detalle = [
-        "ID Objetivo",
-        "ID Vendedor",
-        "Vendedor",
         "Tipo",
         "Fecha límite",
-        "Descripción",
         "Meta",
         "Avance",
         "PDVs dist.",
@@ -653,22 +651,41 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
         vid = row["id_vendedor"]
         vendedor_grupos.setdefault(vid, []).append(row)
 
-    data_idx = 0
-    for vid, objs in vendedor_grupos.items():
+    grupos_ordenados = sorted(
+        vendedor_grupos.items(),
+        key=lambda item: str(item[1][0].get("nombre_vendedor") or "").lower(),
+    )
+
+    def _paint_row(row_idx: int, fill, *, outline: int | None = None) -> None:
+        for col in range(1, NCOLS + 1):
+            cell = ws.cell(row=row_idx, column=col)
+            cell.fill = fill
+            cell.border = border
+        if outline is not None:
+            ws.row_dimensions[row_idx].outlineLevel = outline
+
+    for grupo_idx, (vid, objs) in enumerate(grupos_ordenados, start=1):
         nombre_vend = objs[0].get("nombre_vendedor") or f"Vendedor {vid}"
         subtotal_monto = 0.0
 
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NCOLS - 1)
+        vend_c = ws.cell(
+            row=r,
+            column=1,
+            value=f"VENDEDOR {grupo_idx}: {nombre_vend} — {len(objs)} objetivo(s)",
+        )
+        vend_c.font = Font(bold=True, size=10, color="4C1D95")
+        vend_c.alignment = Alignment(horizontal="left", vertical="center")
+        _paint_row(r, fill_vend_header, outline=1)
+        vend_c.fill = fill_vend_header
+        ws.row_dimensions[r].height = 22
+        r += 1
+
         for obj_row in objs:
-            zebra = fill_zebra if data_idx % 2 == 0 else None
-            data_idx += 1
             avance_pdvs = obj_row.get("avance_pdvs")
             vals = [
-                obj_row.get("id_objetivo", ""),
-                vid,
-                nombre_vend,
                 obj_row.get("tipo_label") or _tipo_label(str(obj_row.get("tipo") or "")),
                 obj_row.get("fecha_objetivo") or "",
-                obj_row.get("descripcion") or "",
                 obj_row.get("meta", 0),
                 obj_row.get("avance", 0),
                 avance_pdvs if avance_pdvs is not None else "—",
@@ -680,22 +697,22 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
             for col, val in enumerate(vals, 1):
                 cell = ws.cell(row=r, column=col, value=val)
                 cell.border = border
-                cell.alignment = Alignment(vertical="center", wrap_text=(col == 6))
-                if zebra:
-                    cell.fill = zebra
-                if col == 10:
+                cell.fill = fill_vend_detail
+                cell.alignment = Alignment(vertical="center", indent=1 if col == 1 else 0)
+                if col == 6:
                     _xlsx_pct(cell, val if isinstance(val, (int, float)) else 0)
-                elif col in (12, 13):
+                elif col in (8, 9):
                     _xlsx_money(cell, val if isinstance(val, (int, float)) else 0)
+            ws.row_dimensions[r].outlineLevel = 2
             subtotal_monto += _safe_float(obj_row.get("monto"))
             r += 1
 
-        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=11)
-        sub_c = ws.cell(row=r, column=1, value=f"SUBTOTAL — {nombre_vend} ({len(objs)} objetivo(s))")
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NCOLS - 1)
+        sub_c = ws.cell(row=r, column=1, value=f"Subtotal — {nombre_vend}")
         sub_c.font = Font(bold=True, color="5B21B6")
         sub_c.fill = fill_subtotal
         sub_c.border = border
-        for col in range(2, 12):
+        for col in range(2, NCOLS):
             ws.cell(row=r, column=col).fill = fill_subtotal
             ws.cell(row=r, column=col).border = border
         sub_m = ws.cell(row=r, column=NCOLS)
@@ -703,14 +720,17 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
         sub_m.font = Font(bold=True, color="5B21B6")
         sub_m.fill = fill_subtotal
         sub_m.border = border
+        ws.row_dimensions[r].outlineLevel = 1
         r += 1
+
+        if grupo_idx < len(grupos_ordenados):
+            r += 1
 
     r += 1
 
     # ── Mando medio ────────────────────────────────────────────────────────────
     section_bar("BONO MANDO MEDIO")
     headers_mando = [
-        "ID Vendedor",
         "Vendedor",
         "Objetivos asignados",
         "Objetivos cumplidos",
@@ -718,7 +738,7 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
         "Bono base",
         "Monto bono",
     ]
-    _xlsx_write_header_row(ws, headers_mando, r, mods, ncols=7)
+    _xlsx_write_header_row(ws, headers_mando, r, mods, ncols=6)
     mando_header_row = r
     r += 1
 
@@ -727,7 +747,6 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
         factor_txt = "×0,5 (1/1)" if factor == 0.5 else ("×1 (todos)" if factor == 1.0 else "—")
         nombre_mm = mm_row.get("nombre_vendedor") or f"Vendedor {mm_row['id_vendedor']}"
         row_vals = [
-            mm_row["id_vendedor"],
             nombre_mm,
             mm_row.get("asignados", 0),
             mm_row.get("cumplidos", 0),
@@ -738,9 +757,9 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
         for col, val in enumerate(row_vals, 1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.border = border
-            if col in (6, 7):
+            if col in (5, 6):
                 _xlsx_money(cell, val if isinstance(val, (int, float)) else 0)
-            if factor <= 0 and col == 7:
+            if factor <= 0 and col == 6:
                 cell.font = Font(color="9CA3AF")
         r += 1
 
@@ -773,7 +792,6 @@ def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
 
     ws.freeze_panes = ws.cell(row=detalle_header_row + 1, column=1)
     _xlsx_autofit(ws, max_width=48)
-    ws.column_dimensions[get_column_letter(6)].width = 36  # descripción
 
     buf = io.BytesIO()
     wb.save(buf)

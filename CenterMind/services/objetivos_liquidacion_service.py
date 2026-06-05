@@ -30,6 +30,16 @@ _OBJETIVOS_TABLE = "objetivos"
 # Tipo excluido de liquidación v1
 _TIPOS_EXCLUIDOS = {"cobranza"}
 
+_TIPO_LABELS: dict[str, str] = {
+    "exhibicion": "Exhibición",
+    "ruteo_alteo": "Alteo",
+    "compradores": "Compradores",
+    "conversion_estado": "Activación",
+}
+
+_FMT_ARS = '"$" #,##0.00'
+_FMT_PCT = '0.0"%"'
+
 
 # ─── Helpers internos ─────────────────────────────────────────────────────────
 
@@ -90,6 +100,103 @@ def _mes_rango(mes_yyyy_mm: str) -> tuple[str, str]:
     year, month = int(mes_yyyy_mm[:4]), int(mes_yyyy_mm[5:7])
     last_day = monthrange(year, month)[1]
     return f"{mes_yyyy_mm}-01", f"{mes_yyyy_mm}-{last_day:02d}"
+
+
+def _mes_label(mes_yyyy_mm: str) -> str:
+    meses = (
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    )
+    try:
+        year, month = int(mes_yyyy_mm[:4]), int(mes_yyyy_mm[5:7])
+        if 1 <= month <= 12:
+            return f"{meses[month - 1]} {year}"
+    except (ValueError, IndexError):
+        pass
+    return mes_yyyy_mm
+
+
+def _tipo_label(tipo: str) -> str:
+    return _TIPO_LABELS.get(tipo, tipo.replace("_", " ").title())
+
+
+def _load_distribuidor_nombre(dist_id: int) -> str:
+    try:
+        for col in ("id_distribuidor", "id"):
+            rows = (
+                sb.table("distribuidores")
+                .select("nombre_empresa")
+                .eq(col, dist_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if rows:
+                return str(rows[0].get("nombre_empresa") or f"Distribuidora {dist_id}")
+    except Exception as exc:
+        logger.warning("[liquidacion] nombre distribuidor dist=%s: %s", dist_id, exc)
+    return f"Distribuidora {dist_id}"
+
+
+def _fmt_fecha(val: Any) -> str:
+    if not val:
+        return ""
+    s = str(val)[:10]
+    if len(s) == 10 and s[4] == "-":
+        return f"{s[8:10]}/{s[5:7]}/{s[0:4]}"
+    return s
+
+
+def _lazy_openpyxl_full():
+    try:
+        import openpyxl
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        return openpyxl, Font, PatternFill, Alignment, Border, Side, get_column_letter
+    except ImportError:
+        raise RuntimeError("openpyxl no instalado — no se puede generar XLSX")
+
+
+def _xlsx_thin_border(Border, Side):
+    s = Side(style="thin", color="D1D5DB")
+    return Border(left=s, right=s, top=s, bottom=s)
+
+
+def _xlsx_write_header_row(ws, headers: list[str], row: int, mods, *, ncols: int | None = None):
+    _, Font, PatternFill, Alignment, Border, Side, _ = mods
+    border = _xlsx_thin_border(Border, Side)
+    n = ncols or len(headers)
+    for col, label in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col, value=label)
+        cell.font = Font(bold=True, color="FFFFFF", size=10)
+        cell.fill = PatternFill(fill_type="solid", fgColor="5B21B6")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+    ws.row_dimensions[row].height = 22
+
+
+def _xlsx_money(cell, value: float) -> None:
+    cell.value = round(_safe_float(value), 2)
+    cell.number_format = _FMT_ARS
+
+
+def _xlsx_pct(cell, value: float) -> None:
+    cell.value = round(_safe_float(value), 1)
+    cell.number_format = _FMT_PCT
+
+
+def _xlsx_autofit(ws, max_width: int = 44, min_width: int = 10) -> None:
+    _, _, _, _, _, _, get_column_letter = _lazy_openpyxl_full()
+    for col_idx in range(1, ws.max_column + 1):
+        letter = get_column_letter(col_idx)
+        max_len = 0
+        for row_idx in range(1, ws.max_row + 1):
+            val = ws.cell(row=row_idx, column=col_idx).value
+            if val is not None:
+                max_len = max(max_len, len(str(val)))
+        ws.column_dimensions[letter].width = max(min_width, min(max_len + 3, max_width))
 
 
 def _paginate(query_fn) -> list[dict]:
@@ -343,12 +450,16 @@ def compute_liquidacion(dist_id: int, mes_yyyy_mm: str) -> dict:
                 "nombre_vendedor": nombres_vendedor.get(id_vend) or None,
                 "id_objetivo": str(obj.get("id") or ""),
                 "tipo": tipo,
+                "tipo_label": _tipo_label(tipo),
                 "descripcion": obj.get("descripcion") or None,
+                "fecha_objetivo": _fmt_fecha(obj.get("fecha_objetivo")),
                 "meta": meta,
                 "avance": avance,
                 "avance_pdvs": avance_pdvs,
                 "pct": pct,
                 "cumplido": True,
+                "resultado_final": str(obj.get("resultado_final") or "exito"),
+                "tarifa_unitaria": monto,
                 "monto": monto,
             }
         )
@@ -418,138 +529,251 @@ def compute_liquidacion(dist_id: int, mes_yyyy_mm: str) -> dict:
 
 def export_xlsx(dist_id: int, mes_yyyy_mm: str) -> bytes:
     """
-    Genera XLSX de liquidación con una hoja ("Liquidación").
-    Secciones:
-      1. Detalle vendedor×objetivo (fila por objetivo)
-      2. Subtotales por vendedor
-      3. Mando medio
-      4. Totales finales
+    Genera XLSX de liquidación — una sola hoja con bloques:
+      cabecera + tarifas | detalle por objetivo | mando medio | totales.
     """
+    from collections import OrderedDict
+
     liq = compute_liquidacion(dist_id, mes_yyyy_mm)
-    mods = _lazy_openpyxl()
-    openpyxl, Font, PatternFill, Alignment = mods
+    config = get_config()
+    dist_nombre = _load_distribuidor_nombre(dist_id)
+    mes_inicio, mes_fin = _mes_rango(mes_yyyy_mm)
+    mes_humano = _mes_label(mes_yyyy_mm)
+    generado = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+
+    mods = _lazy_openpyxl_full()
+    openpyxl, Font, PatternFill, Alignment, Border, Side, get_column_letter = mods
+    border = _xlsx_thin_border(Border, Side)
+
+    NCOLS = 13
+    fill_section = PatternFill(fill_type="solid", fgColor="F3F4F6")
+    fill_subtotal = PatternFill(fill_type="solid", fgColor="EDE9FE")
+    fill_zebra = PatternFill(fill_type="solid", fgColor="FAFAFA")
+    fill_total = PatternFill(fill_type="solid", fgColor="5B21B6")
+    font_total = Font(bold=True, color="FFFFFF", size=11)
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Liquidación"
+    ws.sheet_view.showGridLines = False
 
-    current_row = 1
+    r = 1
 
-    # ── Título ─────────────────────────────────────────────────────────────────
-    ws.cell(row=current_row, column=1, value=f"Liquidación Objetivos Compañía — Dist {dist_id} — {mes_yyyy_mm}")
-    ws.cell(row=current_row, column=1).font = Font(bold=True, size=12)
-    current_row += 2
+    def merge_title(text: str, *, size: int = 14, color: str = "5B21B6") -> None:
+        nonlocal r
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NCOLS)
+        c = ws.cell(row=r, column=1, value=text)
+        c.font = Font(bold=True, size=size, color=color)
+        c.alignment = Alignment(horizontal="left", vertical="center")
+        ws.row_dimensions[r].height = 22
+        r += 1
 
-    # ── Sección 1: Detalle vendedores ──────────────────────────────────────────
+    def section_bar(text: str) -> None:
+        nonlocal r
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NCOLS)
+        c = ws.cell(row=r, column=1, value=text)
+        c.font = Font(bold=True, size=10, color="374151")
+        c.fill = fill_section
+        c.alignment = Alignment(horizontal="left", vertical="center")
+        for col in range(2, NCOLS + 1):
+            ws.cell(row=r, column=col).fill = fill_section
+        ws.row_dimensions[r].height = 20
+        r += 1
+
+    def meta_pair(label: str, value: str) -> None:
+        nonlocal r
+        ws.cell(row=r, column=1, value=label).font = Font(bold=True, size=10, color="6B7280")
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=NCOLS)
+        ws.cell(row=r, column=2, value=value).font = Font(size=10)
+        r += 1
+
+    # ── Cabecera ───────────────────────────────────────────────────────────────
+    merge_title("LIQUIDACIÓN — OBJETIVOS COMPAÑÍA")
+    r += 1
+    meta_pair("Distribuidora", f"{dist_nombre} (ID {dist_id})")
+    meta_pair("Mes de referencia", f"{mes_humano} ({mes_yyyy_mm})")
+    meta_pair("Período", f"{_fmt_fecha(mes_inicio)} → {_fmt_fecha(mes_fin)}")
+    meta_pair("Generado", generado)
+    meta_pair(
+        "Objetivos liquidados",
+        f"{len(liq['vendedores'])} objetivo(s) · "
+        f"{len({row['id_vendedor'] for row in liq['vendedores']})} vendedor(es) con pago",
+    )
+    r += 1
+
+    # ── Tarifas vigentes ───────────────────────────────────────────────────────
+    section_bar("TARIFAS GLOBALES VIGENTES")
+    tarifa_headers = ["Tipo", "Tarifa vendedor", "Estado"]
+    _xlsx_write_header_row(ws, tarifa_headers, r, mods)
+    tarifa_header_row = r
+    r += 1
+    bono_base = _safe_float(config.get("bono_mando_medio"))
+    for tarifa in config.get("tarifas") or []:
+        if not tarifa.get("activo"):
+            continue
+        tipo = str(tarifa.get("tipo") or "")
+        ws.cell(row=r, column=1, value=_tipo_label(tipo)).border = border
+        c_tar = ws.cell(row=r, column=2)
+        _xlsx_money(c_tar, tarifa.get("monto_vendedor"))
+        c_tar.border = border
+        ws.cell(row=r, column=3, value="Activo").border = border
+        r += 1
+    ws.cell(row=r, column=1, value="Bono mando medio (base)").font = Font(bold=True)
+    ws.cell(row=r, column=1).border = border
+    c_bono = ws.cell(row=r, column=2)
+    _xlsx_money(c_bono, bono_base)
+    c_bono.font = Font(bold=True)
+    c_bono.border = border
+    ws.cell(row=r, column=3, value="×0,5 si 1/1 cumplido · ×1 si todos cumplidos (≥2)").border = border
+    r += 2
+
+    # ── Detalle liquidación ────────────────────────────────────────────────────
+    section_bar("DETALLE DE LIQUIDACIÓN POR OBJETIVO")
     headers_detalle = [
-        "Distribuidora",
-        "Mes",
+        "ID Objetivo",
+        "ID Vendedor",
         "Vendedor",
         "Tipo",
+        "Fecha límite",
         "Descripción",
         "Meta",
         "Avance",
-        "Avance PDVs",
-        "% Cumplimiento",
-        "Cumplido",
-        "Monto $",
+        "PDVs dist.",
+        "% Cumpl.",
+        "Resultado",
+        "Tarifa unit.",
+        "Monto liquidado",
     ]
-    _header_row(ws, headers_detalle, mods, row_num=current_row)
-    current_row += 1
+    _xlsx_write_header_row(ws, headers_detalle, r, mods, ncols=NCOLS)
+    detalle_header_row = r
+    r += 1
 
-    # Agrupar por vendedor para subtotales
-    from collections import defaultdict, OrderedDict
     vendedor_grupos: dict[int, list[dict]] = OrderedDict()
     for row in liq["vendedores"]:
         vid = row["id_vendedor"]
-        if vid not in vendedor_grupos:
-            vendedor_grupos[vid] = []
-        vendedor_grupos[vid].append(row)
+        vendedor_grupos.setdefault(vid, []).append(row)
 
+    data_idx = 0
     for vid, objs in vendedor_grupos.items():
         nombre_vend = objs[0].get("nombre_vendedor") or f"Vendedor {vid}"
         subtotal_monto = 0.0
 
         for obj_row in objs:
-            avance_pdvs_val = obj_row.get("avance_pdvs")
-            ws.cell(row=current_row, column=1, value=dist_id)
-            ws.cell(row=current_row, column=2, value=mes_yyyy_mm)
-            ws.cell(row=current_row, column=3, value=nombre_vend)
-            ws.cell(row=current_row, column=4, value=obj_row.get("tipo", ""))
-            ws.cell(row=current_row, column=5, value=obj_row.get("descripcion") or "")
-            ws.cell(row=current_row, column=6, value=obj_row.get("meta", 0))
-            ws.cell(row=current_row, column=7, value=obj_row.get("avance", 0))
-            ws.cell(row=current_row, column=8, value=avance_pdvs_val if avance_pdvs_val is not None else "—")
-            ws.cell(row=current_row, column=9, value=obj_row.get("pct", 0))
-            ws.cell(row=current_row, column=10, value="Sí" if obj_row.get("cumplido") else "No")
-            ws.cell(row=current_row, column=11, value=obj_row.get("monto", 0))
+            zebra = fill_zebra if data_idx % 2 == 0 else None
+            data_idx += 1
+            avance_pdvs = obj_row.get("avance_pdvs")
+            vals = [
+                obj_row.get("id_objetivo", ""),
+                vid,
+                nombre_vend,
+                obj_row.get("tipo_label") or _tipo_label(str(obj_row.get("tipo") or "")),
+                obj_row.get("fecha_objetivo") or "",
+                obj_row.get("descripcion") or "",
+                obj_row.get("meta", 0),
+                obj_row.get("avance", 0),
+                avance_pdvs if avance_pdvs is not None else "—",
+                obj_row.get("pct", 0),
+                str(obj_row.get("resultado_final") or "exito").upper(),
+                obj_row.get("tarifa_unitaria", 0),
+                obj_row.get("monto", 0),
+            ]
+            for col, val in enumerate(vals, 1):
+                cell = ws.cell(row=r, column=col, value=val)
+                cell.border = border
+                cell.alignment = Alignment(vertical="center", wrap_text=(col == 6))
+                if zebra:
+                    cell.fill = zebra
+                if col == 10:
+                    _xlsx_pct(cell, val if isinstance(val, (int, float)) else 0)
+                elif col in (12, 13):
+                    _xlsx_money(cell, val if isinstance(val, (int, float)) else 0)
             subtotal_monto += _safe_float(obj_row.get("monto"))
-            current_row += 1
+            r += 1
 
-        # Fila subtotal del vendedor
-        subtotal_label = f"SUBTOTAL {nombre_vend}"
-        ws.cell(row=current_row, column=1, value=subtotal_label)
-        ws.cell(row=current_row, column=1).font = Font(bold=True)
-        ws.cell(row=current_row, column=10, value=f"Objetivos: {len(objs)}")
-        ws.cell(row=current_row, column=11, value=round(subtotal_monto, 2))
-        ws.cell(row=current_row, column=11).font = Font(bold=True)
-        # Fondo claro para subtotal
-        light_fill = PatternFill(fill_type="solid", fgColor="E9D5FF")
-        for col in range(1, 12):
-            ws.cell(row=current_row, column=col).fill = light_fill
-        current_row += 1
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=11)
+        sub_c = ws.cell(row=r, column=1, value=f"SUBTOTAL — {nombre_vend} ({len(objs)} objetivo(s))")
+        sub_c.font = Font(bold=True, color="5B21B6")
+        sub_c.fill = fill_subtotal
+        sub_c.border = border
+        for col in range(2, 12):
+            ws.cell(row=r, column=col).fill = fill_subtotal
+            ws.cell(row=r, column=col).border = border
+        sub_m = ws.cell(row=r, column=NCOLS)
+        _xlsx_money(sub_m, subtotal_monto)
+        sub_m.font = Font(bold=True, color="5B21B6")
+        sub_m.fill = fill_subtotal
+        sub_m.border = border
+        r += 1
 
-    current_row += 1  # Espacio entre secciones
+    r += 1
 
-    # ── Sección 2: Mando Medio ─────────────────────────────────────────────────
-    ws.cell(row=current_row, column=1, value="Mando Medio")
-    ws.cell(row=current_row, column=1).font = Font(bold=True, size=11)
-    current_row += 1
-
+    # ── Mando medio ────────────────────────────────────────────────────────────
+    section_bar("BONO MANDO MEDIO")
     headers_mando = [
+        "ID Vendedor",
         "Vendedor",
-        "Asignados",
-        "Cumplidos",
-        "Factor",
-        "Bono $",
+        "Objetivos asignados",
+        "Objetivos cumplidos",
+        "Factor bono",
+        "Bono base",
+        "Monto bono",
     ]
-    _header_row(ws, headers_mando, mods, row_num=current_row)
-    current_row += 1
+    _xlsx_write_header_row(ws, headers_mando, r, mods, ncols=7)
+    mando_header_row = r
+    r += 1
 
     for mm_row in liq["mando_medio"]:
-        # Solo mostrar filas con factor > 0 (elegibles)
-        if _safe_float(mm_row.get("factor")) <= 0:
-            continue
+        factor = _safe_float(mm_row.get("factor"))
+        factor_txt = "×0,5 (1/1)" if factor == 0.5 else ("×1 (todos)" if factor == 1.0 else "—")
         nombre_mm = mm_row.get("nombre_vendedor") or f"Vendedor {mm_row['id_vendedor']}"
-        ws.cell(row=current_row, column=1, value=nombre_mm)
-        ws.cell(row=current_row, column=2, value=mm_row.get("asignados", 0))
-        ws.cell(row=current_row, column=3, value=mm_row.get("cumplidos", 0))
-        ws.cell(row=current_row, column=4, value=mm_row.get("factor", 0.0))
-        ws.cell(row=current_row, column=5, value=mm_row.get("monto_bono", 0.0))
-        current_row += 1
+        row_vals = [
+            mm_row["id_vendedor"],
+            nombre_mm,
+            mm_row.get("asignados", 0),
+            mm_row.get("cumplidos", 0),
+            factor_txt,
+            bono_base,
+            mm_row.get("monto_bono", 0),
+        ]
+        for col, val in enumerate(row_vals, 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.border = border
+            if col in (6, 7):
+                _xlsx_money(cell, val if isinstance(val, (int, float)) else 0)
+            if factor <= 0 and col == 7:
+                cell.font = Font(color="9CA3AF")
+        r += 1
 
-    current_row += 1  # Espacio
+    r += 1
 
-    # ── Sección 3: Totales finales ─────────────────────────────────────────────
-    bold_font = Font(bold=True, size=11)
+    # ── Totales ──────────────────────────────────────────────────────────────
+    section_bar("TOTALES")
+    totales = [
+        ("Total pagos por objetivos cumplidos", liq["total_vendedores"]),
+        ("Total bono mando medio", liq["total_mando_medio"]),
+        ("TOTAL A LIQUIDAR — DISTRIBUIDORA", liq["total_distribuidora"]),
+    ]
+    for i, (label, monto) in enumerate(totales):
+        is_grand = i == len(totales) - 1
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=NCOLS - 1)
+        lc = ws.cell(row=r, column=1, value=label)
+        lc.font = font_total if is_grand else Font(bold=True, size=11)
+        lc.fill = fill_total
+        lc.border = border
+        for col in range(2, NCOLS):
+            ws.cell(row=r, column=col).fill = fill_total
+            ws.cell(row=r, column=col).border = border
+        mc = ws.cell(row=r, column=NCOLS)
+        _xlsx_money(mc, monto)
+        mc.font = font_total if is_grand else Font(bold=True, size=11)
+        mc.fill = fill_total
+        mc.border = border
+        ws.row_dimensions[r].height = 22 if is_grand else 18
+        r += 1
 
-    total_fill = PatternFill(fill_type="solid", fgColor="7C3AED")
-    total_font = Font(bold=True, color="FFFFFF", size=11)
-
-    for label, monto in [
-        ("TOTAL VENDEDORES", liq["total_vendedores"]),
-        ("TOTAL MANDO MEDIO", liq["total_mando_medio"]),
-        ("TOTAL DISTRIBUIDORA", liq["total_distribuidora"]),
-    ]:
-        ws.cell(row=current_row, column=1, value=label)
-        ws.cell(row=current_row, column=1).font = total_font
-        ws.cell(row=current_row, column=1).fill = total_fill
-        ws.cell(row=current_row, column=2, value=round(monto, 2))
-        ws.cell(row=current_row, column=2).font = total_font
-        ws.cell(row=current_row, column=2).fill = total_fill
-        current_row += 1
-
-    _autofit(ws)
+    ws.freeze_panes = ws.cell(row=detalle_header_row + 1, column=1)
+    _xlsx_autofit(ws, max_width=48)
+    ws.column_dimensions[get_column_letter(6)].width = 36  # descripción
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -212,7 +212,7 @@ export function VendorCardExpanded({
     prevVendor?.id_vendedor,
     nextVendor?.id_vendedor,
   ].filter(Boolean) as string[];
-  useEstadisticasWarmCache(queryClient, distId, meses, null, neighborIds);
+  useEstadisticasWarmCache(queryClient, distId, meses, neighborIds);
 
   const { data: detalle, isLoading, isError, refetch } = useQuery(
     detalleQueryOptions(distId, vendor.id_vendedor, meses),

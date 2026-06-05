@@ -204,13 +204,13 @@ def _load_tarifas_activas() -> dict[str, float]:
 
 
 def _load_vendedores_nombre(dist_id: int) -> dict[int, str]:
-    """Carga {id_vendedor: nombre_vendedor} del tenant."""
+    """Carga {id_vendedor: nombre_erp} del tenant."""
     t_vend = tenant_table_name("vendedores_v2", dist_id)
 
     def _query(offset: int):
         return (
             sb.table(t_vend)
-            .select("id_vendedor,nombre_vendedor")
+            .select("id_vendedor,nombre_erp")
             .range(offset, offset + PAGE - 1)
             .execute()
             .data
@@ -219,7 +219,7 @@ def _load_vendedores_nombre(dist_id: int) -> dict[int, str]:
 
     rows = _paginate(_query)
     return {
-        _safe_int(r["id_vendedor"]): str(r.get("nombre_vendedor") or "")
+        _safe_int(r["id_vendedor"]): str(r.get("nombre_erp") or "")
         for r in rows
         if r.get("id_vendedor") is not None
     }

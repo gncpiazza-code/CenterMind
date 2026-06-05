@@ -192,6 +192,29 @@ async def lifespan(app: FastAPI):
         id="binding_watcher_daily"
     )
 
+    def _archivar_terminados_compania():
+        """01:00 UTC (aprox. 22:00 AR): archiva objetivos compañía cumplidos hace >7d."""
+        try:
+            from services.objetivos_liquidacion_service import archivar_terminados_compania_7d
+            result = archivar_terminados_compania_7d()
+            if result["archivados"] or result["errores"]:
+                logger.info(
+                    "[liquidacion] Archivado terminados: archivados=%s errores=%s",
+                    result["archivados"],
+                    result["errores"],
+                )
+        except Exception as e:
+            logger.warning("[liquidacion] Archivado terminados omitido: %s", e)
+
+    scheduler.add_job(
+        _archivar_terminados_compania,
+        "cron",
+        hour=1,
+        id="archivar_terminados_compania_7d",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+
     def _snapshot_prewarm_morning():
         """06:45 AR: pre-calienta bundles dashboard + estadísticas + supervisión."""
         try:

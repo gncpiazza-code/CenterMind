@@ -139,7 +139,12 @@ def _format_pdv_preview_block(obj_data: dict, max_items: int = 15) -> str:
     return "\n📋 <b>PDVs incluidos:</b>\n" + "\n".join(lines_pdv)
 
 
-def _instrucciones_por_tipo(tipo: str, valor: float | None) -> str:
+def _instrucciones_por_tipo(
+    tipo: str,
+    valor: float | None,
+    *,
+    alteo_con_venta: bool = False,
+) -> str:
     n: int | float | None = None
     if valor is not None and valor >= 1:
         n = int(valor) if valor == int(valor) else valor
@@ -156,6 +161,13 @@ def _instrucciones_por_tipo(tipo: str, valor: float | None) -> str:
             f"El progreso se actualizará automáticamente con la facturación.\n"
         )
     if tipo in ("ruteo_alteo", "alteo") and n:
+        if alteo_con_venta:
+            return (
+                f"🧭 <b>Qué tenés que hacer:</b> dá de alta "
+                f"<b>{n} PDV{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''}</b> en tu ruta "
+                f"<b>y asegurate de que realicen su primera compra</b> antes de la fecha límite. "
+                f"Solo cuentan los PDVs que ya facturaron al menos una vez.\n"
+            )
         return (
             f"🧭 <b>Qué tenés que hacer:</b> dá de alta "
             f"<b>{n} PDV{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''}</b> en tu ruta. "
@@ -171,6 +183,13 @@ def _instrucciones_por_tipo(tipo: str, valor: float | None) -> str:
         return (
             "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda indicada. "
             "El progreso se actualizará automáticamente con los recibos.\n"
+        )
+    # Fallback sin n: ruteo_alteo con alteo_con_venta
+    if tipo in ("ruteo_alteo", "alteo") and alteo_con_venta:
+        return (
+            "🧭 <b>Qué tenés que hacer:</b> da de alta clientes nuevos en tu ruta "
+            "<b>y asegurate de que realicen su primera compra</b> antes de la fecha límite. "
+            "Solo cuentan los PDVs que ya facturaron al menos una vez.\n"
         )
     base = {
         "exhibicion": "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la foto de evidencia al bot.\n",
@@ -1005,7 +1024,10 @@ class ObjetivosNotificationService:
                 accion_block = f"\n⚙️ <b>Acción a realizar:</b> {tipo_label}"
 
             valor_str = _format_valor_meta_line(tipo, obj_data)
-            instrucciones_txt = _instrucciones_por_tipo(tipo, _resolve_valor_numerico(obj_data))
+            _alteo_con_venta_flag = bool(obj_data.get("alteo_con_venta")) if isinstance(obj_data, dict) else False
+            instrucciones_txt = _instrucciones_por_tipo(
+                tipo, _resolve_valor_numerico(obj_data), alteo_con_venta=_alteo_con_venta_flag
+            )
 
             text = (
                 f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
@@ -1188,7 +1210,8 @@ class ObjetivosNotificationService:
         accion_block = f"\n⚙️ <b>Acción a realizar:</b> {accion_labels.get(tipo, tipo_label)}"
 
         valor_num = _resolve_valor_numerico(obj_data)
-        instrucciones_txt = _instrucciones_por_tipo(tipo, valor_num)
+        _alteo_cv_preview = bool(obj_data.get("alteo_con_venta")) if isinstance(obj_data, dict) else False
+        instrucciones_txt = _instrucciones_por_tipo(tipo, valor_num, alteo_con_venta=_alteo_cv_preview)
         pdv_preview_str = _format_pdv_preview_block(obj_data)
 
         return (

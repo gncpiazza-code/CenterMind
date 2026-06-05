@@ -3158,6 +3158,35 @@ def crear_objetivo(body: ObjetivoCreate, background_tasks: BackgroundTasks, user
         if not body.valor_objetivo or float(body.valor_objetivo) < 1:
             raise HTTPException(status_code=422, detail="tipo 'compradores' requiere valor_objetivo >= 1 (cantidad de PDVs distintos)")
 
+    # Validaciones para alteo con venta
+    if body.tipo == "ruteo_alteo" and getattr(body, "alteo_con_venta", False):
+        if body.pdv_items:
+            raise HTTPException(
+                status_code=422,
+                detail="alteo_con_venta no es compatible con PDVs fijos (pdv_items). "
+                       "Usá alteo_con_venta solo en objetivos globales de rutas.",
+            )
+
+    # Validaciones para exhibición PDVs distintos
+    if body.tipo == "exhibicion" and getattr(body, "min_pdvs_distintos", None) is not None:
+        if body.pdv_items:
+            raise HTTPException(
+                status_code=422,
+                detail="min_pdvs_distintos solo aplica a meta general de exhibición (sin pdv_items).",
+            )
+        meta_val = float(body.valor_objetivo or 0)
+        min_pdvs_val = int(body.min_pdvs_distintos)
+        if min_pdvs_val < 1:
+            raise HTTPException(
+                status_code=422,
+                detail="min_pdvs_distintos debe ser >= 1.",
+            )
+        if meta_val > 0 and min_pdvs_val > meta_val:
+            raise HTTPException(
+                status_code=422,
+                detail=f"min_pdvs_distintos ({min_pdvs_val}) no puede superar valor_objetivo ({int(meta_val)}).",
+            )
+
     # Para tipo ruteo: pdv_items es obligatorio y cada ítem debe tener accion_ruteo válida
     if body.tipo == "ruteo":
         if not body.pdv_items:
@@ -3340,6 +3369,8 @@ def crear_objetivo(body: ObjetivoCreate, background_tasks: BackgroundTasks, user
             "mes_referencia": body.mes_referencia.isoformat() if body.mes_referencia else None,
             "tasa_pendientes": body.tasa_pendientes,
             "fecha_inicio": fecha_inicio_str,
+            "alteo_con_venta": getattr(body, "alteo_con_venta", False) or False,
+            "min_pdvs_distintos": getattr(body, "min_pdvs_distintos", None),
         }
         res = sb.table("objetivos").insert(payload).execute()
         rows = res.data or []
@@ -3950,6 +3981,25 @@ def listar_objetivos(
         if vendedor_id is not None: q = q.eq("id_vendedor", vendedor_id)
         if cumplido   is not None: q = q.eq("cumplido", cumplido)
         if tipo       is not None: q = q.eq("tipo", tipo)
+        # Filtro server-side por mes: cubre tanto objetivos de compañía (mes_referencia)
+        # como objetivos de distribuidora (fecha_objetivo). El frontend también aplica
+        # su propio filtro client-side para coherencia en tiempo real.
+        if mes:
+            try:
+                import calendar as _calendar
+                _year, _month = int(mes[:4]), int(mes[5:7])
+                _last_day = _calendar.monthrange(_year, _month)[1]
+                _mes_inicio = f"{mes[:7]}-01"
+                _mes_fin = f"{mes[:7]}-{_last_day:02d}"
+                # PostgREST or_(): incluir objetivos cuya mes_referencia O fecha_objetivo cae en el mes
+                q = q.or_(
+                    f"mes_referencia.gte.{_mes_inicio},"
+                    f"mes_referencia.lte.{_mes_fin},"
+                    f"fecha_objetivo.gte.{_mes_inicio},"
+                    f"fecha_objetivo.lte.{_mes_fin}"
+                )
+            except Exception as _e_mes:
+                logger.warning(f"[listar_objetivos] Filtro mes inválido mes={mes!r}: {_e_mes}")
         res = q.order("created_at", desc=True).execute()
         items = res.data or []
         _enrich_objetivos_nombre_vendedor(dist_id, items)

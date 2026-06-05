@@ -333,6 +333,10 @@ class ObjetivosWatcherService:
 
         Si el objetivo tiene objetivo_items, sólo evalúa esos PDVs específicos
         y marca como cumplido cada ítem cuya fecha_alta es posterior al objetivo.
+
+        Si obj["alteo_con_venta"] es True, solo cuentan los PDVs que además
+        tienen al menos una venta (importe > 0) desde su fecha_alta hasta la
+        fecha_objetivo del objetivo.
         """
         obj_id = obj["id"]
         try:
@@ -358,14 +362,44 @@ class ObjetivosWatcherService:
                 clientes_res = q.execute()
                 all_clients = clientes_res.data or []
 
-                ya_trackeados = self._get_globally_tracked_refs(dist_id, "alteo")
-                cumplidos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
-                
-                progreso_diario = {}
+                progreso_diario: dict[str, int] = {}
                 for c in all_clients:
                     dkey = str(c.get("fecha_alta") or "")[:10]
                     if dkey:
                         progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
+
+                # ── alteo_con_venta: filtrar solo PDVs con venta válida ────────
+                alteo_con_venta = bool(obj.get("alteo_con_venta"))
+                if alteo_con_venta and all_clients:
+                    try:
+                        from core.objetivos_alteo_venta import split_alteos_con_sin_venta
+                        hasta_obj = str(obj.get("fecha_objetivo") or date.today().isoformat())[:10]
+                        con_venta, sin_venta_list, progreso_diario_con, progreso_diario_total = (
+                            split_alteos_con_sin_venta(all_clients, dist_id, id_vendedor, hasta=hasta_obj)
+                        )
+                        progreso_diario = progreso_diario_con
+                        # Sobrescribir all_clients solo para el conteo de valor_aprobados
+                        _all_clients_con_venta = con_venta
+                        _alteos_totales = len(all_clients)
+                        _alteos_con_venta = len(con_venta)
+                        _alteos_sin_venta = len(sin_venta_list)
+                    except Exception as e_av:
+                        logger.warning(f"[Watcher] alteo_con_venta split obj={obj_id}: {e_av}")
+                        _all_clients_con_venta = all_clients
+                        _alteos_totales = len(all_clients)
+                        _alteos_con_venta = len(all_clients)
+                        _alteos_sin_venta = 0
+                else:
+                    _all_clients_con_venta = all_clients
+                    _alteos_totales = len(all_clients)
+                    _alteos_con_venta = len(all_clients)
+                    _alteos_sin_venta = 0
+
+                # cumplidos = PDVs nuevos (no trackeados) que cumplen la condición final
+                effective_clients = _all_clients_con_venta if alteo_con_venta else all_clients
+                ya_trackeados_this = self._get_globally_tracked_refs(dist_id, "alteo") if not item_pdv_ids else self._get_tracked_refs(obj_id, "alteo")
+                cumplidos_effective = [c for c in effective_clients if str(c["id_cliente"]) not in ya_trackeados_this]
+                cumplidos = cumplidos_effective
 
                 if cumplidos:
                     self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
@@ -378,14 +412,26 @@ class ObjetivosWatcherService:
                         items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
                         items = items_res.data or []
                         cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
-                        return (float(cumplidos_count), len(cumplidos), float(cumplidos_count), progreso_diario)
+                        _valor_aprobados = float(len(effective_clients)) if alteo_con_venta else float(cumplidos_count)
+                        # Enriquecer desglose_cache si alteo_con_venta
+                        if alteo_con_venta:
+                            try:
+                                dc = obj.get("desglose_cache") or {}
+                                dc["alteos_totales"] = _alteos_totales
+                                dc["alteos_con_venta"] = _alteos_con_venta
+                                dc["alteos_sin_venta"] = _alteos_sin_venta
+                                sb.table("objetivos").update({"desglose_cache": dc}).eq("id", obj_id).execute()
+                            except Exception as e_dc:
+                                logger.warning(f"[Watcher] alteo_con_venta desglose_cache obj={obj_id}: {e_dc}")
+                        return (float(cumplidos_count), len(cumplidos), _valor_aprobados, progreso_diario)
                     except Exception as e_items:
                         logger.warning(f"[Watcher] alteo items relecture obj={obj_id}: {e_items}")
                     return (float(obj.get("valor_actual") or 0), len(cumplidos), float(obj.get("valor_actual") or 0), progreso_diario)
                 else:
                     # Single PDV target
+                    valor_aprobados_single = float(len(effective_clients)) if alteo_con_venta else float(obj.get("valor_actual") or 0) + len(cumplidos)
                     nuevo_valor = float(obj.get("valor_actual") or 0) + len(cumplidos)
-                    return (nuevo_valor, len(cumplidos), nuevo_valor, progreso_diario)
+                    return (nuevo_valor, len(cumplidos), valor_aprobados_single, progreso_diario)
 
             # Sin ítems y sin target PDV: comportamiento original (todas las rutas del vendedor)
             rutas_res = (
@@ -408,20 +454,57 @@ class ObjetivosWatcherService:
             )
             all_clients = clientes_res.data or []
 
+            # ── alteo_con_venta: filtrar solo PDVs con venta válida ────────
+            alteo_con_venta_global = bool(obj.get("alteo_con_venta"))
+            progreso_diario: dict[str, int] = {}
+            alteos_totales_g = len(all_clients)
+
+            if alteo_con_venta_global and all_clients:
+                try:
+                    from core.objetivos_alteo_venta import split_alteos_con_sin_venta
+                    hasta_obj_g = str(obj.get("fecha_objetivo") or date.today().isoformat())[:10]
+                    con_venta_g, sin_venta_g, progreso_diario_con_g, progreso_diario_total_g = (
+                        split_alteos_con_sin_venta(all_clients, dist_id, id_vendedor, hasta=hasta_obj_g)
+                    )
+                    progreso_diario = progreso_diario_con_g
+                    effective_clients_g = con_venta_g
+                    alteos_con_venta_g = len(con_venta_g)
+                    alteos_sin_venta_g = len(sin_venta_g)
+                except Exception as e_av_g:
+                    logger.warning(f"[Watcher] alteo_con_venta global split obj={obj_id}: {e_av_g}")
+                    effective_clients_g = all_clients
+                    alteos_con_venta_g = len(all_clients)
+                    alteos_sin_venta_g = 0
+            else:
+                for c in all_clients:
+                    dkey = str(c.get("fecha_alta") or "")[:10]
+                    if dkey:
+                        progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
+                effective_clients_g = all_clients
+                alteos_con_venta_g = len(all_clients)
+                alteos_sin_venta_g = 0
+
             ya_trackeados = self._get_globally_tracked_refs(dist_id, "alteo")
-            nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
-            
-            progreso_diario = {}
-            for c in all_clients:
-                dkey = str(c.get("fecha_alta") or "")[:10]
-                if dkey:
-                    progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
+            nuevos = [c for c in effective_clients_g if str(c["id_cliente"]) not in ya_trackeados]
 
             if nuevos:
                 self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
 
-            nuevo_valor = float(len(all_clients))
-            return (nuevo_valor, len(nuevos), nuevo_valor, progreso_diario)
+            valor_aprobados_g = float(len(effective_clients_g))
+            nuevo_valor = float(len(all_clients)) if not alteo_con_venta_global else valor_aprobados_g
+
+            # Enriquecer desglose_cache con métricas alteo_con_venta
+            if alteo_con_venta_global:
+                try:
+                    dc_g = obj.get("desglose_cache") or {}
+                    dc_g["alteos_totales"] = alteos_totales_g
+                    dc_g["alteos_con_venta"] = alteos_con_venta_g
+                    dc_g["alteos_sin_venta"] = alteos_sin_venta_g
+                    sb.table("objetivos").update({"desglose_cache": dc_g}).eq("id", obj_id).execute()
+                except Exception as e_dc_g:
+                    logger.warning(f"[Watcher] alteo_con_venta desglose_cache global obj={obj_id}: {e_dc_g}")
+
+            return (nuevo_valor, len(nuevos), valor_aprobados_g, progreso_diario)
 
         except Exception as e:
             logger.warning(f"[Watcher] alteo vend={id_vendedor}: {e}")
@@ -828,7 +911,42 @@ class ObjetivosWatcherService:
                     if dkey:
                         progreso_diario[dkey] = progreso_diario.get(dkey, 0) + pt
 
+            # ── min_pdvs_distintos: doble condición (puntos + PDVs únicos) ────
+            min_pdvs_distintos = obj.get("min_pdvs_distintos")
             valor_aprobados = float(puntos)
+            if min_pdvs_distintos is not None and int(min_pdvs_distintos) > 0:
+                try:
+                    from core.objetivos_exhibicion_pdvs import (
+                        ajustar_valor_aprobados_con_pdvs,
+                        metricas_exhibicion_global,
+                    )
+                    # Recolectar id_cliente únicos de exhibiciones aprobadas/destacadas
+                    pdv_ids_aprobados: list[int] = []
+                    for v in best_exhib_per_logic.values():
+                        if v["score"] >= 2:  # aprobado (2) o destacado (3)
+                            pdv = v["exhib"].get("id_cliente_pdv")
+                            if pdv is not None:
+                                pdv_ids_aprobados.append(int(pdv))
+
+                    metricas = metricas_exhibicion_global(puntos, pdv_ids_aprobados, int(min_pdvs_distintos))
+                    valor_aprobados = ajustar_valor_aprobados_con_pdvs(
+                        puntos, pdv_ids_aprobados,
+                        obj.get("valor_objetivo"),
+                        int(min_pdvs_distintos),
+                    )
+
+                    # Enriquecer desglose_cache con métricas PDVs distintos
+                    try:
+                        dc_exhib = obj.get("desglose_cache") or {}
+                        dc_exhib["pdvs_distintos_count"] = metricas["pdvs_distintos"]
+                        dc_exhib["min_pdvs_distintos"] = int(min_pdvs_distintos)
+                        dc_exhib["cumple_pdvs"] = metricas["cumple_pdvs"]
+                        sb.table("objetivos").update({"desglose_cache": dc_exhib}).eq("id", obj_id).execute()
+                    except Exception as e_dc_exhib:
+                        logger.warning(f"[Watcher] min_pdvs_distintos desglose_cache obj={obj_id}: {e_dc_exhib}")
+                except Exception as e_pdvs:
+                    logger.warning(f"[Watcher] min_pdvs_distintos cálculo obj={obj_id}: {e_pdvs}")
+
             nuevo_valor = valor_aprobados + float(vendor_counts["pendientes"])
             return (nuevo_valor, len(nuevas) + len(nuevas_pend), valor_aprobados, progreso_diario)
 

@@ -2416,7 +2416,16 @@ export interface Objetivo {
     tasa_pendientes?: number | null;
     pendientes_count?: number;
     pendientes_items?: string[];
+    progreso_diario?: Record<string, number>;
+    pdvs_distintos_count?: number;
+    alteos_totales?: number;
+    alteos_con_venta?: number;
+    alteos_sin_venta?: number;
+    [key: string]: unknown;
   } | null;
+  alteo_con_venta?: boolean;
+  min_pdvs_distintos?: number | null;
+  liquidacion_at?: string | null;
 }
 
 export interface ObjetivoItem {
@@ -2494,6 +2503,8 @@ export interface ObjetivoCreate {
   tasa_pendientes?: number;
   /** Fecha de inicio planificada (YYYY-MM-DD). Si > hoy, el objetivo queda en Planificados sin Telegram */
   fecha_inicio?: string;
+  alteo_con_venta?: boolean;
+  min_pdvs_distintos?: number | null;
 }
 
 export interface ObjetivoUpdate {
@@ -4198,4 +4209,76 @@ export async function fetchGaleriaVecino(
   return apiFetch<GaleriaVecinoResponse>(
     `/api/galeria/mapa/vendedor/${idVendedor}/vecino?${qs.toString()}`,
   );
+}
+
+// ── Liquidación Compañía ────────────────────────────────────────────────────
+
+export interface LiquidacionTarifaRow {
+  tipo: string;
+  monto_vendedor: number;
+  activo: boolean;
+}
+
+export interface LiquidacionConfigOut {
+  tarifas: LiquidacionTarifaRow[];
+  bono_mando_medio: number;
+  updated_at?: string | null;
+}
+
+export interface LiquidacionVendedorRow {
+  id_vendedor: number;
+  nombre_vendedor?: string | null;
+  id_objetivo: string;
+  tipo: string;
+  descripcion?: string | null;
+  meta: number;
+  avance: number;
+  avance_pdvs?: number | null;
+  pct: number;
+  cumplido: boolean;
+  monto: number;
+}
+
+export interface LiquidacionMandoMedioRow {
+  id_vendedor: number;
+  nombre_vendedor?: string | null;
+  asignados: number;
+  cumplidos: number;
+  factor: number;
+  monto_bono: number;
+}
+
+export interface LiquidacionPreviewOut {
+  dist_id: number;
+  mes: string;
+  vendedores: LiquidacionVendedorRow[];
+  mando_medio: LiquidacionMandoMedioRow[];
+  total_vendedores: number;
+  total_mando_medio: number;
+  total_distribuidora: number;
+}
+
+export async function fetchLiquidacionConfig(): Promise<LiquidacionConfigOut> {
+  return apiFetch<LiquidacionConfigOut>('/api/compania/objetivos/liquidacion/config');
+}
+
+export async function putLiquidacionConfig(data: {
+  tarifas: LiquidacionTarifaRow[];
+  bono_mando_medio: number;
+}): Promise<LiquidacionConfigOut> {
+  return apiFetch<LiquidacionConfigOut>('/api/compania/objetivos/liquidacion/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchLiquidacionPreview(distId: number, mes: string): Promise<LiquidacionPreviewOut> {
+  return apiFetch<LiquidacionPreviewOut>(
+    `/api/compania/objetivos/liquidacion/preview?dist_id=${distId}&mes=${encodeURIComponent(mes)}`
+  );
+}
+
+export function getLiquidacionExportUrl(distId: number, mes: string): string {
+  return `/api/compania/objetivos/liquidacion/export.xlsx?dist_id=${distId}&mes=${encodeURIComponent(mes)}`;
 }

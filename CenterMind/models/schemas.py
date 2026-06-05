@@ -188,6 +188,10 @@ class ObjetivoCreate(BaseModel):
     tasa_pendientes: Optional[int] = None
     # Planificación: inicio del objetivo (default = hoy → lanzado inmediatamente)
     fecha_inicio: Optional[str] = None   # DATE string YYYY-MM-DD
+    # Alteo con venta: exige venta válida en período para contar cumplimiento
+    alteo_con_venta: bool = False
+    # Exhibición PDVs distintos: solo meta general; N <= valor_objetivo
+    min_pdvs_distintos: Optional[int] = None
 
 
 class PdvPreviewItem(BaseModel):
@@ -536,3 +540,56 @@ class GaleriaVecinoResponse(BaseModel):
     longitud: float
     distancia_km: float
     publicaciones: List[GaleriaPublicacion]
+
+
+# ── Liquidación Compañía ──────────────────────────────────────────────────────
+
+class LiquidacionTarifaRow(BaseModel):
+    tipo: str
+    monto_vendedor: float
+    activo: bool
+
+
+class LiquidacionConfigIn(BaseModel):
+    tarifas: List[LiquidacionTarifaRow]
+    bono_mando_medio: float
+
+
+class LiquidacionConfigOut(BaseModel):
+    tarifas: List[LiquidacionTarifaRow]
+    bono_mando_medio: float
+    updated_at: Optional[str] = None
+
+
+class LiquidacionVendedorRow(BaseModel):
+    id_vendedor: int
+    nombre_vendedor: Optional[str]
+    id_objetivo: str
+    tipo: str
+    descripcion: Optional[str]
+    meta: float
+    avance: float
+    avance_pdvs: Optional[int]       # para exhibicion con min_pdvs_distintos
+    pct: float
+    cumplido: bool
+    monto: float                      # 0 si no cumplido
+
+
+class LiquidacionMandoMedioRow(BaseModel):
+    id_vendedor: int
+    nombre_vendedor: Optional[str]
+    asignados: int
+    cumplidos: int
+    factor: float                     # 0 | 0.5 | 1.0
+    monto_bono: float
+
+
+class LiquidacionPreviewOut(BaseModel):
+    dist_id: int
+    mes: str                          # YYYY-MM
+    vendedores: List[LiquidacionVendedorRow]
+    mando_medio: List[LiquidacionMandoMedioRow]
+    total_vendedores: float
+    total_mando_medio: float
+    total_distribuidora: float
+

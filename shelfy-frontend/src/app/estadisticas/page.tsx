@@ -2,6 +2,7 @@
 
 import "./estadisticas-page.css";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -17,6 +18,9 @@ import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import { warmPortalBundles } from "@/lib/api";
+import { bundleKeys } from "@/lib/query-keys";
+import { ESTADISTICAS_BUNDLE_STALE_MS } from "@/lib/query-cache-constants";
+import { filterCartasBySucursal } from "@/lib/estadisticas-filter";
 import {
   useEstadisticasCartasBundle,
   useEstadisticasMeses,
@@ -46,6 +50,7 @@ const pageVariants = {
 export default function EstadisticasPage() {
   const { user, loading: authLoading, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const {
     mesesSeleccionados,
@@ -108,32 +113,39 @@ export default function EstadisticasPage() {
     }
   }, [loadingMeses, mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
 
+  // Warm condicional: solo si miss o datos con age > staleTime (evita recomputo en cada re-entrada)
   useEffect(() => {
     if (distId <= 0 || mesesParaQuery.length === 0) return;
+    const key = bundleKeys.estadisticas(distId, mesesParaQuery);
+    const state = queryClient.getQueryState(key);
+    const age = state?.dataUpdatedAt ? Date.now() - state.dataUpdatedAt : Infinity;
+    if (state?.data && age < ESTADISTICAS_BUNDLE_STALE_MS) return;
     void warmPortalBundles(distId, ["estadisticas"], mesesParaQuery.join(",")).catch(() => {});
-  }, [distId, mesesParaQuery.join(",")]);
+  }, [distId, mesesParaQuery.join(","), queryClient]);
 
   const {
     data: cartasBundle,
     isLoading: loadingCards,
-    isFetching: fetchingCards,
     isError: cartasError,
     refetch: refetchCartas,
-  } = useEstadisticasCartasBundle(distId, mesesParaQuery, filterSucursal);
+  } = useEstadisticasCartasBundle(distId, mesesParaQuery);
 
-  const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
+  // Filtro sucursal 100% client-side: 0 requests al cambiar sucursal
+  const vendors: VendorCartaResumen[] = filterCartasBySucursal(
+    cartasBundle?.cartas ?? [],
+    filterSucursal,
+  );
 
-  const cartasEnProceso =
-    loadingMeses ||
-    (mesesParaQuery.length > 0 &&
-      (loadingCards ||
-        fetchingCards ||
-        Boolean(cartasBundle?.meta?.revalidating)) &&
-      !cartasError);
+  // Strip inicial: solo cuando no hay datos en absoluto
+  const showLoadingStrip =
+    loadingMeses || (mesesParaQuery.length > 0 && loadingCards && !cartasBundle);
 
-  const showLoadingStrip = cartasEnProceso && vendors.length === 0;
+  // Overlay silencioso: solo cuando el snapshot aún no tiene cartas y BE está revalidando
+  const waitingSnapshot =
+    Boolean(cartasBundle?.meta?.revalidating) && (cartasBundle?.cartas?.length ?? 0) === 0;
+  const showCartasRefreshOverlay = waitingSnapshot;
 
-  const showCartasRefreshOverlay = cartasEnProceso && vendors.length > 0;
+  const cartasEnProceso = showLoadingStrip || waitingSnapshot;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);

@@ -51,7 +51,6 @@ export function VendorCollection({
   const {
     activeVendorId,
     setActiveVendorId,
-    filterSucursal,
     overlayMode,
   } = useEstadisticasStore();
 
@@ -68,9 +67,8 @@ export function VendorCollection({
     detailVisibleRef.current = detailVisible;
   }, [detailVisible]);
 
-  const filtered = filterSucursal
-    ? vendors.filter((v) => v.sucursal === filterSucursal)
-    : vendors;
+  // vendors ya llega filtrado por sucursal desde page.tsx
+  const filtered = vendors;
 
   // Render progresivo: monta las primeras 12 cartas de inmediato y el resto en el siguiente tick
   // (evita bloquear el hilo principal con 30+ cartas complejas a la vez)
@@ -117,7 +115,7 @@ export function VendorCollection({
     return ids;
   }, [activeIdx, filtered]);
 
-  useEstadisticasWarmCache(queryClient, distId, meses, filterSucursal, neighborIds);
+  useEstadisticasWarmCache(queryClient, distId, meses, neighborIds);
 
   const handlePrefetchDetalle = useCallback(
     (vendedorId: string) => {

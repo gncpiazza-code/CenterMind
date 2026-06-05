@@ -69,6 +69,17 @@ Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
 
 `page.tsx`: layout 25% hero / 75% ranking (`md:w-1/4` + `md:w-3/4`); sin FiltrosBar ni chartsExpanded; WS invalida: kpis, ranking, ultimas, evolucion, sucursales; `refetchInterval` = 300_000.
 
+### Estadísticas bundle — filtro sucursal client-side (2026-06-05)
+
+- `bundleKeys.estadisticas(distId, meses)` — 4 elementos, **sin sucursal** en la key.
+- `cartasBundleQueryOptions(distId, meses)` — siempre llama `fetchEstadisticasBundle(distId, meses, null)`; `staleTime: ESTADISTICAS_BUNDLE_STALE_MS` (15 min).
+- `refetchInterval`: solo si `cartas.length === 0 && meta.revalidating` → 8 s; nunca mientras hay datos visibles.
+- `page.tsx`: warm condicional (gate por `queryClient.getQueryState` + age); overlay solo en `waitingSnapshot = meta.revalidating && cartas.length === 0`.
+- Filtro sucursal: `filterCartasBySucursal(cartas, sucursal)` en `lib/estadisticas-filter.ts`; aplicado en `page.tsx` antes de pasar vendors a `VendorCollection`.
+- `VendorCollection` no filtra internamente; recibe vendors ya filtrados desde page.
+- `portal-cache-persist.ts` buster bump a `"shelfy-portal-v2"` para invalidar caches con key vieja.
+- Tests: `lib/estadisticas-filter.test.ts` (5 casos) + `hooks/useEstadisticasQueries.test.ts` (3 casos).
+
 ### `TabSupervision.tsx`
 
 - Tabs: mapa, ventas, cuentas.

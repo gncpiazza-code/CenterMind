@@ -60,7 +60,7 @@ export function createPortalPersister() {
 
 export const portalPersistOptions = {
   maxAge: PERSIST_MAX_AGE_MS,
-  buster: process.env.NEXT_PUBLIC_APP_VERSION ?? "shelfy-portal-v1",
+  buster: process.env.NEXT_PUBLIC_APP_VERSION ?? "shelfy-portal-v2",
   dehydrateOptions: {
     shouldDehydrateQuery: shouldDehydratePortalQuery,
   },

@@ -165,8 +165,8 @@ export const bundleKeys = {
     ['bundle', 'dashboard', distId, periodo, sucursal ?? null] as const,
   supervision: (distId: number, sucursal?: string | null, idVendedor?: number | null) =>
     ['bundle', 'supervision', distId, sucursal ?? null, idVendedor ?? null] as const,
-  estadisticas: (distId: number, meses: string[], sucursal?: string | null) =>
-    ['bundle', 'estadisticas', distId, meses.join(','), sucursal ?? null] as const,
+  estadisticas: (distId: number, meses: string[]) =>
+    ['bundle', 'estadisticas', distId, meses.join(',')] as const,
   visor: (distId: number) =>
     ['bundle', 'visor', distId] as const,
   recapEvolucion: (distId: number, mes: string, sucursal?: string | null) =>

@@ -34,9 +34,8 @@ export function visorBundleQueryOptions(distId: number) {
 export function estadisticasBundleQueryOptions(
   distId: number,
   meses: string[] = [mesActual()],
-  sucursal: string | null = null,
 ) {
-  return cartasBundleQueryOptions(distId, meses, sucursal);
+  return cartasBundleQueryOptions(distId, meses);
 }
 
 export function supervisionBundleDefaultQueryOptions(
@@ -57,7 +56,7 @@ export function moduleBundleQueryOptions(
     case "supervision":
       return supervisionBundleDefaultQueryOptions(distId, null);
     case "estadisticas":
-      return estadisticasBundleQueryOptions(distId, [mesActual()], null);
+      return estadisticasBundleQueryOptions(distId, [mesActual()]);
     case "visor":
       return visorBundleQueryOptions(distId);
     default:

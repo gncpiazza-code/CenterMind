@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 5 de Junio, 2026 (v11)  
+**Ultima actualizacion:** 5 de Junio, 2026 (v12)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -24,6 +24,8 @@
 - 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase; SQL `20260605_objetivo_jobs.sql` en Supabase; SQL `20260605_objetivos_flags_liquidacion.sql` en Supabase; runbook post-deploy objetivos compradores.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+33. Estadísticas — filtro sucursal instantáneo + SWR silencioso (2026-06-05): bundle estadísticas sin sucursal en queryKey (`['bundle','estadisticas',distId,mesesKey]`); `fetchEstadisticasBundle` siempre llama con `null`; staleTime extendido a 15 min (`ESTADISTICAS_BUNDLE_STALE_MS`). Filtro sucursal 100% client-side: helper puro `filterCartasBySucursal` en `lib/estadisticas-filter.ts`; page.tsx filtra antes de pasar a `VendorCollection`. UX loading alineada a Dashboard: `showLoadingStrip` solo en primera carga sin datos; overlay `waitingSnapshot` solo si revalidating con cartas vacías. Warm condicional: `useEffect` con gate `getQueryState + age < ESTADISTICAS_BUNDLE_STALE_MS` (evita warm en cada re-entrada). `refetchInterval` corregido: solo si `cartas.length === 0 && revalidating`. Persist buster bump a v2. Tests: `estadisticas-filter.test.ts` (5) + `useEstadisticasQueries.test.ts` (3); 72/72 suite verde.
 
 32. Objetivos — Alteo con venta + PDVs distintos + Liquidación compañía + fix filtro mes (2026-06-05): **A) Alteo con venta:** flag `alteo_con_venta` en tabla `objetivos`; watcher llama `split_alteos_con_sin_venta` (batch único en ventas_enriched, filtro `>= fecha_alta` por PDV); solo cuentan altas con al menos una venta en período. Instrucción Telegram actualizada. Incompatible con `pdv_items`. Módulo: `core/objetivos_alteo_venta.py`. **B) Exhibición N PDVs distintos:** campo `min_pdvs_distintos`; watcher usa `ajustar_valor_aprobados_con_pdvs` para forzar `valor_aprobados < meta` cuando PDVs < min (evita cumplido prematuro). Módulo puro: `core/objetivos_exhibicion_pdvs.py`. Incompatible con `pdv_items`. API valida min_pdvs <= meta. **C) Liquidación compañía:** campo `liquidacion_at` + 2 tablas nuevas (`objetivos_liquidacion_tarifas`, `objetivos_liquidacion_bono`). Servicio `services/objetivos_liquidacion_service.py`: `compute_liquidacion`, `export_xlsx` (openpyxl lazy), `archivar_terminados_compania_7d` (cron 01:00 UTC). Router `routers/compania_objetivos.py` (4 endpoints, guard `_require_compania`). Kanban FE: 5ª columna "liquidación" virtual — objetos `terminado` de compañía; tenant no ve los archivados (`liquidacion_at != null`). Componente `ObjetivoLiquidacionPanel.tsx` (tarifas editables, preview subtotales, export XLSX). **D) Fix filtro mes kanban:** `resolveObjetivoMes()` en `objetivo-utils.ts` — compañía usa `mes_referencia`, distribuidora usa `fecha_objetivo → fecha_inicio → created_at`. `page.tsx` usa este helper de forma consistente. **SQL PENDIENTE:** `CenterMind/migrations/20260605_objetivos_flags_liquidacion.sql` (ALTER TABLE + 2 nuevas tablas). Tests: `test_objetivos_alteo_venta.py`, `test_objetivos_exhibicion_pdvs.py`, `test_objetivos_liquidacion.py`; kanban phase regresión ampliada; TS `objetivo-mes.test.ts`.
 

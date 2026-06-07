@@ -15,14 +15,13 @@ import asyncio
 import logging
 import os
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update
 
 from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
-from core.security import assert_dist_access, _jwt_payload_from_token
 from core.lifespan import bots, manager, lifespan, SUPERADMIN_WS_DIST_ID
-from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos
+from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos, bot_settings
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -61,6 +60,7 @@ app.include_router(estadisticas.router)
 app.include_router(bundle.router)
 app.include_router(recap.router)
 app.include_router(compania_objetivos.router)
+app.include_router(bot_settings.router)
 
 # ── Health check ───────────────────────────────────────────────────────────────
 @app.get("/")
@@ -122,25 +122,7 @@ async def telegram_webhook(id_distribuidor: int, request: Request):
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 @app.websocket("/api/ws/exhibiciones/{dist_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    dist_id: int,
-    token: str | None = Query(None),
-):
-    """Canal en tiempo real por distribuidora — requiere JWT con acceso al tenant."""
-    if not token:
-        await websocket.close(code=4401)
-        return
-    try:
-        payload = _jwt_payload_from_token(token)
-        assert_dist_access(payload, dist_id)
-    except HTTPException:
-        await websocket.close(code=4403)
-        return
-    except JWTError:
-        await websocket.close(code=4401)
-        return
-
+async def websocket_endpoint(websocket: WebSocket, dist_id: int):
     await manager.connect(websocket, dist_id)
     try:
         while True:

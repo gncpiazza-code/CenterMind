@@ -1071,6 +1071,91 @@ def difundir_cc_telegram(
 
 # ─── Export PDF (supervisión / impresión portal) ─────────────────────────────
 
+# Mapeo día semana Python (0=lunes) → nombre en rutas_v2
+_DIA_SEMANA_MAP = {
+    0: "Lunes",
+    1: "Martes",
+    2: "Miércoles",
+    3: "Jueves",
+    4: "Viernes",
+    5: "Sábado",
+}
+
+
+def _filter_cc_rows_por_hoy(
+    dist_id: int,
+    id_vendedor: int | None,
+    all_rows: list[dict],
+) -> list[dict]:
+    """
+    Filtra cc_rows para dejar solo los clientes cuya ruta corresponde al día AR actual.
+    Aplica solo si id_vendedor está definido (ruta individual).
+    Retorna la lista original si no hay id_vendedor o si no se encuentran rutas.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+    hoy_nombre = _DIA_SEMANA_MAP.get(datetime.now(AR_TZ).weekday(), "")
+    if not hoy_nombre:
+        return all_rows  # domingo u otro → sin filtro
+
+    if id_vendedor is None:
+        # Sin vendedor específico no podemos filtrar por ruta
+        return all_rows
+
+    try:
+        rutas_table = tenant_table_name("rutas_v2", dist_id)
+        rutas_hoy = (
+            sb.table(rutas_table)
+            .select("id_ruta")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", id_vendedor)
+            .eq("dia_semana", hoy_nombre)
+            .execute().data or []
+        )
+        if not rutas_hoy:
+            return []
+
+        ruta_ids_hoy = {r["id_ruta"] for r in rutas_hoy}
+
+        pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+        PAGE = 1000
+        offset = 0
+        erp_ids_en_ruta: set[str] = set()
+        while True:
+            batch = (
+                sb.table(pdv_table)
+                .select("id_cliente_erp,id_ruta")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_ruta", list(ruta_ids_hoy))
+                .range(offset, offset + PAGE - 1)
+                .execute().data or []
+            )
+            for p in batch:
+                erp = str(p.get("id_cliente_erp") or "").strip()
+                if erp:
+                    erp_ids_en_ruta.add(erp)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+        if not erp_ids_en_ruta:
+            return []
+
+        # Filtrar cc_rows: cliente en ruta + deuda > 0
+        filtered = []
+        for r in all_rows:
+            erp = str(r.get("id_cliente_erp") or "").strip()
+            if erp in erp_ids_en_ruta and float(r.get("deuda_total") or 0) > 0:
+                filtered.append(r)
+        return filtered
+
+    except Exception as e:
+        logger.warning(f"[cc_hoy_filter] dist={dist_id} vend={id_vendedor}: {e}")
+        return all_rows
+
+
 def export_cc_pdf_supervision(
     dist_id: int,
     *,
@@ -1078,15 +1163,21 @@ def export_cc_pdf_supervision(
     sucursal: str | None = None,
     vendedor: str | None = None,
     fecha: str | None = None,
+    modo: str = "general",
 ) -> tuple[bytes, str, str]:
     """
     Genera PDF(s) de CC con el mismo layout que difusión Telegram (_build_cc_pdf).
+    modo: 'general' (todos los clientes deudores) | 'hoy' (solo clientes en ruta del día AR)
     Returns: (content_bytes, media_type, filename)
     """
     import zipfile
 
     dist_nombre = _get_dist_nombre(dist_id)
     fecha_snapshot, all_rows = _fetch_cc_snapshot(dist_id, fecha)
+
+    # Filtrar por día si modo='hoy'
+    if modo == "hoy" and all_rows:
+        all_rows = _filter_cc_rows_por_hoy(dist_id, id_vendedor, all_rows)
     if not fecha_snapshot or not all_rows:
         raise ValueError("Sin datos de cuentas corrientes para este distribuidor")
 

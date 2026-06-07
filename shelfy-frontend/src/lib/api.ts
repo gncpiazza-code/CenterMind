@@ -4296,3 +4296,98 @@ export async function fetchLiquidacionExportBlob(distId: number, mes: string): P
   }
   return res.blob();
 }
+
+// ── Bot Settings ────────────────────────────────────────────────────────────
+
+export interface BotMessageTemplate {
+  message_key: string;
+  body_html: string;
+  updated_at: string;
+  updated_by?: string;
+}
+
+export interface BotCommand {
+  command: string;
+  kind: "system" | "system_pdf" | "static_media" | "admin_only";
+  menu_description: string;
+  visible_in_menu: boolean;
+  enabled: boolean;
+  sort_order: number;
+  image_path?: string;
+  caption_html?: string;
+}
+
+export type BotCommandPatch = {
+  menu_description?: string;
+  visible_in_menu?: boolean;
+  enabled?: boolean;
+  sort_order?: number;
+  caption_html?: string;
+};
+
+export interface BotCustomCommandCreate {
+  command: string;
+  menu_description: string;
+  visible_in_menu: boolean;
+  caption_html: string;
+  image_file?: File;
+}
+
+export async function fetchBotMessageTemplates(): Promise<BotMessageTemplate[]> {
+  const res = await apiFetch<{ messages: BotMessageTemplate[] }>("/api/bot-settings/messages");
+  return res.messages ?? [];
+}
+
+export async function updateBotMessageTemplate(key: string, bodyHtml: string): Promise<void> {
+  await apiFetch<void>(`/api/bot-settings/messages/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: JSON.stringify({ body_html: bodyHtml }),
+  });
+}
+
+export async function fetchBotCommands(): Promise<BotCommand[]> {
+  const res = await apiFetch<{ commands: BotCommand[] }>("/api/bot-settings/commands");
+  return res.commands ?? [];
+}
+
+export async function updateBotCommand(
+  command: string,
+  patch: Partial<BotCommandPatch>,
+): Promise<void> {
+  await apiFetch<void>(`/api/bot-settings/commands/${encodeURIComponent(command)}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function createBotCustomCommand(payload: BotCustomCommandCreate): Promise<void> {
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  const formData = new FormData();
+  formData.append("command", payload.command);
+  formData.append("menu_description", payload.menu_description);
+  formData.append("visible_in_menu", String(payload.visible_in_menu));
+  formData.append("caption_html", payload.caption_html);
+  if (payload.image_file) formData.append("image", payload.image_file);
+  const res = await fetch(`${API_URL}/api/bot-settings/commands/custom`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : `HTTP ${res.status}`);
+  }
+}
+
+export async function deleteBotCustomCommand(command: string): Promise<void> {
+  await apiFetch<void>(
+    `/api/bot-settings/commands/custom/${encodeURIComponent(command)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function refreshBotMenuCommands(): Promise<{ updated: number; errors: string[] }> {
+  return apiFetch<{ updated: number; errors: string[] }>("/api/bot-settings/refresh-menu", {
+    method: "POST",
+  });
+}

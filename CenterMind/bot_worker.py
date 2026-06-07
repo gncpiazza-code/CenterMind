@@ -1184,6 +1184,7 @@ class BotWorker:
         self.active_msgs:       Dict[int, Dict[str, Any]] = {}   # msg_id → {exhibicion_id, ...}
         self.start_time         = time.time()
         self.monitor            = monitor   # BotMonitor (puede ser None si corre standalone)
+        self.application:       Application | None = None  # se inicializa en post_init
 
         self.logger.info(f"✅ BotWorker listo para: {self.nombre_dist}")
 
@@ -1498,6 +1499,24 @@ class BotWorker:
             total_actual = counts_actual["total_logicas"]
             total_prev = counts_prev["total_logicas"]
 
+            # Obtener posición en ranking actual
+            ranking_line = ""
+            try:
+                from core.bot_ranking_delta import ranking_with_deltas
+                ranking_data = await asyncio.to_thread(
+                    ranking_with_deltas, self.db.sb, self.distribuidor_id
+                )
+                erp_name_upper = (display_name or "").strip().upper()
+                for entry in ranking_data:
+                    if entry.get("vendedor", "").upper() == erp_name_upper:
+                        pos = entry["pos_now"]
+                        total_v = len(ranking_data)
+                        delta_icon = "↑" if entry["delta"] == 1 else ("↓" if entry["delta"] == -1 else "—")
+                        ranking_line = f"\n   • 📍 Posición: <b>#{pos} de {total_v}</b> {delta_icon}"
+                        break
+            except Exception:
+                pass
+
             msg = (
                 f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n"
                 f"👤 Identidad: {display_name}\n\n"
@@ -1506,7 +1525,8 @@ class BotWorker:
                 f"   • 🔥 Destacadas: {counts_actual['destacadas']}\n"
                 f"   • ❌ Rechazadas: {counts_actual['rechazadas']}\n"
                 f"   • ⏳ Pendientes: {counts_actual['pendientes']}\n"
-                f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (exhibiciones: {total_actual})\n\n"
+                f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (exhibiciones: {total_actual})"
+                f"{ranking_line}\n\n"
                 f"📅 <b>Mes Anterior ({self.MESES[prev_m]}):</b>\n"
                 f"   • ✅ Aprobadas:  {counts_prev['aprobadas']}\n"
                 f"   • 🔥 Destacadas: {counts_prev['destacadas']}\n"
@@ -1614,6 +1634,290 @@ class BotWorker:
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
+
+    async def _apply_menu_commands(self) -> None:
+        """Llama setMyCommands en este bot con los comandos visibles desde bot_commands."""
+        try:
+            from core.bot_settings import get_settings_cache
+            commands = get_settings_cache().get_visible_menu_commands(self.db.sb)
+            tg_cmds = [
+                BotCommand(command=c["command"], description=c["menu_description"])
+                for c in commands
+                if c.get("kind") not in ("admin_only",) and len(c.get("menu_description", "")) > 0
+            ]
+            if tg_cmds:
+                await self.application.bot.set_my_commands(tg_cmds)
+                self.logger.info(f"[menu] {self.nombre_dist}: {len(tg_cmds)} comandos configurados desde bot_commands")
+        except Exception as e:
+            self.logger.warning(f"[menu] No se pudo configurar menú desde bot_commands: {e}")
+
+    async def cmd_cartera(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        force_mode: str | None = None,
+    ) -> None:
+        """Envía PDF de cartera del vendedor. Si force_mode='hoy' envía directo sin botones."""
+        if not update.message:
+            return
+        m = update.message
+        chat_id = m.chat.id
+
+        if not await self._check_compliance(update):
+            return
+
+        vid, _ = await asyncio.to_thread(
+            self._resolve_vendor_for_group_command,
+            self.distribuidor_id,
+            chat_id,
+            m.from_user.id,
+        )
+        if vid is None:
+            await m.reply_text(
+                "⚠️ No pude vincular este grupo a un vendedor.\n"
+                "Usá /vincular para asignar el grupo.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if force_mode:
+            await self._send_cartera_pdf(update, context, vid, force_mode)
+            return
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📅 Hoy", callback_data=f"CARTERA_HOY_{chat_id}_{vid}"),
+                InlineKeyboardButton("📋 General", callback_data=f"CARTERA_GENERAL_{chat_id}_{vid}"),
+            ]
+        ])
+        await m.reply_text(
+            "📋 <b>Cartera de clientes</b>\n¿Qué cartera querés ver?",
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+
+    async def _send_cartera_pdf(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        id_vendedor: int,
+        mode: str,
+    ) -> None:
+        chat_id = update.effective_chat.id
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
+            pdf_bytes, snapshot_label = await asyncio.to_thread(
+                __import__(
+                    "services.bot_cartera_pdf_service",
+                    fromlist=["build_cartera_pdf"],
+                ).build_cartera_pdf,
+                self.db.sb,
+                self.distribuidor_id,
+                id_vendedor,
+                mode,
+            )
+            from io import BytesIO
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=BytesIO(pdf_bytes),
+                filename=f"cartera_{mode}.pdf",
+                caption=f"📋 <b>Cartera {'de hoy' if mode == 'hoy' else 'general'}</b>\n<i>{snapshot_label}</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            self.logger.error(f"[cartera] Error generando PDF mode={mode}: {e}", exc_info=True)
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="❌ Error generando PDF de cartera. Intentá de nuevo.",
+                )
+            except Exception:
+                pass
+
+    async def _handle_cartera_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Maneja callbacks CARTERA_HOY_ y CARTERA_GENERAL_."""
+        q = update.callback_query
+        if not q:
+            return
+        await q.answer("⏳ Generando PDF...")
+        data = q.data or ""
+        try:
+            # Formato: CARTERA_HOY_<chat_id>_<vid> o CARTERA_GENERAL_<chat_id>_<vid>
+            parts = data.split("_", 3)
+            mode = "hoy" if parts[1] == "HOY" else "general"
+            vid = int(parts[3])
+        except (IndexError, ValueError):
+            return
+        await self._send_cartera_pdf(update, context, vid, mode)
+
+    async def cmd_ventas(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Envía PDF de ventas MTD del vendedor."""
+        if not update.message:
+            return
+        m = update.message
+        chat_id = m.chat.id
+
+        if not await self._check_compliance(update):
+            return
+
+        vid, _ = await asyncio.to_thread(
+            self._resolve_vendor_for_group_command,
+            self.distribuidor_id,
+            chat_id,
+            m.from_user.id,
+        )
+        if vid is None:
+            await m.reply_text(
+                "⚠️ No pude vincular este grupo a un vendedor.\n"
+                "Usá /vincular para asignar el grupo.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        await m.reply_text("⏳ Generando PDF de ventas...")
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
+            from services.bot_ventas_pdf_service import build_ventas_pdf
+            pdf_bytes, snapshot_label = await asyncio.to_thread(
+                build_ventas_pdf, self.db.sb, self.distribuidor_id, vid
+            )
+            from io import BytesIO
+            now_ar = datetime.now(AR_TZ)
+            mes_label = f"{self.MESES[now_ar.month]} {now_ar.year}"
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=BytesIO(pdf_bytes),
+                filename=f"ventas_{now_ar.year}{now_ar.month:02d}.pdf",
+                caption=f"📦 <b>Ventas {mes_label}</b>\n<i>{snapshot_label}</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            self.logger.error(f"[ventas] Error generando PDF: {e}", exc_info=True)
+            await m.reply_text("❌ Error generando PDF de ventas. Intentá de nuevo.")
+
+    async def cmd_cuentas(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Envía PDF de cuentas corrientes del vendedor."""
+        if not update.message:
+            return
+        m = update.message
+        chat_id = m.chat.id
+
+        if not await self._check_compliance(update):
+            return
+
+        vid, _ = await asyncio.to_thread(
+            self._resolve_vendor_for_group_command,
+            self.distribuidor_id,
+            chat_id,
+            m.from_user.id,
+        )
+        if vid is None:
+            await m.reply_text(
+                "⚠️ No pude vincular este grupo a un vendedor.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📅 Hoy", callback_data=f"CUENTAS_HOY_{chat_id}_{vid}"),
+                InlineKeyboardButton("💳 General", callback_data=f"CUENTAS_GENERAL_{chat_id}_{vid}"),
+            ]
+        ])
+        await m.reply_text(
+            "💳 <b>Cuentas Corrientes</b>\n¿Qué clientes querés ver?",
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+
+    async def _handle_cuentas_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Maneja callbacks CUENTAS_HOY_ y CUENTAS_GENERAL_."""
+        q = update.callback_query
+        if not q:
+            return
+        await q.answer("⏳ Generando PDF...")
+        data = q.data or ""
+        try:
+            parts = data.split("_", 3)
+            modo = "hoy" if parts[1] == "HOY" else "general"
+            vid = int(parts[3])
+        except (IndexError, ValueError):
+            return
+        chat_id = update.effective_chat.id
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
+            from services.cc_difusion_service import export_cc_pdf_supervision
+            pdf_bytes, media_type, filename = await asyncio.to_thread(
+                export_cc_pdf_supervision,
+                self.distribuidor_id,
+                id_vendedor=vid,
+                modo=modo,
+            )
+            from io import BytesIO
+            caption = (
+                f"💳 <b>CC {'de hoy' if modo == 'hoy' else 'general'}</b>"
+            )
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=BytesIO(pdf_bytes),
+                filename=filename,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+            )
+        except ValueError as e:
+            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ {e}")
+        except Exception as e:
+            self.logger.error(f"[cuentas] Error generando PDF: {e}", exc_info=True)
+            await context.bot.send_message(chat_id=chat_id, text="❌ Error generando PDF. Intentá de nuevo.")
+
+    async def _handle_custom_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Maneja comandos custom de tipo static_media registrados en bot_commands."""
+        if not update.message:
+            return
+        m = update.message
+        raw_text = m.text or ""
+        cmd_text = raw_text.lstrip("/").split("@")[0].split()[0].lower()
+        if not cmd_text:
+            return
+
+        if not await self._check_compliance(update):
+            return
+
+        try:
+            from core.bot_settings import get_settings_cache
+            commands = get_settings_cache().list_commands(self.db.sb)
+            cmd_row = next(
+                (c for c in commands if c.get("command") == cmd_text and c.get("enabled")),
+                None,
+            )
+            if not cmd_row or cmd_row.get("kind") != "static_media":
+                return
+
+            caption = (cmd_row.get("caption_html") or "").strip()
+            image_path = (cmd_row.get("image_path") or "").strip()
+
+            if image_path:
+                try:
+                    from io import BytesIO
+                    from services.objetivos_notification_service import sanitize_telegram_html
+
+                    raw = self.db.sb.storage.from_("bot-command-assets").download(image_path)
+                    photo_bytes = raw if isinstance(raw, (bytes, bytearray)) else b"".join(raw)
+                    safe_caption = sanitize_telegram_html(caption) if caption else None
+                    await m.reply_photo(
+                        photo=BytesIO(photo_bytes),
+                        caption=safe_caption or None,
+                        parse_mode=ParseMode.HTML if safe_caption else None,
+                    )
+                    return
+                except Exception as e:
+                    self.logger.warning(f"[custom_cmd] {cmd_text}: error foto storage: {e}")
+
+            if caption:
+                from services.objetivos_notification_service import sanitize_telegram_html
+                await m.reply_text(sanitize_telegram_html(caption), parse_mode=ParseMode.HTML)
+        except Exception as e:
+            self.logger.warning(f"[custom_cmd] {cmd_text}: {e}")
 
     def _resolve_group_vendor(self, chat_id: int) -> int | None:
         """Group-first vendor resolution. Llama a helpers.resolve_vendedor_for_group."""
@@ -2546,7 +2850,7 @@ class BotWorker:
         if data.startswith("RANKING_"):
             parts = data.split("_")
             if len(parts) < 4: return
-            
+
             month = int(parts[1])
             year  = int(parts[2])
             target_uid = int(parts[3])
@@ -2556,25 +2860,11 @@ class BotWorker:
                 return
 
             await q.edit_message_text("⏳ Obteniendo ranking...")
-            
+
             try:
-                # Necesitamos un método en DB que acepte mes/año o que soporte periodos.
-                # Por ahora, si es el mes actual usamos get_ranking_mes.
-                # Si es otro, necesitamos extender la lógica.
-                # Por simplicidad en este paso, simularemos o usaremos el actual si coincide.
-                # Construir periodo formato YYYY-MM
                 periodo = f"{year}-{month:02d}"
                 now = datetime.now(AR_TZ)
-                if now.month == month and now.year == year:
-                    periodo = "mes"
-                
-                ranking = await asyncio.to_thread(
-                    self.db.get_ranking_periodo, self.distribuidor_id, periodo
-                )
-                
-                if not ranking:
-                    await q.edit_message_text("📊 No hay datos para ese período.")
-                    return
+                is_mes_actual = (now.month == month and now.year == year)
 
                 MESES = {
                     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
@@ -2582,13 +2872,44 @@ class BotWorker:
                     9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
                 }
                 month_name = MESES.get(month, "Mes")
-                
+
+                # Usar ranking_with_deltas para el mes actual (incluye flechas)
+                # Para meses anteriores, usar el ranking histórico sin deltas
+                if is_mes_actual:
+                    from core.bot_ranking_delta import ranking_with_deltas
+                    ranking_raw = await asyncio.to_thread(
+                        ranking_with_deltas, self.db.sb, self.distribuidor_id, periodo
+                    )
+                    # Convertir al formato usado abajo
+                    ranking = []
+                    for r in ranking_raw:
+                        ranking.append({
+                            "vendedor": r["vendedor"],
+                            "puntos": r["puntos"],
+                            "aprobadas": r.get("aprobadas", 0),
+                            "destacadas": r.get("destacadas", 0),
+                            "rechazadas": r.get("rechazadas", 0),
+                            "sucursal": "",
+                            "delta": r.get("delta", 0),
+                        })
+                else:
+                    ranking_legacy = await asyncio.to_thread(
+                        self.db.get_ranking_periodo, self.distribuidor_id, periodo
+                    )
+                    ranking = [{**r, "delta": 0} for r in (ranking_legacy or [])]
+
+                if not ranking:
+                    await q.edit_message_text("📊 No hay datos para ese período.")
+                    return
+
                 msg = f"🏆 <b>RANKING {month_name.upper()} {year} — {self.nombre_dist}</b>\n\n"
                 for i, entry in enumerate(ranking[:10], 1):
                     emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
                     sucursal_text = f" ({entry['sucursal']})" if entry.get('sucursal') else ""
+                    delta = entry.get("delta", 0)
+                    arrow = " ↑" if delta == 1 else (" ↓" if delta == -1 else "")
                     msg += (
-                        f"{emoji} <b>{entry['vendedor']}</b>{sucursal_text}\n"
+                        f"{emoji} <b>{entry['vendedor']}</b>{sucursal_text}{arrow}\n"
                         f"   ✅ Aprod: {entry['aprobadas']} | 🔥 Dest: {entry['destacadas']}\n"
                         f"   ⭐ Puntos: {entry['puntos']}\n\n"
                     )
@@ -2597,6 +2918,16 @@ class BotWorker:
             except Exception as e:
                 self.logger.error(f"Error en callback ranking: {e}")
                 await q.edit_message_text("❌ Error al obtener el ranking.")
+            return
+
+        # ── CARTERA_: PDF de cartera ─────────────────────────────────────────
+        if data.startswith("CARTERA_"):
+            await self._handle_cartera_callback(update, context)
+            return
+
+        # ── CUENTAS_: PDF de cuentas corrientes ──────────────────────────────
+        if data.startswith("CUENTAS_"):
+            await self._handle_cuentas_callback(update, context)
             return
 
         # ── RETRY_CLIENTE_: volver a pedir NRO ───────────────────────────────
@@ -3753,19 +4084,27 @@ class BotWorker:
     async def post_init(self, application: Application) -> None:
         await self._ensure_ready(application.bot)
 
+        # Guardar referencia a la app para _apply_menu_commands
+        self.application = application
 
-
-        # Configurar menú de comandos
+        # Intentar configurar menú desde bot_commands (DB); fallback a lista fija
         try:
-            await application.bot.set_my_commands([
-                BotCommand("start",   "Iniciar el bot"),
-                BotCommand("help",    "Cómo usar el bot"),
-                BotCommand("stats",   "Mis estadísticas"),
-                BotCommand("ranking", "Ranking del mes"),
-                BotCommand("objetivos", "Mis objetivos y progreso"),
-            ])
-        except Exception as e:
-            self.logger.warning(f"No se pudo configurar menú: {e}")
+            await self._apply_menu_commands()
+        except Exception:
+            # Fallback: lista fija de comandos
+            try:
+                await application.bot.set_my_commands([
+                    BotCommand("start",     "Iniciar el bot"),
+                    BotCommand("help",      "Cómo usar el bot"),
+                    BotCommand("stats",     "Mis estadísticas"),
+                    BotCommand("ranking",   "Ranking del mes"),
+                    BotCommand("objetivos", "Mis objetivos y progreso"),
+                    BotCommand("cartera",   "Mi cartera de clientes"),
+                    BotCommand("ventas",    "Mis ventas del mes"),
+                    BotCommand("cuentas",   "Cuentas corrientes"),
+                ])
+            except Exception as e:
+                self.logger.warning(f"No se pudo configurar menú: {e}")
 
         await self._notify_admin(
             application,
@@ -3794,6 +4133,11 @@ class BotWorker:
         app.add_handler(CommandHandler("cadenaone",  self.cmd_cadenaone))
         app.add_handler(CommandHandler("reset",      self.cmd_reset))
         app.add_handler(CommandHandler("hardreset",  self.cmd_hardreset))
+        app.add_handler(CommandHandler("cartera",    self.cmd_cartera))
+        app.add_handler(CommandHandler("carterahoy", lambda u, c: self.cmd_cartera(u, c, force_mode="hoy")))
+        app.add_handler(CommandHandler("ventas",     self.cmd_ventas))
+        app.add_handler(CommandHandler("cuentas",    self.cmd_cuentas))
+        app.add_handler(MessageHandler(filters.COMMAND, self._handle_custom_command))
 
         # Foto y texto
         app.add_handler(MessageHandler(filters.PHOTO, self.handle_photo))

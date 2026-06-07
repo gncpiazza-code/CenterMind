@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText, Mail, X, Send, Paperclip, Loader2, MessageSquarePlus, Monitor } from "lucide-react";
+import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText, Mail, X, Send, Paperclip, Loader2, MessageSquarePlus, Monitor, Bot } from "lucide-react";
 import {
   fetchDistribuidoras,
   fetchPortalFeedbackPendingCount,
@@ -525,6 +525,12 @@ export function Topbar({ title, live = false }: TopbarProps) {
                           {pendingTickets > 99 ? "99+" : pendingTickets}
                         </span>
                       ) : null}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/bot-settings" className="flex items-center gap-2">
+                      <Bot size={14} className="shrink-0" />
+                      Bot Settings
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

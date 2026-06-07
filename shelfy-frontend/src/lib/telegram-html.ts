@@ -6,19 +6,24 @@ const ALLOWED = new Set(["b", "i", "u", "s", "code", "pre"]);
 export function sanitizeStoredTelegramHtml(text: string): string {
   if (!text) return "";
   return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
     .replace(/<(b|i|u|s|code|pre)\b[^>]*>/gi, "<$1>")
     .replace(/<\/(b|i|u|s|code|pre)\b[^>]*>/gi, "</$1>")
     .replace(/<\/?(?:span|font|div|p)\b[^>]*>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/&nbsp;/gi, " ")
-    .replace(/\u200b/g, "");
+    .replace(/\u200b/g, "")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
-/** Normaliza HTML del contentEditable → string Telegram. */
+/** Normaliza HTML del contentEditable → string Telegram (saltos = \\n). */
 export function normalizeTelegramHtml(raw: string): string {
   if (!raw) return "";
 
   let html = raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
     .replace(/<strong\b[^>]*>/gi, "<b>")
     .replace(/<\/strong>/gi, "</b>")
     .replace(/<em\b[^>]*>/gi, "<i>")
@@ -41,6 +46,8 @@ export function normalizeTelegramHtml(raw: string): string {
     if (ALLOWED.has(t)) return match;
     return "";
   });
+
+  html = html.replace(/\n{3,}/g, "\n\n");
 
   // Colapsar tags anidados del mismo tipo consecutivos vacíos
   html = html.replace(/(<(\w+)>)\s*(<\2>)+/gi, "$1");

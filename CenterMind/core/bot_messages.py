@@ -10,6 +10,7 @@ from supabase import Client
 
 from core.bot_message_catalog import get_default_message, normalize_message_key
 from core.bot_settings import get_settings_cache
+from core.telegram_html import repair_telegram_message_html
 
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
@@ -52,6 +53,7 @@ def resolve_bot_message(
         body = fallback.strip()
     if not body:
         return ""
+    body = repair_telegram_message_html(body)
     if variables:
         return _safe_format(body, variables)
     return body

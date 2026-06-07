@@ -539,6 +539,10 @@ def sanitize_telegram_html(text: str) -> str:
     if not text:
         return text
 
+    from core.telegram_html import repair_telegram_message_html
+
+    text = repair_telegram_message_html(text)
+
     # Primero convertir markdown básico a HTML antes de sanitizar
     # **text** → <b>text</b>
     text = _re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=_re.DOTALL)

@@ -4379,6 +4379,19 @@ export async function resetBotMessageTemplate(key: string): Promise<void> {
   });
 }
 
+export async function repairAllBotMessages(): Promise<{
+  ok: boolean;
+  fixed: number;
+  reset_to_default: number;
+  total: number;
+}> {
+  return apiFetch("/api/bot-settings/messages/repair-all", { method: "POST" });
+}
+
+export async function resetAllBotMessages(): Promise<{ ok: boolean }> {
+  return apiFetch("/api/bot-settings/messages/reset-all", { method: "POST" });
+}
+
 export async function fetchBotMessageFlows(): Promise<BotMessageFlow[]> {
   const res = await apiFetch<{ flows: BotMessageFlow[] }>("/api/bot-settings/flows");
   return res.flows ?? [];

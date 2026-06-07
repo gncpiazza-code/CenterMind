@@ -15,7 +15,12 @@ from core.exhibicion_aggregate import (
     EXHIBICION_ROW_COLS,
     aggregate_ranking_by_vendor,
 )
-from core.helpers import build_integrante_to_erp_name, build_qa_exhibicion_integrante_ids
+from core.helpers import (
+    build_integrante_to_erp_name,
+    build_qa_exhibicion_integrante_ids,
+    resolve_integrante_ids_for_vendor_v2,
+    _norm_name,
+)
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -139,3 +144,29 @@ def ranking_with_deltas(
             "delta": delta,
         })
     return result
+
+
+def find_ranking_position(
+    ranking: list[dict],
+    vendor_name: str,
+) -> tuple[int | None, int, int]:
+    """
+    Busca posición del vendedor en ranking MTD (match normalizado de nombre ERP).
+    Retorna (pos_now | None, ranking_total, delta).
+    """
+    target = _norm_vendor_ranking_name(vendor_name)
+    total = len(ranking)
+    if not target:
+        return None, total, 0
+    for entry in ranking:
+        if _norm_vendor_ranking_name(entry.get("vendedor")) == target:
+            return (
+                int(entry.get("pos_now") or 0) or None,
+                total,
+                int(entry.get("delta") or 0),
+            )
+    return None, total, 0
+
+
+def _norm_vendor_ranking_name(name: str | None) -> str:
+    return _norm_name(name or "")

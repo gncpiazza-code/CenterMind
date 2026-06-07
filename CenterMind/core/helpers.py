@@ -945,6 +945,71 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
         return {}
 
 
+def resolve_integrante_ids_for_vendor_v2(
+    dist_id: int,
+    vendor_v2_id: int,
+    *,
+    iid_to_erp: dict[int, str] | None = None,
+) -> list[int]:
+    """
+    Todos los id_integrante del vendedor ERP (vendor-scope para /stats y ranking).
+    Une mapa ERP + filas integrantes_grupo.id_vendedor_v2 (binding puede existir solo en grupos).
+    """
+    try:
+        vid = int(vendor_v2_id)
+    except (TypeError, ValueError):
+        return []
+
+    erp_map = iid_to_erp if iid_to_erp is not None else build_integrante_to_erp_name(dist_id)
+    target_norm = ""
+    try:
+        t_vend = tenant_table_name("vendedores_v2", dist_id)
+        v_res = (
+            sb.table(t_vend)
+            .select("nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", vid)
+            .limit(1)
+            .execute()
+        )
+        if v_res.data:
+            target_norm = _norm_name(v_res.data[0].get("nombre_erp"))
+    except Exception as e:
+        logger.warning(f"resolve_integrante_ids_for_vendor_v2 dist={dist_id} vid={vid}: {e}")
+
+    out: list[int] = []
+    seen: set[int] = set()
+
+    def _add(raw) -> None:
+        try:
+            iid = int(raw)
+        except (TypeError, ValueError):
+            return
+        if iid not in seen:
+            seen.add(iid)
+            out.append(iid)
+
+    if target_norm:
+        for iid, name in erp_map.items():
+            if _norm_name(name) == target_norm:
+                _add(iid)
+
+    try:
+        ig_res = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", vid)
+            .execute()
+        )
+        for row in ig_res.data or []:
+            _add(row.get("id_integrante"))
+    except Exception as e:
+        logger.warning(f"resolve_integrante_ids_for_vendor_v2 ig dist={dist_id} vid={vid}: {e}")
+
+    return out
+
+
 # ── Exclusión de vendedores bucket en objetivos ───────────────────────────────
 # Subcadenas que identifican vendedores operativos que no deben recibir objetivos.
 _EXCLUIR_VENDEDOR_SUBCADENAS: tuple[str, ...] = (

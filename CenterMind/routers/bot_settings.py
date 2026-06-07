@@ -126,11 +126,13 @@ async def update_message(
     if not key.strip():
         raise HTTPException(status_code=400, detail="message_key inválido")
     from core.bot_message_catalog import normalize_message_key
+    from core.telegram_html import repair_telegram_message_html
     canon = normalize_message_key(key)
+    body_html = repair_telegram_message_html(body.body_html)
     try:
         result = (
             sb.table("bot_message_templates")
-            .upsert({"message_key": canon, "body_html": body.body_html})
+            .upsert({"message_key": canon, "body_html": body_html})
             .execute()
         )
     except Exception as e:
@@ -140,6 +142,63 @@ async def update_message(
     # Invalidar cache para que el próximo uso lea el valor actualizado
     get_settings_cache().invalidate()
     return {"ok": True, "message_key": key}
+
+
+@router.post("/messages/repair-all")
+async def repair_all_messages(user_payload: dict = Depends(verify_auth)):
+    """
+    Repara saltos de línea en todas las plantillas guardadas (DB).
+    Normaliza <br>/div/p → \\n. Si tras reparar sigue inválido, restaura default del catálogo.
+    """
+    _require_superadmin(user_payload)
+    from core.bot_message_catalog import get_message_def, normalize_message_key
+    from core.telegram_html import message_needs_linebreak_repair, repair_telegram_message_html
+
+    try:
+        rows = sb.table("bot_message_templates").select("message_key,body_html").execute().data or []
+    except Exception as e:
+        logger.error(f"[bot-settings] repair_all_messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    fixed = 0
+    reset = 0
+    for row in rows:
+        canon = normalize_message_key(row.get("message_key") or "")
+        if not get_message_def(canon):
+            continue
+        raw = row.get("body_html") or ""
+        if not raw.strip():
+            sb.table("bot_message_templates").delete().eq("message_key", canon).execute()
+            reset += 1
+            continue
+
+        repaired = repair_telegram_message_html(raw)
+        if message_needs_linebreak_repair(repaired):
+            sb.table("bot_message_templates").delete().eq("message_key", canon).execute()
+            reset += 1
+            continue
+
+        if repaired != raw:
+            sb.table("bot_message_templates").upsert(
+                {"message_key": canon, "body_html": repaired}
+            ).execute()
+            fixed += 1
+
+    get_settings_cache().invalidate()
+    return {"ok": True, "fixed": fixed, "reset_to_default": reset, "total": len(rows)}
+
+
+@router.post("/messages/reset-all")
+async def reset_all_messages(user_payload: dict = Depends(verify_auth)):
+    """Elimina todos los overrides → vuelven los defaults del catálogo."""
+    _require_superadmin(user_payload)
+    try:
+        sb.table("bot_message_templates").delete().neq("message_key", "").execute()
+    except Exception as e:
+        logger.error(f"[bot-settings] reset_all_messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    get_settings_cache().invalidate()
+    return {"ok": True}
 
 
 @router.delete("/messages/{key}")

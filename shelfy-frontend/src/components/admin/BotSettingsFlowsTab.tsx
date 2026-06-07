@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchBotMessageFlows,
+  repairAllBotMessages,
   resetBotMessageTemplate,
   updateBotMessageTemplate,
   type BotFlowNode,
@@ -216,6 +217,18 @@ function NodeEditor({ node, onSaved }: { node: BotFlowNode; onSaved: () => void 
 export function BotSettingsFlowsTab() {
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const repairMutation = useMutation({
+    mutationFn: repairAllBotMessages,
+    onSuccess: (res) => {
+      toast.success(
+        `Mensajes reparados: ${res.fixed} corregidos, ${res.reset_to_default} restaurados al default.`,
+      );
+      qc.invalidateQueries({ queryKey: ["bot-settings-flows"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Error al reparar mensajes"),
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["bot-settings-flows"],
@@ -261,10 +274,27 @@ export function BotSettingsFlowsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5 text-xs text-violet-900 leading-relaxed">
-        Diagrama de flujos del bot: cada nodo es un mensaje editable. Los cambios aplican a{" "}
-        <b>todos los tenants</b>. Usá placeholders como <code>{`{nombre_dist}`}</code> donde corresponda.
-        Probá en el simulador de chat →
+      <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5 text-xs text-violet-900 leading-relaxed flex flex-wrap items-center justify-between gap-2">
+        <span>
+          Diagrama de flujos del bot: cada nodo es un mensaje editable. Los cambios aplican a{" "}
+          <b>todos los tenants</b>. Usá placeholders como <code>{`{nombre_dist}`}</code> donde corresponda.
+          Probá en el simulador de chat →
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs shrink-0 bg-white"
+          disabled={repairMutation.isPending}
+          onClick={() => repairMutation.mutate()}
+        >
+          {repairMutation.isPending ? (
+            <Loader2 className="size-3.5 animate-spin mr-1.5" />
+          ) : (
+            <RotateCcw className="size-3.5 mr-1.5" />
+          )}
+          Reparar saltos de línea
+        </Button>
       </div>
 
       {/* Selector de flujos */}

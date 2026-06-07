@@ -327,16 +327,12 @@ def _preview_stats(sb: Client, dist_id: int, id_vendedor: int, nombre_dist: str)
     ranking_total = 0
     ranking_delta = 0
     try:
-        from core.bot_ranking_delta import ranking_with_deltas
+        from core.bot_ranking_delta import find_ranking_position, ranking_with_deltas
 
         ranking_data = ranking_with_deltas(sb, dist_id)
-        erp_upper = display_name.strip().upper()
-        ranking_total = len(ranking_data)
-        for entry in ranking_data:
-            if entry.get("vendedor", "").upper() == erp_upper:
-                ranking_pos = entry["pos_now"]
-                ranking_delta = entry.get("delta", 0)
-                break
+        ranking_pos, ranking_total, ranking_delta = find_ranking_position(
+            ranking_data, display_name
+        )
     except Exception:
         pass
 

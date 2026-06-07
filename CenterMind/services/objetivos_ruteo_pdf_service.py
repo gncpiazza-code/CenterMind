@@ -274,7 +274,8 @@ def _render_pdf(objetivo_id: str, nombre_vendedor: str, rows: list[dict]) -> byt
     fecha_str = datetime.utcnow().strftime("%d/%m/%Y %H:%M")
     cambios_ruta = sum(1 for r in rows if r["accion_ruteo"] == "Cambio de ruta")
     bajas = sum(1 for r in rows if r["accion_ruteo"] == "Baja")
-    story = [
+    from core.pdf_branding import prepend_pdf_logo
+    story = prepend_pdf_logo([
         Paragraph("Objetivo de Ruteo — Shelfy", title_style),
         Paragraph(
             f"Objetivo ID: <b>{objetivo_id}</b> &nbsp;|&nbsp; Vendedor: <b>{nombre_vendedor}</b> "
@@ -287,7 +288,7 @@ def _render_pdf(objetivo_id: str, nombre_vendedor: str, rows: list[dict]) -> byt
             sub_style,
         ),
         HRFlowable(width="100%", thickness=0.5, color=_VIOLET_LIGHT, spaceAfter=10),
-    ]
+    ])
 
     # Table header + rows
     col_widths = [0.8 * cm, 4.9 * cm, 2.5 * cm, 2.3 * cm, 3.3 * cm, 5.2 * cm]

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from supabase import Client
 
 from core.bot_snapshot_meta import resolve_snapshot_label
+from core.pdf_branding import prepend_pdf_logo
 from core.padron_cliente_vitalidad import DIAS_ACTIVO_COMERCIAL, activo_comercial_por_fecha
 from core.tenant_tables import tenant_table_name
 
@@ -225,7 +226,7 @@ def _build_pdf(rutas: list[dict], pdvs_by_ruta: dict, snapshot_label: str, mode:
     VIOLET = colors.HexColor("#7C3AED")
     LIGHT = colors.HexColor("#F5F3FF")
 
-    story = []
+    story = prepend_pdf_logo([])
     title = "Cartera de hoy" if mode == "hoy" else "Cartera general"
     story.append(Paragraph(f"<b>{title}</b>", styles["Title"]))
     story.append(Paragraph(f"<i>{snapshot_label}</i>", styles["Normal"]))

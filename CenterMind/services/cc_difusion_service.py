@@ -177,6 +177,8 @@ def _build_cc_pdf(
         Paragraph(f"Vendedor: <b>{vendedor_nombre}</b>  ·  Al {fecha}  ·  Total deuda: <b>${deuda_total:,.0f}</b>".replace(",", "."), sub_style),
         Spacer(1, 8),
     ]
+    from core.pdf_branding import prepend_pdf_logo
+    story = prepend_pdf_logo(story)
 
     por_rango = _deuda_por_rango(clientes)
     summary_rows = [["Rango (días)", "Clientes", "Deuda $", "% del total"]]
@@ -279,6 +281,8 @@ def _build_cadenaone_pdf(
         Paragraph(f"Distribuidora: <b>{dist_nombre}</b>  ·  Al {fecha}  ·  Total deuda: <b>${deuda_total:,.0f}</b>".replace(",", "."), sub_style),
         Spacer(1, 10),
     ]
+    from core.pdf_branding import prepend_pdf_logo
+    story = prepend_pdf_logo(story)
 
     table_data = [["Cliente ERP", "Cliente", "Total $", "7 Días", "15 Días", "30 Días", "60 Días", "+60 Días"]]
     for c in clientes:

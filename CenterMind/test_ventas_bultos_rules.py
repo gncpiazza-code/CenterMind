@@ -40,3 +40,18 @@ def test_desglose_42_37_bultos_250():
     enteros, resto = bultos_desglose_decimal(42.37, 250)
     assert enteros == 42
     assert resto == 92
+
+
+def test_bultos_pdf_html_cigarrillos_con_unidades():
+    from core.ventas_bultos_rules import bultos_pdf_html
+
+    html = bultos_pdf_html(42.37, "cig_default")
+    assert "42,37 bultos" in html
+    assert "42 Bultos · 92 Unidades" in html
+
+
+def test_bultos_pdf_html_no_convertido_sin_desglose():
+    from core.ventas_bultos_rules import bultos_pdf_html
+
+    html = bultos_pdf_html(10.5, None)
+    assert html == "10,50 bultos"

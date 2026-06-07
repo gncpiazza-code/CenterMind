@@ -49,7 +49,12 @@ from telegram.ext import (
 import json
 import html
 
-from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
+from core.helpers import (
+    build_integrante_to_erp_name,
+    build_qa_exhibicion_integrante_ids,
+    is_exhibicion_qa_display_for_dist,
+    resolve_integrante_ids_for_vendor_v2,
+)
 
 # Sin preview del enlace .jpg en «Ver foto»
 _NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
@@ -806,49 +811,8 @@ class Database:
         seed_iids: list[int] = []
 
         if vendor_v2_id is not None:
-            ig_q = (
-                self.sb.table("integrantes_grupo")
-                .select("id_integrante")
-                .eq("id_distribuidor", distribuidor_id)
-                .eq("id_vendedor_v2", vendor_v2_id)
-            )
-            if telegram_group_id is not None:
-                ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
-            ig_res = ig_q.execute()
-            seed_iids = [r["id_integrante"] for r in (ig_res.data or [])]
-
-            if not seed_iids:
-                t_vend = tenant_table_name("vendedores_v2", distribuidor_id)
-                v_res = (
-                    self.sb.table(t_vend)
-                    .select("nombre_erp")
-                    .eq("id_distribuidor", distribuidor_id)
-                    .eq("id_vendedor", vendor_v2_id)
-                    .limit(1)
-                    .execute()
-                )
-                target_name = (v_res.data[0].get("nombre_erp") or "").strip() if v_res.data else ""
-                if target_name:
-                    iid_to_erp_probe = build_integrante_to_erp_name(distribuidor_id)
-                    seed_iids = [
-                        iid for iid, name in iid_to_erp_probe.items() if name == target_name
-                    ]
-                    if telegram_group_id is not None:
-                        grp_ids = {
-                            int(r["id_integrante"])
-                            for r in (
-                                self.sb.table("integrantes_grupo")
-                                .select("id_integrante")
-                                .eq("id_distribuidor", distribuidor_id)
-                                .eq("telegram_group_id", telegram_group_id)
-                                .execute()
-                                .data or []
-                            )
-                            if r.get("id_integrante") is not None
-                        }
-                        in_group = [iid for iid in seed_iids if iid in grp_ids]
-                        if in_group:
-                            seed_iids = in_group
+            # Vendor-scope: todos los integrantes del ERP (varios grupos Telegram → 1 vendedor)
+            seed_iids = resolve_integrante_ids_for_vendor_v2(distribuidor_id, vendor_v2_id)
         else:
             uids: list[int] = list(telegram_user_ids or [])
             if telegram_user_id is not None and telegram_user_id not in uids:
@@ -1459,7 +1423,6 @@ class BotWorker:
                     self.db.get_stats_vendedor,
                     self.distribuidor_id,
                     vendor_v2_id=group_vid,
-                    telegram_group_id=m.chat.id,
                 )
 
             if not stats and group_vid is None:
@@ -1474,17 +1437,6 @@ class BotWorker:
                     display_name = "LUCIANO ITURRIA"
                 else:
                     display_name = m.from_user.first_name or "Vendedor"
-            elif not stats and group_vid is not None:
-                # Grupo vinculado: no usar stats del usuario que ejecutó /stats (p. ej. supervisor)
-                empty = {
-                    "aprobadas": 0,
-                    "destacadas": 0,
-                    "rechazadas": 0,
-                    "pendientes": 0,
-                    "total": 0,
-                    "puntos": 0,
-                }
-                stats = {"mes_actual": empty, "mes_anterior": dict(empty)}
 
             if not stats:
                 hint = (
@@ -1507,18 +1459,30 @@ class BotWorker:
             ranking_pos: int | None = None
             ranking_total = 0
             ranking_delta = 0
+            ranking_name = display_name
+            if group_vid is not None:
+                try:
+                    t_vend = tenant_table_name("vendedores_v2", self.distribuidor_id)
+                    v_info = (
+                        self.db.sb.table(t_vend)
+                        .select("nombre_erp")
+                        .eq("id_distribuidor", self.distribuidor_id)
+                        .eq("id_vendedor", group_vid)
+                        .limit(1)
+                        .execute()
+                    )
+                    if v_info.data and v_info.data[0].get("nombre_erp"):
+                        ranking_name = v_info.data[0]["nombre_erp"]
+                except Exception:
+                    pass
             try:
-                from core.bot_ranking_delta import ranking_with_deltas
+                from core.bot_ranking_delta import find_ranking_position, ranking_with_deltas
                 ranking_data = await asyncio.to_thread(
                     ranking_with_deltas, self.db.sb, self.distribuidor_id
                 )
-                erp_name_upper = (display_name or "").strip().upper()
-                ranking_total = len(ranking_data)
-                for entry in ranking_data:
-                    if entry.get("vendedor", "").upper() == erp_name_upper:
-                        ranking_pos = entry["pos_now"]
-                        ranking_delta = entry.get("delta", 0)
-                        break
+                ranking_pos, ranking_total, ranking_delta = find_ranking_position(
+                    ranking_data, ranking_name
+                )
             except Exception:
                 pass
 

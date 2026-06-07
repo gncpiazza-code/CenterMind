@@ -136,3 +136,64 @@ def bultos_desglose_decimal(
         enteros += resto // factor
         resto = resto % factor
     return sign * enteros, resto
+
+
+def _fmt_num_es(value: float, *, decimals: int = 2) -> str:
+    """Formato numérico es-AR (1.234,56)."""
+    v = float(value or 0)
+    if decimals == 0:
+        s = f"{int(round(v)):,}"
+    else:
+        s = f"{v:,.{decimals}f}"
+    return s.replace(",", "\ufffd").replace(".", ",").replace("\ufffd", ".")
+
+
+def fmt_bultos_unidades_desglose(bultos_enteros: int, unidades_resto: int) -> str:
+    """Compat estadísticas — desglose explícito (42 Bultos · 92 Unidades)."""
+    b = _fmt_num_es(abs(int(bultos_enteros)), decimals=0)
+    u = _fmt_num_es(unidades_resto, decimals=0)
+    if int(unidades_resto) > 0:
+        return f"{b} Bultos · {u} Unidades"
+    return f"{b} Bultos"
+
+
+def enrich_bultos_desglose_row(bultos_raw: float, kind: VolumenKind | None) -> dict:
+    """Campos de display alineados a estadísticas / VendorCardExpanded."""
+    b_raw = float(bultos_raw or 0)
+    row: dict = {
+        "bultos": bultos_display_2dec(b_raw),
+        "bultos_raw": b_raw,
+        "kind": kind,
+    }
+    if kind and volumen_es_convertido(kind):
+        factor = unidades_por_bulto(kind) or 250.0
+        enteros, resto = bultos_desglose_decimal(b_raw, factor)
+        row["bultos_enteros"] = enteros
+        row["unidades_resto"] = resto
+    return row
+
+
+def bultos_pdf_html(
+    bultos_raw: float,
+    kind: VolumenKind | None = None,
+    *,
+    bultos_enteros: int | None = None,
+    unidades_resto: int | None = None,
+) -> str:
+    """
+    Texto HTML para celdas PDF: bultos con 2 dec. + desglose entero/unidades
+    en líneas convertidas (cigarrillos / papelillos / mix).
+    """
+    primary = f"{_fmt_num_es(bultos_display_2dec(bultos_raw))} bultos"
+    if bultos_enteros is not None and unidades_resto is not None:
+        if int(unidades_resto) > 0:
+            secondary = fmt_bultos_unidades_desglose(int(bultos_enteros), int(unidades_resto))
+            return f"{primary}<br/><i>{secondary}</i>"
+        return primary
+    enriched = enrich_bultos_desglose_row(bultos_raw, kind)
+    enteros = enriched.get("bultos_enteros")
+    resto = enriched.get("unidades_resto")
+    if enteros is not None and resto is not None and int(resto) > 0:
+        secondary = fmt_bultos_unidades_desglose(int(enteros), int(resto))
+        return f"{primary}<br/><i>{secondary}</i>"
+    return primary

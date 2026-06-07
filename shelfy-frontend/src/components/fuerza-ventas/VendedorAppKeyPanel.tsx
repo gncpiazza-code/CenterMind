@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,6 @@ import {
   Trash2,
   Copy,
   CheckCircle2,
-  XCircle,
   Loader2,
   KeyRound,
 } from "lucide-react";
@@ -29,9 +28,16 @@ import {
   fetchVendedorAppKeys,
   createVendedorAppKey,
   revokeVendedorAppKey,
+  fetchFuerzaVentasVendedores,
   type VendedorAppKey,
   type VendedorAppKeyCreated,
+  type FuerzaVentasVendedor,
 } from "@/lib/api";
+import {
+  VendedorAppKeyVendorPicker,
+  VendedorAppKeyVendorSummary,
+  vendorMetaLine,
+} from "@/components/fuerza-ventas/VendedorAppKeyVendorPicker";
 
 interface Props {
   distId: number;
@@ -39,9 +45,11 @@ interface Props {
 
 function KeyRow({
   appKey,
+  vendedor,
   onRevoke,
 }: {
   appKey: VendedorAppKey;
+  vendedor?: FuerzaVentasVendedor;
   onRevoke: (id: number) => void;
 }) {
   return (
@@ -50,10 +58,13 @@ function KeyRow({
         <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <p className="text-sm font-medium truncate">
-            {appKey.label ?? `Key #${appKey.id}`}
+            {vendedor?.nombre_erp ?? appKey.label ?? `Key #${appKey.id}`}
           </p>
-          <p className="text-xs text-muted-foreground">
-            Vendedor #{appKey.id_vendedor} ·{" "}
+          <p className="text-xs text-muted-foreground truncate">
+            {vendedor ? vendorMetaLine(vendedor) : `Vendedor #${appKey.id_vendedor}`}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {appKey.label ? `${appKey.label} · ` : ""}
             <span className="inline-flex items-center gap-1">
               <Smartphone className="h-3 w-3" />
               {appKey.device_count} dispositivo{appKey.device_count !== 1 ? "s" : ""}
@@ -101,6 +112,34 @@ function NewKeyDialog({
 }) {
   const [vendorId, setVendorId] = useState("");
   const [label, setLabel] = useState("");
+  const [labelTouched, setLabelTouched] = useState(false);
+
+  const { data: vendedores = [], isLoading: vendedoresLoading } = useQuery({
+    queryKey: ["fuerza-ventas-vendedores", distId],
+    queryFn: () => fetchFuerzaVentasVendedores(distId),
+    enabled: open && distId > 0,
+    staleTime: 60_000,
+  });
+
+  const selectedVendor = useMemo(
+    () => vendedores.find((v) => String(v.id_vendedor) === vendorId),
+    [vendedores, vendorId],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      setVendorId("");
+      setLabel("");
+      setLabelTouched(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (selectedVendor && !labelTouched) {
+      setLabel(selectedVendor.nombre_erp);
+    }
+  }, [selectedVendor, labelTouched]);
+
   const { mutate, isPending } = useMutation({
     mutationFn: () =>
       createVendedorAppKey(distId, Number(vendorId), label || undefined),
@@ -108,36 +147,46 @@ function NewKeyDialog({
       onCreated(result);
       setVendorId("");
       setLabel("");
+      setLabelTouched(false);
     },
     onError: () => toast.error("No se pudo crear la key"),
   });
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Nueva key de acceso</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="space-y-1">
-            <label className="text-sm font-medium">ID Vendedor</label>
-            <Input
-              placeholder="Ej: 42"
-              type="number"
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Vendedor</label>
+            <VendedorAppKeyVendorPicker
+              vendedores={vendedores}
               value={vendorId}
-              onChange={(e) => setVendorId(e.target.value)}
+              onChange={setVendorId}
+              loading={vendedoresLoading}
             />
             <p className="text-xs text-muted-foreground">
-              ID de la tabla vendedores_v2
+              Buscá por nombre, sucursal, ID vendedor o ID ERP.
             </p>
           </div>
+
+          {selectedVendor ? <VendedorAppKeyVendorSummary vendedor={selectedVendor} /> : null}
+
           <div className="space-y-1">
             <label className="text-sm font-medium">Etiqueta (opcional)</label>
             <Input
               placeholder="Ej: iPhone Juan Pérez"
               value={label}
-              onChange={(e) => setLabel(e.target.value)}
+              onChange={(e) => {
+                setLabelTouched(true);
+                setLabel(e.target.value);
+              }}
             />
+            <p className="text-xs text-muted-foreground">
+              Solo para identificar la key en el listado del portal.
+            </p>
           </div>
         </div>
         <DialogFooter>
@@ -184,7 +233,7 @@ function ShowKeyDialog({
         </DialogHeader>
         <div className="space-y-3 py-2">
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            ⚠️ Copiá esta key ahora — no se va a mostrar de nuevo.
+            Copiá esta key ahora — no se va a mostrar de nuevo.
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs bg-muted rounded p-2 font-mono break-all select-all">
@@ -223,6 +272,19 @@ export function VendedorAppKeyPanel({ distId }: Props) {
     enabled: distId > 0,
     staleTime: 30_000,
   });
+
+  const { data: vendedores = [] } = useQuery({
+    queryKey: ["fuerza-ventas-vendedores", distId],
+    queryFn: () => fetchFuerzaVentasVendedores(distId),
+    enabled: distId > 0,
+    staleTime: 60_000,
+  });
+
+  const vendedorById = useMemo(() => {
+    const map = new Map<number, FuerzaVentasVendedor>();
+    for (const v of vendedores) map.set(v.id_vendedor, v);
+    return map;
+  }, [vendedores]);
 
   const revokeMutation = useMutation({
     mutationFn: (keyId: number) => revokeVendedorAppKey(keyId, distId),
@@ -271,6 +333,7 @@ export function VendedorAppKeyPanel({ distId }: Props) {
             <KeyRow
               key={k.id}
               appKey={k}
+              vendedor={vendedorById.get(k.id_vendedor)}
               onRevoke={(id) => revokeMutation.mutate(id)}
             />
           ))}
@@ -278,7 +341,12 @@ export function VendedorAppKeyPanel({ distId }: Props) {
             <>
               <p className="text-xs text-muted-foreground pt-2">Revocadas</p>
               {revokedKeys.map((k) => (
-                <KeyRow key={k.id} appKey={k} onRevoke={() => {}} />
+                <KeyRow
+                  key={k.id}
+                  appKey={k}
+                  vendedor={vendedorById.get(k.id_vendedor)}
+                  onRevoke={() => {}}
+                />
               ))}
             </>
           )}

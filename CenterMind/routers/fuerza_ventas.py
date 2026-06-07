@@ -604,6 +604,7 @@ def fuerza_ventas_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
             binding = _resolve_binding_progressive(dist_id, vid)
             result.append({
                 "id_vendedor": vid,
+                "id_vendedor_erp": v.get("id_vendedor_erp"),
                 "nombre_erp": v["nombre_erp"],
                 "sucursal_nombre": suc_map.get(v["id_sucursal"]),
                 "foto_url": perfil.get("foto_url"),

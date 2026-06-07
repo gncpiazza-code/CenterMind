@@ -943,6 +943,7 @@ export async function fetchUnifiedDashboard(): Promise<UnifiedDistributor[]> {
 
 export interface FuerzaVentasVendedor {
   id_vendedor: number;
+  id_vendedor_erp?: string | number | null;
   nombre_erp: string;
   sucursal_nombre: string | null;
   foto_url: string | null;

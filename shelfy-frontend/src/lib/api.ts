@@ -4389,14 +4389,19 @@ export async function fetchBotCommands(): Promise<BotCommand[]> {
   return res.commands ?? [];
 }
 
+export type BotCommandMenuSync = { updated: number; errors: string[] };
+
 export async function updateBotCommand(
   command: string,
   patch: Partial<BotCommandPatch>,
-): Promise<void> {
-  await apiFetch<void>(`/api/bot-settings/commands/${encodeURIComponent(command)}`, {
-    method: "PUT",
-    body: JSON.stringify(patch),
-  });
+): Promise<{ menu_sync?: BotCommandMenuSync }> {
+  return apiFetch<{ menu_sync?: BotCommandMenuSync }>(
+    `/api/bot-settings/commands/${encodeURIComponent(command)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    },
+  );
 }
 
 export async function createBotCustomCommand(payload: BotCustomCommandCreate): Promise<void> {

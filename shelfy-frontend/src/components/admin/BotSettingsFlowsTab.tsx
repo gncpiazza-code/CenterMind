@@ -103,8 +103,12 @@ function FlowNodeCard({
 }
 
 function NodeEditor({ node, onSaved }: { node: BotFlowNode; onSaved: () => void }) {
-  const [draft, setDraft] = useState(node.body_html);
+  const [draft, setDraft] = useState(() => node.body_html);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    setDraft(node.body_html);
+  }, [node.message_key, node.body_html]);
 
   const saveMutation = useMutation({
     mutationFn: () => updateBotMessageTemplate(node.message_key, draft),
@@ -189,6 +193,7 @@ function NodeEditor({ node, onSaved }: { node: BotFlowNode; onSaved: () => void 
       )}
 
       <TelegramRichEditor
+        key={node.message_key}
         value={draft}
         onChange={setDraft}
         placeholder="Mensaje Telegram HTML…"
@@ -320,7 +325,7 @@ export function BotSettingsFlowsTab() {
           {/* Editor del nodo seleccionado */}
           {selectedNode ? (
             <NodeEditor
-              key={selectedNode.message_key + selectedNode.body_html}
+              key={selectedNode.message_key}
               node={selectedNode}
               onSaved={() => {}}
             />

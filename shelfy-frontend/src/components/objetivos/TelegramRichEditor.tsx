@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { Bold, CornerDownLeft, Italic, Underline, Code } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import {
   isTelegramHtmlEmpty,
   normalizeTelegramHtml,
+  sanitizeStoredTelegramHtml,
   telegramHtmlToRenderHtml,
 } from "@/lib/telegram-html";
 
 type FormatCmd = "bold" | "italic" | "underline" | "code";
 
 const MIN_HEIGHT_PX = 160;
+const ZWSP = "\u200b";
 
 function findCodeAncestor(node: Node | null, root: Node): HTMLElement | null {
   let n: Node | null = node;
@@ -28,6 +30,27 @@ function unwrapElement(el: HTMLElement) {
   if (!parent) return;
   while (el.firstChild) parent.insertBefore(el.firstChild, el);
   parent.removeChild(el);
+}
+
+function ensureSelectionInEditor(el: HTMLElement) {
+  const sel = window.getSelection();
+  if (!sel) return null;
+  if (sel.rangeCount === 0) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return range;
+  }
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) {
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  return range;
 }
 
 interface Props {
@@ -57,13 +80,20 @@ export function TelegramRichEditor({
   const syncFromValue = useCallback((text: string) => {
     const el = editorRef.current;
     if (!el) return;
-    const html = telegramHtmlToRenderHtml(text);
+    const html = telegramHtmlToRenderHtml(sanitizeStoredTelegramHtml(text));
     if (el.innerHTML !== html) {
       el.innerHTML = html || "";
     }
   }, []);
 
-  // Sync externo (autocomplete preview API)
+  // Carga inicial al montar (evita editor vacío al seleccionar un nodo)
+  useLayoutEffect(() => {
+    syncFromValue(value);
+    lastEmittedRef.current = value;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar
+  }, []);
+
+  // Sync cuando el valor cambia desde afuera (otro nodo, reset, guardado)
   useEffect(() => {
     if (value !== lastEmittedRef.current) {
       syncFromValue(value);
@@ -85,31 +115,20 @@ export function TelegramRichEditor({
     if (!el) return;
     el.focus();
 
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      if (!el.contains(range.commonAncestorContainer)) {
-        range.selectNodeContents(el);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    }
+    const range = ensureSelectionInEditor(el);
+    if (!range) return;
 
-    if (document.queryCommandSupported("insertLineBreak")) {
-      document.execCommand("insertLineBreak");
-    } else {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      const range = selection.getRangeAt(0);
-      range.deleteContents();
-      const br = document.createElement("br");
-      range.insertNode(br);
-      range.setStartAfter(br);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
+    range.deleteContents();
+    const br = document.createElement("br");
+    range.insertNode(br);
+    const caret = document.createTextNode(ZWSP);
+    br.parentNode?.insertBefore(caret, br.nextSibling);
+    range.setStart(caret, 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
     emitChange();
   }, [disabled, emitChange]);
 
@@ -151,6 +170,7 @@ export function TelegramRichEditor({
         italic: "italic",
         underline: "underline",
       };
+      document.execCommand("styleWithCSS", false, "false");
       document.execCommand(map[cmd], false);
     }
     emitChange();
@@ -180,6 +200,17 @@ export function TelegramRichEditor({
       }
     },
     [disabled, applyFormat, insertLineBreak],
+  );
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const text = e.clipboardData.getData("text/plain");
+      if (!text) return;
+      document.execCommand("insertText", false, text);
+      emitChange();
+    },
+    [emitChange],
   );
 
   const BUTTONS: {
@@ -227,7 +258,7 @@ export function TelegramRichEditor({
           <CornerDownLeft className="h-3.5 w-3.5" />
         </Button>
         <span className="text-[10px] text-zinc-400 self-center ml-1 leading-snug">
-          ⌘/Ctrl+B I U · Enter ↵ · se guarda como salto de línea en Telegram
+          Enter o ↵ = nueva línea · ⌘/Ctrl+B I U
         </span>
       </div>
 
@@ -250,6 +281,7 @@ export function TelegramRichEditor({
           onInput={emitChange}
           onBlur={emitChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           className={cn(
             "w-full rounded-xl border border-violet-200/80 dark:border-violet-900/50",
             "bg-white dark:bg-zinc-900/80 px-4 py-3.5",
@@ -258,6 +290,7 @@ export function TelegramRichEditor({
             "shadow-sm [&_b]:font-bold [&_i]:italic [&_u]:underline",
             "[&_code]:rounded [&_code]:bg-zinc-100 [&_code]:dark:bg-zinc-800",
             "[&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px]",
+            "[&_br]:block [&_br]:content-['']",
             disabled && "opacity-60 pointer-events-none",
           )}
           style={{

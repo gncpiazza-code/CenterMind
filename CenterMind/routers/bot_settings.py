@@ -27,6 +27,17 @@ def _require_superadmin(user_payload: dict) -> dict:
     return user_payload
 
 
+async def _sync_telegram_menu() -> dict:
+    """Push setMyCommands a todos los bots activos tras cambiar bot_commands."""
+    from services.bot_commands_refresh_service import refresh_all_bots_menu
+
+    try:
+        return await refresh_all_bots_menu(sb)
+    except Exception as e:
+        logger.error(f"[bot-settings] sync menu: {e}", exc_info=True)
+        return {"updated": 0, "errors": [str(e)]}
+
+
 # ─── Modelos Pydantic ──────────────────────────────────────────────────────────
 
 class MessageTemplateUpdate(BaseModel):
@@ -201,7 +212,8 @@ async def update_command(
         raise HTTPException(status_code=500, detail=str(e))
 
     get_settings_cache().invalidate()
-    return {"ok": True, "command": command, "updated": updates}
+    menu_sync = await _sync_telegram_menu()
+    return {"ok": True, "command": command, "updated": updates, "menu_sync": menu_sync}
 
 
 @router.post("/commands/custom")
@@ -265,7 +277,8 @@ async def create_custom_command(
         raise HTTPException(status_code=500, detail=str(e))
 
     get_settings_cache().invalidate()
-    return {"ok": True, "command": cmd}
+    menu_sync = await _sync_telegram_menu()
+    return {"ok": True, "command": cmd, "menu_sync": menu_sync}
 
 
 @router.delete("/commands/custom/{command}")
@@ -286,7 +299,8 @@ async def delete_custom_command(
         raise HTTPException(status_code=500, detail=str(e))
 
     get_settings_cache().invalidate()
-    return {"ok": True, "command": cmd}
+    menu_sync = await _sync_telegram_menu()
+    return {"ok": True, "command": cmd, "menu_sync": menu_sync}
 
 
 # ─── Preview / simulador de chat ─────────────────────────────────────────────

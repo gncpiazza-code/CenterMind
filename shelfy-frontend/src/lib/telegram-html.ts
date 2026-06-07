@@ -2,6 +2,18 @@
 
 const ALLOWED = new Set(["b", "i", "u", "s", "code", "pre"]);
 
+/** Limpia HTML guardado (DB) antes de editar o previsualizar. */
+export function sanitizeStoredTelegramHtml(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/<(b|i|u|s|code|pre)\b[^>]*>/gi, "<$1>")
+    .replace(/<\/(b|i|u|s|code|pre)\b[^>]*>/gi, "</$1>")
+    .replace(/<\/?(?:span|font|div|p)\b[^>]*>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\u200b/g, "");
+}
+
 /** Normaliza HTML del contentEditable → string Telegram. */
 export function normalizeTelegramHtml(raw: string): string {
   if (!raw) return "";
@@ -16,7 +28,12 @@ export function normalizeTelegramHtml(raw: string): string {
     .replace(/<div[^>]*>/gi, "")
     .replace(/<\/p>/gi, "\n")
     .replace(/<p[^>]*>/gi, "")
-    .replace(/&nbsp;/gi, " ");
+    .replace(/<\/?(?:span|font)\b[^>]*>/gi, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\u200b/g, "");
+
+  html = html.replace(/<(b|i|u|s|code|pre)\b[^>]*>/gi, "<$1>");
+  html = html.replace(/<\/(b|i|u|s|code|pre)\b[^>]*>/gi, "</$1>");
 
   // Quitar tags no permitidos (conservar contenido)
   html = html.replace(/<(\/?)([\w]+)([^>]*)>/gi, (match, slash, tag) => {
@@ -35,7 +52,8 @@ export function normalizeTelegramHtml(raw: string): string {
 /** Telegram HTML → HTML seguro para render en preview (contentEditable). */
 export function telegramHtmlToRenderHtml(text: string): string {
   if (!text) return "";
-  const escaped = text
+  const clean = sanitizeStoredTelegramHtml(text);
+  const escaped = clean
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");

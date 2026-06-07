@@ -33,8 +33,18 @@ export function BotSettingsCommandsTab() {
       command: string;
       patch: { visible_in_menu?: boolean; enabled?: boolean };
     }) => updateBotCommand(command, patch),
-    onSuccess: () => {
+    onSuccess: (res, { command, patch }) => {
       qc.invalidateQueries({ queryKey: ["bot-settings-commands"] });
+      const sync = res?.menu_sync;
+      const syncOk = sync && sync.updated > 0 && (sync.errors?.length ?? 0) === 0;
+      const label = patch.visible_in_menu === false ? "oculto del menú" : patch.visible_in_menu ? "visible en menú" : patch.enabled === false ? "deshabilitado" : "actualizado";
+      if (syncOk) {
+        toast.success(`/${command} ${label}. Menú Telegram sincronizado (${sync!.updated} bot(s)).`);
+      } else if (sync?.errors?.length) {
+        toast.warning(`/${command} guardado, pero falló sync Telegram: ${sync.errors[0]}`);
+      } else {
+        toast.success(`/${command} ${label}.`);
+      }
     },
     onError: (e: Error) => toast.error(e.message || "Error al actualizar el comando"),
   });
@@ -65,8 +75,8 @@ export function BotSettingsCommandsTab() {
       <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-900">
         <Info className="size-3.5 shrink-0 mt-0.5" />
         <span>
-          Ocultar del menú no deshabilita el handler; los usuarios que escriban el comando
-          manualmente seguirán recibiéndolo.
+          Al cambiar <b>Visible menú</b> o <b>Habilitado</b>, el menú de Telegram se sincroniza
+          automáticamente en todos los bots activos. Ocultar del menú no deshabilita el handler.
         </span>
       </div>
 

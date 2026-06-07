@@ -4472,3 +4472,66 @@ export async function previewBotInteraction(body: {
     }),
   });
 }
+
+// ─── Vendedor App Keys (SHELFYAPP) ───────────────────────────────────────────
+
+export interface VendedorAppKey {
+  id: number;
+  id_distribuidor: number;
+  id_vendedor: number;
+  activo: boolean;
+  label: string | null;
+  created_at: string;
+  created_by: string | null;
+  revoked_at: string | null;
+  device_count: number;
+}
+
+export interface VendedorAppKeyCreated {
+  key: string;
+  key_id: number;
+}
+
+export async function fetchVendedorAppKeys(
+  distId: number,
+  vendedorId?: number,
+): Promise<VendedorAppKey[]> {
+  const params = new URLSearchParams({ dist_id: String(distId) });
+  if (vendedorId) params.set("vendor_id", String(vendedorId));
+  return apiFetch<VendedorAppKey[]>(`/api/vendedor-app/vendedor/keys?${params}`);
+}
+
+export async function createVendedorAppKey(
+  distId: number,
+  idVendedor: number,
+  label?: string,
+): Promise<VendedorAppKeyCreated> {
+  return apiFetch<VendedorAppKeyCreated>(
+    `/api/vendedor-app/vendedor/keys?dist_id=${distId}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ id_vendedor: idVendedor, label: label ?? null }),
+    },
+  );
+}
+
+export async function revokeVendedorAppKey(
+  keyId: number,
+  distId: number,
+): Promise<void> {
+  await apiFetch<void>(
+    `/api/vendedor-app/vendedor/keys/${keyId}/revoke?dist_id=${distId}`,
+    { method: "POST" },
+  );
+}
+
+export async function revokeVendedorAppDevice(
+  keyId: number,
+  distId: number,
+  deviceId: string,
+): Promise<void> {
+  await apiFetch<void>(
+    `/api/vendedor-app/vendedor/keys/${keyId}/devices/${encodeURIComponent(deviceId)}/revoke?dist_id=${distId}`,
+    { method: "POST" },
+  );
+}

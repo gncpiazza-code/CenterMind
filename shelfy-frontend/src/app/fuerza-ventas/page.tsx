@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Users,
+  Smartphone,
 } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,6 +37,7 @@ import {
 import { BindingAlertInbox } from "@/components/fuerza-ventas/BindingAlertInbox";
 import { GrupoBindingCard } from "@/components/fuerza-ventas/GrupoBindingCard";
 import { GrupoBindingSheet } from "@/components/fuerza-ventas/GrupoBindingSheet";
+import { VendedorAppKeyPanel } from "@/components/fuerza-ventas/VendedorAppKeyPanel";
 
 function canAccessFV(user: AuthResponse): boolean {
   if (user.is_superadmin || user.rol === "superadmin") return true;
@@ -225,7 +227,7 @@ export default function FuerzaVentasPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-2 w-full max-w-sm">
+        <TabsList className="grid grid-cols-3 w-full max-w-lg">
           <TabsTrigger value="grupos">
             <Link2 className="h-4 w-4 mr-1.5" />
             Grupos
@@ -237,6 +239,10 @@ export default function FuerzaVentasPage() {
                 {health!.sugerencias_pendientes}
               </Badge>
             )}
+          </TabsTrigger>
+          <TabsTrigger value="app_keys">
+            <Smartphone className="h-4 w-4 mr-1.5" />
+            App Móvil
           </TabsTrigger>
         </TabsList>
 
@@ -279,6 +285,10 @@ export default function FuerzaVentasPage() {
               }}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="app_keys" className="mt-4">
+          <VendedorAppKeyPanel distId={distId} />
         </TabsContent>
       </Tabs>
 

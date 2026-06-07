@@ -1,0 +1,97 @@
+"""
+Servicio de objetivos para la app móvil de vendedores (SHELFYAPP / Flutter).
+Usa objetivo_activo_para_vendedor de core/objetivos_filters.py como único filtro.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import date
+
+from supabase import Client
+
+from core.objetivos_filters import objetivo_activo_para_vendedor, hoy_ar
+
+logger = logging.getLogger("ShelfyAPI")
+
+# Columnas a seleccionar de la tabla objetivos
+_OBJETIVO_COLS = (
+    "id, tipo, descripcion, fecha_objetivo, fecha_inicio, "
+    "valor_actual, valor_objetivo, cumplido, lanzado_at, "
+    "id_vendedor, nombre_vendedor, origen, mes_referencia, "
+    "created_at, id_target_pdv"
+)
+
+
+def list_objetivos_vendedor(
+    sb: Client,
+    dist_id: int,
+    id_vendedor_v2: int,
+) -> list[dict]:
+    """
+    Retorna lista de objetivos activos del vendedor, ordenados por fecha_objetivo asc.
+
+    Criterios de actividad (delegados a objetivo_activo_para_vendedor):
+    - tipo != 'ruteo'
+    - fecha_objetivo >= hoy_AR
+    - lanzado_at IS NOT NULL
+    - cumplido puede ser True (se muestra el progreso real)
+    """
+    hoy: date = hoy_ar()
+
+    try:
+        # Obtener objetivos del vendedor con paginación
+        # La tabla objetivos no tiene sufijo de tenant — es global con id_distribuidor
+        PAGE = 1000
+        offset = 0
+        all_objetivos: list[dict] = []
+        while True:
+            batch = (
+                sb.table("objetivos")
+                .select(_OBJETIVO_COLS)
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor_v2)
+                .order("fecha_objetivo", desc=False)
+                .range(offset, offset + PAGE - 1)
+                .execute().data or []
+            )
+            all_objetivos.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    except Exception as e:
+        logger.error(f"list_objetivos_vendedor dist={dist_id} vendor={id_vendedor_v2}: {e}")
+        return []
+
+    # Filtrar con la función canónica
+    activos = [o for o in all_objetivos if objetivo_activo_para_vendedor(o, hoy)]
+
+    # Formatear para la app: solo campos relevantes
+    result: list[dict] = []
+    for o in activos:
+        valor_objetivo = o.get("valor_objetivo") or 0
+        valor_actual = o.get("valor_actual") or 0
+
+        # Calcular porcentaje de progreso (puede superar 100%)
+        if valor_objetivo > 0:
+            progreso_pct = round((valor_actual / valor_objetivo) * 100, 1)
+        else:
+            progreso_pct = 0.0
+
+        result.append({
+            "id": o.get("id"),
+            "tipo": (o.get("tipo") or "").strip(),
+            "descripcion": (o.get("descripcion") or "").strip() or None,
+            "fecha_objetivo": (o.get("fecha_objetivo") or "")[:10] or None,
+            "fecha_inicio": (o.get("fecha_inicio") or "")[:10] or None,
+            "valor_objetivo": valor_objetivo,
+            "valor_actual": valor_actual,
+            "progreso_pct": progreso_pct,
+            "cumplido": bool(o.get("cumplido", False)),
+            "lanzado_at": o.get("lanzado_at"),
+            "origen": (o.get("origen") or "").strip() or None,
+            "mes_referencia": (o.get("mes_referencia") or "")[:7] or None,
+            "nombre_vendedor": (o.get("nombre_vendedor") or "").strip() or None,
+        })
+
+    return result

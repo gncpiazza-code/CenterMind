@@ -21,7 +21,7 @@ from telegram import Update
 
 from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
 from core.lifespan import bots, manager, lifespan, SUPERADMIN_WS_DIST_ID
-from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos, bot_settings
+from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos, bot_settings, vendedor_app
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -61,6 +61,7 @@ app.include_router(bundle.router)
 app.include_router(recap.router)
 app.include_router(compania_objetivos.router)
 app.include_router(bot_settings.router)
+app.include_router(vendedor_app.router)
 
 # ── Health check ───────────────────────────────────────────────────────────────
 @app.get("/")

@@ -17,6 +17,8 @@ import {
   prefetchPortalModule,
   warmPortalBundlesOnce,
 } from "@/lib/portal-cache-queries";
+import { readEstadisticasPrefetchMeses, estadisticasPrefetchMesesKey } from "@/lib/estadisticas-prefetch-meses";
+import { warmPortalBundles } from "@/lib/api";
 import { scheduleWhenIdle, shouldThrottlePrefetch } from "@/lib/portal-idle-scheduler";
 import { prefetchPortalRouteChunk } from "@/lib/portal-route-prefetch";
 
@@ -80,6 +82,10 @@ export function usePortalCacheOrchestrator(): {
     const mod = resolveModuleFromPath(pathname);
     if (!mod || !allowedModules.includes(mod)) return;
     void prefetchPortalModule(queryClient, mod, distId);
+    if (mod === "estadisticas") {
+      const mesesKey = estadisticasPrefetchMesesKey(readEstadisticasPrefetchMeses());
+      void warmPortalBundles(distId, ["estadisticas"], mesesKey).catch(() => {});
+    }
   }, [pathname, user, distId, allowedKey, queryClient, allowedModules]);
 
   // T1/T2/T3 — background once per dist+user

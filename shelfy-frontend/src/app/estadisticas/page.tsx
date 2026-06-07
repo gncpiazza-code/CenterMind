@@ -27,6 +27,7 @@ import {
   useEstadisticasSucursales,
 } from "@/hooks/useEstadisticasQueries";
 import { mesActual } from "@/lib/estadisticas-period";
+import { readEstadisticasPrefetchMeses } from "@/lib/estadisticas-prefetch-meses";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 import { DashboardThemeToggle } from "@/components/dashboard/DashboardThemeToggle";
@@ -88,10 +89,23 @@ export default function EstadisticasPage() {
 
   const { data: sucursales = [] } = useEstadisticasSucursales(distId);
 
+  const mesesOptimistic = useMemo(() => {
+    if (mesesSeleccionados.length > 0) return mesesSeleccionados;
+    return readEstadisticasPrefetchMeses();
+  }, [mesesSeleccionados]);
+
   const mesesParaQuery = useMemo(() => {
-    if (loadingMeses || mesesDisponibles.length === 0) return [];
-    return mesesSeleccionados.filter((m) => mesesDisponibles.includes(m));
-  }, [loadingMeses, mesesDisponibles, mesesSeleccionados]);
+    if (loadingMeses) {
+      return mesesOptimistic.length > 0 ? mesesOptimistic : [mesActual()];
+    }
+    if (mesesDisponibles.length === 0) return [];
+    const valid = mesesOptimistic.filter((m) => mesesDisponibles.includes(m));
+    if (valid.length > 0) return valid;
+    const current = mesActual();
+    return mesesDisponibles.includes(current)
+      ? [current]
+      : [mesesDisponibles[0]];
+  }, [loadingMeses, mesesDisponibles, mesesOptimistic]);
 
   // Alinear meses persistidos con los disponibles para la distribuidora activa
   useEffect(() => {
@@ -138,7 +152,8 @@ export default function EstadisticasPage() {
 
   // Strip inicial: solo cuando no hay datos en absoluto
   const showLoadingStrip =
-    loadingMeses || (mesesParaQuery.length > 0 && loadingCards && !cartasBundle);
+    (mesesParaQuery.length > 0 && loadingCards && !cartasBundle) ||
+    (loadingMeses && mesesParaQuery.length === 0);
 
   // Overlay silencioso: solo cuando el snapshot aún no tiene cartas y BE está revalidando
   const waitingSnapshot =

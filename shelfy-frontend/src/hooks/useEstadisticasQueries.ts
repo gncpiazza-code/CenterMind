@@ -145,7 +145,7 @@ export function cartasBundleQueryOptions(distId: number, meses: string[]) {
       const meta = data?.meta;
       if (!meta?.revalidating) return false;
       // Solo re-poll mientras esperamos el primer lote de cartas
-      return (data?.cartas?.length ?? 0) === 0 ? 8_000 : false;
+      return (data?.cartas?.length ?? 0) === 0 ? 4_000 : false;
     },
   } as const;
 }

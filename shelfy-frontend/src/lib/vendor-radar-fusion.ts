@@ -12,28 +12,44 @@ function pickIdealPct(
   return 100;
 }
 
-/** Conteo de PDVs con exhibición; si el backend trae % pero 0 en conteo, se infiere. */
+/** cobertura_pct legacy sin exhibiciones ni PDVs exhibidos → ignorar en CEX. */
+export function isStaleExhibitionCoverage(raw: VendorRawKpis): boolean {
+  const exhibited = Number(raw.pdvs_exhibidos ?? 0);
+  const exhibiciones = Number(raw.exhibiciones ?? 0);
+  const cobertura = Number(raw.cobertura_pct ?? 0);
+  return exhibited <= 0 && exhibiciones <= 0 && cobertura > 0;
+}
+
+/** Conteo de PDVs con exhibición; infiere desde % solo si no es dato stale. */
 export function resolvePdvsExhibidosCount(
   raw: VendorRawKpis,
   override?: number,
 ): number {
-  if (override != null && override > 0) return Math.round(override);
+  if (override != null) return Math.max(0, Math.round(override));
   const direct = Number(raw.pdvs_exhibidos ?? 0);
   if (direct > 0) return Math.round(direct);
+  if (isStaleExhibitionCoverage(raw)) return 0;
   const pdvs = Number(raw.pdvs ?? 0);
   const pct = Number(raw.cobertura_pct ?? 0);
   if (pdvs > 0 && pct > 0) return Math.round((pdvs * pct) / 100);
   return 0;
 }
 
+/** CEX real: PDVs exhibidos ÷ PDVs (0–100), con fallback a cobertura_pct del backend. */
 export function exhibitionCoveragePct(raw: VendorRawKpis): number {
+  if (isStaleExhibitionCoverage(raw)) return 0;
+
   const pdvs = Number(raw.pdvs ?? 0);
-  const exhibited = resolvePdvsExhibidosCount(raw);
-  if (pdvs > 0 && exhibited > 0) {
-    return Math.min(100, (exhibited / pdvs) * 100);
+  const count = Number(raw.pdvs_exhibidos ?? 0);
+  const cobertura = Number(raw.cobertura_pct ?? 0);
+
+  if (pdvs > 0 && count > 0) {
+    return Math.min(100, (count / pdvs) * 100);
   }
-  const direct = Number(raw.cobertura_pct ?? 0);
-  return direct > 0 ? Math.min(100, direct) : 0;
+  if (cobertura > 0) {
+    return Math.min(100, cobertura);
+  }
+  return 0;
 }
 
 export function purchaseCoveragePct(raw: VendorRawKpis): number {
@@ -57,13 +73,15 @@ export function effectiveRawKpisForRadar(
   raw: VendorRawKpis,
   options?: { pdvsExhibidos?: number },
 ): VendorRawKpis {
+  if (isStaleExhibitionCoverage(raw)) {
+    return { ...raw, pdvs_exhibidos: 0, cobertura_pct: 0 };
+  }
+
   const pdvs = Number(raw.pdvs ?? 0);
   const pdvsExhibidos = resolvePdvsExhibidosCount(raw, options?.pdvsExhibidos);
-
-  let coberturaPct = Number(raw.cobertura_pct ?? 0);
-  if (pdvs > 0 && pdvsExhibidos > 0) {
-    const fromCount = Math.min(100, (pdvsExhibidos / pdvs) * 100);
-    if (coberturaPct <= 0) coberturaPct = fromCount;
+  let coberturaPct = exhibitionCoveragePct(raw);
+  if (coberturaPct <= 0 && pdvs > 0 && pdvsExhibidos > 0) {
+    coberturaPct = Math.min(100, (pdvsExhibidos / pdvs) * 100);
   }
 
   return {
@@ -78,15 +96,11 @@ export function effectiveRawKpisForRadar(
  */
 export function cexRadarValue(
   raw: VendorRawKpis,
-  radar: RadarKPI,
+  _radar: RadarKPI,
   options?: { pdvsExhibidos?: number },
 ): number {
   const effective = effectiveRawKpisForRadar(raw, options);
-  const pct = exhibitionCoveragePct(effective);
-  if (pct > 0) return Math.round(pct);
-  const legacy = Number(radar.pdvs_exhibidos ?? 0);
-  if (legacy > 0 && legacy <= 100) return Math.round(legacy);
-  return 0;
+  return Math.round(exhibitionCoveragePct(effective));
 }
 
 /**

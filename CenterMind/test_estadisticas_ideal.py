@@ -185,6 +185,26 @@ def test_cobertura_exhibicion_pct_from_raw_fallback_conteo():
     assert pct == pytest.approx(24.7, abs=0.1)
 
 
+def test_cobertura_exhibicion_pct_from_raw_zero_sin_exhibidos():
+    real = {
+        "pdvs": 200,
+        "pdvs_exhibidos": 0,
+        "cobertura_pct": 12.5,
+        "exhibiciones": 0,
+    }
+    assert cobertura_exhibicion_pct_from_raw(real) == 0.0
+
+
+def test_cobertura_exhibicion_pct_from_raw_usa_cobertura_con_exhibiciones():
+    real = {
+        "pdvs": 100,
+        "pdvs_exhibidos": 0,
+        "cobertura_pct": 42.5,
+        "exhibiciones": 30,
+    }
+    assert cobertura_exhibicion_pct_from_raw(real) == pytest.approx(42.5)
+
+
 def test_build_radar_normalized_pdvs_exhibidos_fallback_cobertura_cero():
     real = {
         "pdvs": 255,

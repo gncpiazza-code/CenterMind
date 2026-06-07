@@ -29,8 +29,17 @@ ESTADISTICAS_SERVE_STALE_SECONDS = 86400  # 24 h
 ESTADISTICAS_COLD_COMPUTE_TIMEOUT = 25.0  # single-flight cap (Railway worker)
 
 
+def _stale_exhibition_coverage(raw: dict) -> bool:
+    exh = float(raw.get("pdvs_exhibidos") or 0)
+    exhibiciones = float(raw.get("exhibiciones") or 0)
+    cobertura = float(raw.get("cobertura_pct") or 0)
+    return exh <= 0 and exhibiciones <= 0 and cobertura > 0
+
+
 def _percent_from_raw(raw: dict, pct_key: str, fallback_num: str) -> float:
-    """% 0–100 desde raw_kpis; si el % guardado es 0 pero hay conteo, recalcula."""
+    """% 0–100 desde raw_kpis; recalcula desde conteo o usa % del backend."""
+    if pct_key == "cobertura_pct" and _stale_exhibition_coverage(raw):
+        return 0.0
     pdvs = float(raw.get("pdvs") or 0)
     num = float(raw.get(fallback_num) or 0)
     if pdvs > 0 and num > 0:
@@ -39,6 +48,9 @@ def _percent_from_raw(raw: dict, pct_key: str, fallback_num: str) -> float:
         if pct <= 0:
             return from_counts
         return min(100.0, pct)
+    if fallback_num in raw and num <= 0 and pct_key == "cobertura_pct":
+        if float(raw.get("exhibiciones") or 0) <= 0:
+            return 0.0
     return min(100.0, float(raw.get(pct_key) or 0))
 
 

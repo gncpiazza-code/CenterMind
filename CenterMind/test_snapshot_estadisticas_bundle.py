@@ -94,6 +94,43 @@ def test_normalize_cartas_syncs_percent_radar_vs_ideal():
     assert out[0]["radar"]["cobertura"] == 91
 
 
+def test_normalize_cartas_cex_zero_when_no_pdvs_exhibidos():
+    """CEX en 0 si no hay exhibiciones y el % legacy es stale."""
+    raw = [
+        {
+            "id_vendedor": "V0",
+            "radar": {"pdvs_exhibidos": 18},
+            "raw_kpis": {
+                "pdvs": 200,
+                "pdvs_exhibidos": 0,
+                "cobertura_pct": 12.5,
+                "exhibiciones": 0,
+            },
+        }
+    ]
+    out = _normalize_cartas_payload(raw)
+    assert out[0]["radar"]["pdvs_exhibidos"] == 0
+
+
+def test_normalize_cartas_cex_from_cobertura_pct_legacy():
+    """Snapshots sin pdvs_exhibidos usan cobertura_pct real del backend."""
+    raw = [
+        {
+            "id_vendedor": "V2",
+            "radar": {"pdvs_exhibidos": 0},
+            "raw_kpis": {
+                "pdvs": 100,
+                "cobertura_pct": 42.5,
+                "exhibiciones": 30,
+                "compradores": 50,
+            },
+            "ideal_meta_dist": {"pdvs_exhibidos": 85, "cobertura": 100},
+        }
+    ]
+    out = _normalize_cartas_payload(raw)
+    assert out[0]["radar"]["pdvs_exhibidos"] == 42
+
+
 def test_hydrate_top_localidades_from_raw_kpis():
     from services.snapshot_estadisticas_service import _hydrate_carta_card
 

@@ -61,15 +61,25 @@ def normalize_kpi(real: float, meta: float) -> int:
     return min(100, round(real / meta * 100))
 
 
+def _stale_exhibition_coverage(raw: dict) -> bool:
+    """cobertura_pct sin exhibiciones ni PDVs exhibidos (snapshot legacy)."""
+    exh = float(raw.get("pdvs_exhibidos") or 0)
+    exhibiciones = float(raw.get("exhibiciones") or 0)
+    cobertura = float(raw.get("cobertura_pct") or 0)
+    return exh <= 0 and exhibiciones <= 0 and cobertura > 0
+
+
 def cobertura_exhibicion_pct_from_raw(real_kpis: dict) -> float:
-    """% cartera exhibida: cobertura_pct o fallback pdvs_exhibidos ÷ pdvs."""
-    direct = float(real_kpis.get("cobertura_pct") or 0)
-    if direct > 0:
-        return min(100.0, direct)
+    """% cartera exhibida: pdvs_exhibidos ÷ pdvs, fallback cobertura_pct del backend."""
+    if _stale_exhibition_coverage(real_kpis):
+        return 0.0
     pdvs = float(real_kpis.get("pdvs") or 0)
     exh = float(real_kpis.get("pdvs_exhibidos") or 0)
     if pdvs > 0 and exh > 0:
         return min(100.0, exh / pdvs * 100)
+    direct = float(real_kpis.get("cobertura_pct") or 0)
+    if direct > 0:
+        return min(100.0, direct)
     return 0.0
 
 

@@ -31,7 +31,6 @@ from telegram import (
     LinkPreviewOptions,
     ReplyParameters,
     Update,
-    BotCommand,
 )
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
@@ -49,6 +48,11 @@ from telegram.ext import (
 import json
 import html
 
+from core.bot_vendor_stats import (
+    filter_exhibiciones_for_vendor_erp,
+    get_vendor_erp_norm,
+    partition_exhibiciones_by_month,
+)
 from core.helpers import (
     build_integrante_to_erp_name,
     build_qa_exhibicion_integrante_ids,
@@ -808,11 +812,32 @@ class Database:
         vendor_v2_id: int | None = None,
     ) -> Dict | None:
         """Stats mes actual/anterior con dedup de exhibición lógica (alineado a ranking)."""
-        seed_iids: list[int] = []
+        iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+        qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id)
+
+        now = datetime.now(AR_TZ)
+        if now.month == 1:
+            prev_y, prev_m = now.year - 1, 12
+        else:
+            prev_y, prev_m = now.year, now.month - 1
+        start_mes_prev = now.replace(
+            year=prev_y, month=prev_m, day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        curr_key = f"{now.year}-{now.month:02d}"
+        prev_key = f"{prev_y}-{prev_m:02d}"
+
+        vendor_erp_norm = ""
+        integrante_ids: list[int] | None = None
 
         if vendor_v2_id is not None:
-            # Vendor-scope: todos los integrantes del ERP (varios grupos Telegram → 1 vendedor)
-            seed_iids = resolve_integrante_ids_for_vendor_v2(distribuidor_id, vendor_v2_id)
+            vendor_erp_norm = get_vendor_erp_norm(distribuidor_id, vendor_v2_id)
+            if not vendor_erp_norm:
+                seed_iids = resolve_integrante_ids_for_vendor_v2(
+                    distribuidor_id, vendor_v2_id, iid_to_erp=iid_to_erp
+                )
+                if not seed_iids:
+                    return None
+                integrante_ids = integrante_ids_for_erp_vendors(seed_iids, iid_to_erp)
         else:
             uids: list[int] = list(telegram_user_ids or [])
             if telegram_user_id is not None and telegram_user_id not in uids:
@@ -830,31 +855,23 @@ class Database:
                 ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
             ig_res = ig_q.execute()
             seed_iids = [r["id_integrante"] for r in (ig_res.data or [])]
-
-        if not seed_iids:
-            return None
-
-        iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
-        iids = integrante_ids_for_erp_vendors(seed_iids, iid_to_erp)
-        qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id)
-
-        now = datetime.now(AR_TZ)
-        start_mes_actual = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if now.month == 1:
-            prev_y, prev_m = now.year - 1, 12
-        else:
-            prev_y, prev_m = now.year, now.month - 1
-        start_mes_prev = now.replace(year=prev_y, month=prev_m, day=1, hour=0, minute=0, second=0, microsecond=0)
+            if not seed_iids:
+                return None
+            integrante_ids = integrante_ids_for_erp_vendors(seed_iids, iid_to_erp)
 
         all_ex = self._fetch_exhibiciones(
             distribuidor_id,
             start_mes_prev.isoformat(),
-            integrante_ids=iids,
+            integrante_ids=integrante_ids,
         )
 
-        def _filter_vendor_rows(ex_rows: list[dict]) -> list[dict]:
-            out: list[dict] = []
-            for e in ex_rows:
+        if vendor_erp_norm:
+            vendor_rows = filter_exhibiciones_for_vendor_erp(
+                all_ex, iid_to_erp, vendor_erp_norm, qa_ids, distribuidor_id
+            )
+        else:
+            vendor_rows = []
+            for e in all_ex:
                 iid_raw = e.get("id_integrante")
                 if iid_raw is None:
                     continue
@@ -867,17 +884,9 @@ class Database:
                 vendedor = iid_to_erp.get(iid, "Desconocido")
                 if is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
                     continue
-                out.append(e)
-            return out
+                vendor_rows.append(e)
 
-        ex_actual = _filter_vendor_rows([
-            e for e in all_ex
-            if self._parse_exhibicion_ts(e.get("timestamp_subida", "")) >= start_mes_actual
-        ])
-        ex_prev = _filter_vendor_rows([
-            e for e in all_ex
-            if start_mes_prev <= self._parse_exhibicion_ts(e.get("timestamp_subida", "")) < start_mes_actual
-        ])
+        ex_actual, ex_prev = partition_exhibiciones_by_month(vendor_rows, curr_key, prev_key)
 
         counts_actual = aggregate_exhibicion_counts_vendor_scope(ex_actual)
         counts_prev = aggregate_exhibicion_counts_vendor_scope(ex_prev)
@@ -1597,20 +1606,25 @@ class BotWorker:
         )
 
     async def _apply_menu_commands(self) -> None:
-        """Llama setMyCommands en este bot con los comandos visibles desde bot_commands."""
+        """setMyCommands en privados y grupos desde bot_commands."""
         try:
-            from core.bot_settings import get_settings_cache
-            commands = get_settings_cache().get_visible_menu_commands(self.db.sb)
-            tg_cmds = [
-                BotCommand(command=c["command"], description=c["menu_description"])
-                for c in commands
-                if c.get("kind") not in ("admin_only",) and len(c.get("menu_description", "")) > 0
-            ]
-            if tg_cmds:
-                await self.application.bot.set_my_commands(tg_cmds)
-                self.logger.info(f"[menu] {self.nombre_dist}: {len(tg_cmds)} comandos configurados desde bot_commands")
+            from core.bot_menu_commands import apply_telegram_menu_commands
+
+            scopes = await apply_telegram_menu_commands(self.application.bot, self.db.sb)
+            from core.bot_menu_commands import build_bot_commands
+
+            n_cmds = len(build_bot_commands(self.db.sb))
+            self.logger.info(
+                f"[menu] {self.nombre_dist}: {n_cmds} comandos, {scopes} scopes (default + grupos)"
+            )
         except Exception as e:
             self.logger.warning(f"[menu] No se pudo configurar menú desde bot_commands: {e}")
+            try:
+                from core.bot_menu_commands import apply_telegram_menu_commands
+
+                await apply_telegram_menu_commands(self.application.bot, self.db.sb)
+            except Exception as e2:
+                self.logger.warning(f"[menu] Fallback menú también falló: {e2}")
 
     async def cmd_cartera(
         self,
@@ -4100,24 +4114,11 @@ class BotWorker:
         # Guardar referencia a la app para _apply_menu_commands
         self.application = application
 
-        # Intentar configurar menú desde bot_commands (DB); fallback a lista fija
+        # Intentar configurar menú desde bot_commands (DB); fallback interno en apply_telegram_menu_commands
         try:
             await self._apply_menu_commands()
-        except Exception:
-            # Fallback: lista fija de comandos
-            try:
-                await application.bot.set_my_commands([
-                    BotCommand("start",     "Iniciar el bot"),
-                    BotCommand("help",      "Cómo usar el bot"),
-                    BotCommand("stats",     "Mis estadísticas"),
-                    BotCommand("ranking",   "Ranking del mes"),
-                    BotCommand("objetivos", "Mis objetivos y progreso"),
-                    BotCommand("cartera",   "Mi cartera de clientes"),
-                    BotCommand("ventas",    "Mis ventas del mes"),
-                    BotCommand("cuentas",   "Cuentas corrientes"),
-                ])
-            except Exception as e:
-                self.logger.warning(f"No se pudo configurar menú: {e}")
+        except Exception as e:
+            self.logger.warning(f"No se pudo configurar menú: {e}")
 
         await self._notify_admin(
             application,

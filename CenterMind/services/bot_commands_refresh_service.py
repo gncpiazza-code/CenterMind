@@ -13,17 +13,13 @@ logger = logging.getLogger("ShelfyAPI")
 async def refresh_all_bots_menu(sb: Client) -> dict:
     """
     Lee distribuidores activos para obtener tokens Telegram,
-    y llama setMyCommands en cada uno.
+    y llama setMyCommands en cada uno (default + grupos).
     Retorna {"updated": N, "errors": [...]}
     """
+    from core.bot_menu_commands import TELEGRAM_MENU_SCOPES_API, build_menu_commands_api_payload
+
     cache = get_settings_cache()
-    commands = cache.get_visible_menu_commands(sb)
-    tg_commands = [
-        {"command": c["command"], "description": c["menu_description"]}
-        for c in commands
-        if c.get("kind") not in ("admin_only",)
-        and c.get("menu_description")
-    ]
+    tg_commands = build_menu_commands_api_payload(sb)
 
     # Obtener tokens activos desde tabla distribuidores
     try:
@@ -49,14 +45,30 @@ async def refresh_all_bots_menu(sb: Client) -> dict:
                 continue
             url = f"https://api.telegram.org/bot{token}/setMyCommands"
             try:
-                resp = await client.post(url, json={"commands": tg_commands})
-                if resp.status_code == 200 and resp.json().get("ok"):
+                ok_scopes = 0
+                for scope in TELEGRAM_MENU_SCOPES_API:
+                    resp = await client.post(
+                        url,
+                        json={"commands": tg_commands, "scope": scope},
+                    )
+                    if resp.status_code == 200 and resp.json().get("ok"):
+                        ok_scopes += 1
+                    else:
+                        err = f"{nombre}: scope={scope['type']} HTTP {resp.status_code} — {resp.text[:200]}"
+                        errors.append(err)
+                        logger.warning(f"[refresh_menu] {err}")
+                if ok_scopes == len(TELEGRAM_MENU_SCOPES_API):
                     updated += 1
-                    logger.info(f"[refresh_menu] {nombre}: menú actualizado ({len(tg_commands)} cmds)")
-                else:
-                    err = f"{nombre}: HTTP {resp.status_code} — {resp.text[:200]}"
-                    errors.append(err)
-                    logger.warning(f"[refresh_menu] {err}")
+                    logger.info(
+                        f"[refresh_menu] {nombre}: menú actualizado "
+                        f"({len(tg_commands)} cmds, {ok_scopes} scopes)"
+                    )
+                elif ok_scopes > 0:
+                    updated += 1
+                    logger.warning(
+                        f"[refresh_menu] {nombre}: menú parcial "
+                        f"({ok_scopes}/{len(TELEGRAM_MENU_SCOPES_API)} scopes)"
+                    )
             except Exception as e:
                 err = f"{nombre}: {e}"
                 errors.append(err)

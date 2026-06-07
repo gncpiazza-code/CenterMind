@@ -15,10 +15,10 @@ from core.exhibicion_aggregate import (
     EXHIBICION_ROW_COLS,
     aggregate_ranking_by_vendor,
 )
+from core.bot_vendor_stats import complete_ranking_with_active_vendors
 from core.helpers import (
     build_integrante_to_erp_name,
     build_qa_exhibicion_integrante_ids,
-    resolve_integrante_ids_for_vendor_v2,
     _norm_name,
 )
 
@@ -143,7 +143,7 @@ def ranking_with_deltas(
             "pos_now": pos_now,
             "delta": delta,
         })
-    return result
+    return complete_ranking_with_active_vendors(sb, dist_id, result)
 
 
 def find_ranking_position(

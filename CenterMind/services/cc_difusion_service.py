@@ -146,6 +146,83 @@ def _normalize_cliente_row(cliente_nombre: str | None, id_cliente_erp: Any) -> t
     return _erp_display(erp_raw), nombre
 
 
+def _format_antiguedad_dias(cliente: dict) -> str:
+    """Días exactos de antigüedad de la deuda para el PDF."""
+    raw = cliente.get("antiguedad")
+    if raw is None:
+        raw = cliente.get("antiguedad_dias")
+    if raw is None:
+        return "—"
+    try:
+        dias = int(float(raw))
+    except (TypeError, ValueError):
+        return "—"
+    if dias < 0:
+        dias = 0
+    return str(dias)
+
+
+def _build_cc_detail_table(clientes: list[dict]) -> "Table":
+    """Tabla detalle: Cliente, antigüedad total, total $ y desglose por buckets."""
+    header_banner = [
+        "Cliente ERP",
+        "Cliente",
+        "Antigüedad total",
+        "Total $",
+        "Desglose de la deuda por días",
+        "",
+        "",
+        "",
+        "",
+    ]
+    header_buckets = ["", "", "", "", "7 Días", "15 Días", "30 Días", "60 Días", "+60 Días"]
+    table_data: list[list] = [header_banner, header_buckets]
+
+    for c in clientes:
+        erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
+        table_data.append([
+            erp_disp,
+            (cliente_disp or "—")[:40],
+            _format_antiguedad_dias(c),
+            f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
+            f"${float(c.get('deuda_7_dias') or 0):,.0f}".replace(",", ".") if c.get("deuda_7_dias") else "-",
+            f"${float(c.get('deuda_15_dias') or 0):,.0f}".replace(",", ".") if c.get("deuda_15_dias") else "-",
+            f"${float(c.get('deuda_30_dias') or 0):,.0f}".replace(",", ".") if c.get("deuda_30_dias") else "-",
+            f"${float(c.get('deuda_60_dias') or 0):,.0f}".replace(",", ".") if c.get("deuda_60_dias") else "-",
+            f"${float(c.get('deuda_mas_60_dias') or 0):,.0f}".replace(",", ".") if c.get("deuda_mas_60_dias") else "-",
+        ])
+
+    col_widths = [
+        2.0 * cm, 6.3 * cm, 2.4 * cm, 2.6 * cm,
+        2.5 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm,
+    ]
+    t = Table(table_data, colWidths=col_widths, repeatRows=2)
+    t.setStyle(TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 1), _VIOLET),
+        ("TEXTCOLOR",    (0, 0), (-1, 1), colors.white),
+        ("FONTNAME",     (0, 0), (-1, 1), "Helvetica-Bold"),
+        ("FONTSIZE",     (0, 0), (-1, 1), 7.5),
+        ("ALIGN",        (3, 0), (-1, -1), "RIGHT"),
+        ("ALIGN",        (2, 0), (2, -1), "CENTER"),
+        ("ALIGN",        (0, 0), (1, -1), "LEFT"),
+        ("ALIGN",        (4, 0), (8, 0), "CENTER"),
+        ("FONTSIZE",     (0, 2), (-1, -1), 7.5),
+        ("ROWBACKGROUNDS", (0, 2), (-1, -1), [colors.white, _LIGHT]),
+        ("GRID",         (0, 0), (-1, -1), 0.3, _SLATE),
+        ("TEXTCOLOR",    (0, 2), (-1, -1), colors.black),
+        ("TOPPADDING",   (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("SPAN", (0, 0), (0, 1)),
+        ("SPAN", (1, 0), (1, 1)),
+        ("SPAN", (2, 0), (2, 1)),
+        ("SPAN", (3, 0), (3, 1)),
+        ("SPAN", (4, 0), (8, 0)),
+    ]))
+    return t
+
+
 # ─── PDF generation ───────────────────────────────────────────────────────────
 
 def _build_cc_pdf(
@@ -214,40 +291,7 @@ def _build_cc_pdf(
         Paragraph("Detalle por cliente", sect_style),
     ])
 
-    # Table header + rows
-    table_data = [["Cliente ERP", "Cliente", "Total $", "7 Días", "15 Días", "30 Días", "60 Días", "+60 Días"]]
-    for c in clientes:
-        erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
-        table_data.append([
-            erp_disp,
-            (cliente_disp or "—")[:40],
-            f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
-            f"${float(c.get('deuda_7_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_7_dias') else "-",
-            f"${float(c.get('deuda_15_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_15_dias') else "-",
-            f"${float(c.get('deuda_30_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_30_dias') else "-",
-            f"${float(c.get('deuda_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_60_dias') else "-",
-            f"${float(c.get('deuda_mas_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_mas_60_dias') else "-",
-        ])
-
-    col_widths = [2.2 * cm, 7.5 * cm, 3.0 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm]
-    t = Table(table_data, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, 0), _VIOLET),
-        ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",     (0, 0), (-1, 0), 8),
-        ("ALIGN",        (2, 0), (-1, -1), "RIGHT"),
-        ("ALIGN",        (0, 0), (1, -1), "LEFT"),
-        ("FONTSIZE",     (0, 1), (-1, -1), 7.5),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _LIGHT]),
-        ("GRID",         (0, 0), (-1, -1), 0.3, _SLATE),
-        ("TEXTCOLOR",    (0, 1), (-1, -1), colors.black),
-        ("TOPPADDING",   (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(t)
+    story.append(_build_cc_detail_table(clientes))
 
     doc.build(story)
     return buf.getvalue()
@@ -284,39 +328,7 @@ def _build_cadenaone_pdf(
     from core.pdf_branding import prepend_pdf_logo
     story = prepend_pdf_logo(story)
 
-    table_data = [["Cliente ERP", "Cliente", "Total $", "7 Días", "15 Días", "30 Días", "60 Días", "+60 Días"]]
-    for c in clientes:
-        erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
-        table_data.append([
-            erp_disp,
-            (cliente_disp or "—")[:40],
-            f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
-            f"${float(c.get('deuda_7_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_7_dias') else "-",
-            f"${float(c.get('deuda_15_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_15_dias') else "-",
-            f"${float(c.get('deuda_30_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_30_dias') else "-",
-            f"${float(c.get('deuda_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_60_dias') else "-",
-            f"${float(c.get('deuda_mas_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_mas_60_dias') else "-",
-        ])
-
-    col_widths = [2.2 * cm, 7.5 * cm, 3.0 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm]
-    t = Table(table_data, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, 0), _VIOLET),
-        ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",     (0, 0), (-1, 0), 8),
-        ("ALIGN",        (2, 0), (-1, -1), "RIGHT"),
-        ("ALIGN",        (0, 0), (1, -1), "LEFT"),
-        ("FONTSIZE",     (0, 1), (-1, -1), 7.5),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _LIGHT]),
-        ("GRID",         (0, 0), (-1, -1), 0.3, _SLATE),
-        ("TEXTCOLOR",    (0, 1), (-1, -1), colors.black),
-        ("TOPPADDING",   (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(t)
+    story.append(_build_cc_detail_table(clientes))
 
     doc.build(story)
     return buf.getvalue()

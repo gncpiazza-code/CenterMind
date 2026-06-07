@@ -13,6 +13,36 @@ from db import sb
 logger = logging.getLogger("ShelfyAPI")
 
 
+def _jwt_payload_from_token(token: str) -> dict:
+    if not JWT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="JWT no disponible")
+    payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    payload["rol"] = normalize_rol(payload.get("rol") or "")
+    payload["is_superadmin"] = bool(
+        payload.get("is_superadmin", False)
+        or payload.get("rol") in ROLES_COMPANIA_SCOPE
+    )
+    return payload
+
+
+def assert_dist_access(payload: dict, required_dist_id: int) -> None:
+    if payload.get("is_superadmin"):
+        return
+    user_dist_id = payload.get("id_distribuidor")
+    if user_dist_id != required_dist_id:
+        permisos = payload.get("permisos", {})
+        if permisos.get("action_switch_tenant"):
+            return
+        logger.warning(
+            f"🚫 Intento de acceso no autorizado: Usuario dist {user_dist_id} -> Recurso dist {required_dist_id}"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"No tienes permisos para acceder a esta distribuidora ({required_dist_id})",
+        )
+    check_distributor_status(required_dist_id, payload)
+
+
 def verify_key(x_api_key: str = Header(..., description="API Key secreta")):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="API Key inválida")
@@ -90,21 +120,5 @@ def require_compania_role(payload: dict):
 
 def check_dist_permission(payload: dict, required_dist_id: int):
     """Lanza 403 si el usuario no tiene acceso a la distribuidora solicitada."""
-    if payload.get("is_superadmin"):
-        return True
-    user_dist_id = payload.get("id_distribuidor")
-    if user_dist_id != required_dist_id:
-        # Permiso fundamental para cambiar de entorno
-        permisos = payload.get("permisos", {})
-        if permisos.get("action_switch_tenant"):
-            return True
-
-        logger.warning(
-            f"🚫 Intento de acceso no autorizado: Usuario dist {user_dist_id} -> Recurso dist {required_dist_id}"
-        )
-        raise HTTPException(
-            status_code=403,
-            detail=f"No tienes permisos para acceder a esta distribuidora ({required_dist_id})",
-        )
-    check_distributor_status(required_dist_id, payload)
+    assert_dist_access(payload, required_dist_id)
     return True

@@ -1,0 +1,59 @@
+name: Security scan
+
+on:
+  push:
+    branches: [main, development]
+    paths:
+      - "shelfy-frontend/**"
+      - "CenterMind/requirements.txt"
+      - "ShelfMind-RPA/requirements.txt"
+      - ".github/workflows/security.yml"
+  pull_request:
+    paths:
+      - "shelfy-frontend/**"
+      - "CenterMind/requirements.txt"
+      - "ShelfMind-RPA/requirements.txt"
+
+jobs:
+  snyk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: shelfy-frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: shelfy-frontend
+        run: npm ci
+
+      - name: Snyk frontend
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=shelfy-frontend/package.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Snyk backend
+        uses: snyk/actions/python-3.12@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=CenterMind/requirements.txt
+
+      - name: Snyk RPA
+        uses: snyk/actions/python-3.12@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=ShelfMind-RPA/requirements.txt

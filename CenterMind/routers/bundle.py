@@ -46,22 +46,10 @@ def bundle_dashboard(
     KPIs y ranking comparten un único fetch de exhibiciones (optimización clave).
     """
     check_dist_permission(payload, dist_id)
-    assert_sucursal_id_allowed(payload, sucursal_id)
-    from core.helpers import should_apply_exhibicion_qa_filter
+    # Dashboard: ranking/premios y selector de sucursal usan TODAS las sucursales del tenant.
+    # La restricción por sucursal aplica en supervisión, estadísticas, etc., no aquí.
     hide_qa = should_apply_exhibicion_qa_filter(dist_id, payload)
-    out = get_or_refresh_dashboard(dist_id, periodo, sucursal_id, hide_qa=hide_qa)
-    if not is_unrestricted_sucursales(payload):
-        allowed = filter_sucursal_names(
-            [s.get("sucursal") or s.get("nombre_erp") or "" for s in (out.get("sucursales") or [])],
-            payload,
-        )
-        allowed_set = set(allowed)
-        out["sucursales"] = [
-            s for s in (out.get("sucursales") or [])
-            if (s.get("sucursal") or s.get("nombre_erp") or "").strip() in allowed_set
-        ]
-        out["ranking"] = filter_sucursales_rows(out.get("ranking") or [], payload)
-    return out
+    return get_or_refresh_dashboard(dist_id, periodo, sucursal_id, hide_qa=hide_qa)
 
 
 @router.get("/supervision/{dist_id}")

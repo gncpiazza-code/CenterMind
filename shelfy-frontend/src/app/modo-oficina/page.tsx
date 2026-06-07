@@ -201,6 +201,7 @@ export default function ModoOficinaPage() {
 
     const connect = () => {
       const wsUrl = getWSUrl(distId);
+      if (!wsUrl) return;
       console.log("🔌 Modo Oficina: Intentando conectar a:", wsUrl);
       socket = new WebSocket(wsUrl);
 

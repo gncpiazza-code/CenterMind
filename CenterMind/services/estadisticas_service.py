@@ -184,7 +184,7 @@ def _cartas_comercial_ventas_plausible(
                 cmp,
                 ex,
             )
-    if ex_sum >= 20 and cmp_sum == 0 and blt_sum == 0:
+    if ex_sum >= 3 and cmp_sum == 0 and blt_sum == 0:
         return False
     if (
         exhib_logicas_sum is not None

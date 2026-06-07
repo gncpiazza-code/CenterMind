@@ -56,15 +56,16 @@ CORS_ORIGINS = _CORS_ORIGINS_BASE + [
     o.strip() for o in _extra.split(",") if o.strip()
 ]
 
-# Regex: previews Vercel + subdominios shelfycenter.com (Cloudflare / custom domain).
+# Regex: previews Vercel + dominio canónico (sin wildcard de subdominios arbitrarios).
 CORS_ALLOW_ORIGIN_REGEX = (
     r"^https://center-mind-[a-z0-9-]+-gncpiazza-codes-projects\.vercel\.app$"
-    r"|^https://([a-z0-9-]+\.)?shelfycenter\.com$"
+    r"|^https://(www\.)?shelfycenter\.com$"
 )
 
 # JWT library — opcional; si no está instalada /auth/login no estará disponible
 try:
-    from jose import JWTError, jwt as _jwt
+    import jwt as _jwt
+    from jwt.exceptions import PyJWTError as JWTError
     JWT_AVAILABLE = True
 except ImportError:
     JWT_AVAILABLE = False

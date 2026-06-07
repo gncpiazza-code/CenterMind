@@ -83,8 +83,10 @@ def score_vendedor(radar: dict, pesos: dict) -> int:
 
 
 def radar_ideal_target() -> dict:
-    """Polígono de referencia del ideal (100 % en cada eje)."""
-    return {k: 100 for k in KPI_KEYS}
+    """Polígono de referencia del ideal (100 % en cada eje, incl. CEX)."""
+    out = {k: 100 for k in KPI_KEYS}
+    out["pdvs_exhibidos"] = 100
+    return out
 
 
 def ideal_meta_display_values(

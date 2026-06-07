@@ -21,11 +21,11 @@ from core.tenant_tables import tenant_table_name
 
 PAGE = 1000
 
-# Tolerancia de monto para considerar match "alto".
-_TOLERANCE_PCT = 0.15
-# Margen extra sobre antiguedad_dias para la ventana de búsqueda.
-# CHESS puede reportar antiguedad_dias=0 para facturas de hasta 30 días;
-# usamos 35 días para no perder comprobantes recientes.
+# Tolerancia de monto: ±30% (pagos parciales / recibos no modelados en Consolido).
+_TOLERANCE_PCT = 0.30
+# Antigüedad del comprobante debe ser >= 90% de la antigüedad CHESS (fecha estricta).
+_DATE_MATCH_MIN_RATIO = 0.90
+# Margen extra sobre antiguedad_dias para la ventana de búsqueda hacia atrás.
 _VENTANA_MARGEN_DIAS = 35
 
 # Antigüedad representativa por bucket cuando CHESS reporta 0d pero hay saldo en el rango.
@@ -50,6 +50,20 @@ def _infer_antiguedad_efectiva(cc_row: dict[str, Any]) -> int:
         if float(cc_row.get(field) or 0) > 0:
             return dias
     return antig
+
+
+def _doc_age_days(fecha_doc: date, hoy: date) -> int:
+    return max(0, (hoy - fecha_doc).days)
+
+
+def _fecha_cumple_antiguedad(fecha_doc: date | None, antiguedad_dias: int, hoy: date) -> bool:
+    """El comprobante debe tener antigüedad >= 90% de la deuda CHESS (no remitos recientes)."""
+    if fecha_doc is None:
+        return False
+    if antiguedad_dias <= 0:
+        return True
+    age = _doc_age_days(fecha_doc, hoy)
+    return age >= antiguedad_dias * _DATE_MATCH_MIN_RATIO
 
 
 def _antiguedad_para_match(cc_row: dict[str, Any]) -> int:
@@ -147,25 +161,25 @@ def match_deuda_comprobantes(
     if not by_doc:
         return _sin_comprobantes(deuda_total)
 
-    # Filtrar por ventana temporal
+    # Filtrar por ventana temporal + regla 90% antigüedad (fecha estricta).
     candidatos = [
         d for d in by_doc.values()
-        if d["_fecha_obj"] is None or d["_fecha_obj"] >= ventana_inicio
+        if d["_fecha_obj"] is not None
+        and d["_fecha_obj"] >= ventana_inicio
+        and _fecha_cumple_antiguedad(d["_fecha_obj"], antiguedad_dias, hoy)
     ]
 
     if not candidatos:
-        # Sin ventas en ventana → sin_comprobantes
         return _sin_comprobantes(deuda_total)
 
-    ancla = hoy - timedelta(days=antiguedad_dias)
-
-    def _sort_key(d: dict[str, Any]) -> tuple[float, int]:
-        amt = abs(d["importe_total"] - deuda_total) if deuda_total > 0 else d["importe_total"]
-        if d["_fecha_obj"] is not None:
-            date_dist = abs((d["_fecha_obj"] - ancla).days)
+    def _sort_key(d: dict[str, Any]) -> tuple[float, float]:
+        age = _doc_age_days(d["_fecha_obj"], hoy)
+        if antiguedad_dias > 0:
+            date_dist = abs(age - antiguedad_dias) / antiguedad_dias
         else:
-            date_dist = 999_999
-        return (amt, date_dist)
+            date_dist = age / 30.0
+        amt = abs(d["importe_total"] - deuda_total) / deuda_total if deuda_total > 0 else d["importe_total"]
+        return (date_dist, amt)
 
     candidatos.sort(key=_sort_key)
 

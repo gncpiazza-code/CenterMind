@@ -1,6 +1,7 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { warmPortalBundles, fetchDashboardBundle, fetchVisorBundle } from "@/lib/api";
 import { mesActual } from "@/lib/estadisticas-period";
+import { readEstadisticasPrefetchMeses, estadisticasPrefetchMesesKey } from "@/lib/estadisticas-prefetch-meses";
 import { bundleKeys } from "@/lib/query-keys";
 import { BUNDLE_GC_MS, BUNDLE_STALE_MS } from "@/lib/query-cache-constants";
 import type { PortalModuleId } from "@/lib/portal-cache-config";
@@ -33,7 +34,7 @@ export function visorBundleQueryOptions(distId: number) {
 
 export function estadisticasBundleQueryOptions(
   distId: number,
-  meses: string[] = [mesActual()],
+  meses: string[] = readEstadisticasPrefetchMeses(),
 ) {
   return cartasBundleQueryOptions(distId, meses);
 }
@@ -56,7 +57,7 @@ export function moduleBundleQueryOptions(
     case "supervision":
       return supervisionBundleDefaultQueryOptions(distId, null);
     case "estadisticas":
-      return estadisticasBundleQueryOptions(distId, [mesActual()]);
+      return estadisticasBundleQueryOptions(distId, readEstadisticasPrefetchMeses());
     case "visor":
       return visorBundleQueryOptions(distId);
     default:
@@ -87,8 +88,8 @@ export function prefetchPortalModuleIdle(
 
 export function warmPortalBundlesOnce(distId: number): void {
   if (distId <= 0 || !markPortalWarmSent(distId)) return;
-  // Solo dashboard + estadísticas — evita saturar Railway con supervision/visor pesados.
-  void warmPortalBundles(distId, ["dashboard", "visor", "estadisticas"]).catch(() => {});
+  const mesesKey = estadisticasPrefetchMesesKey(readEstadisticasPrefetchMeses());
+  void warmPortalBundles(distId, ["dashboard", "visor", "estadisticas"], mesesKey).catch(() => {});
 }
 
 export function prefetchModuleByRoute(

@@ -42,6 +42,13 @@ def test_perdido_en_periodo():
     )
 
 
+def test_compra_reciente_no_es_perdido():
+    """Cliente con compra hace ~8 días no debe figurar como perdido (Facundo / 30-05)."""
+    assert not es_perdido_en_periodo(
+        "2026-05-30", "2026-04-01", "2026-06-01", "2026-06-30", compro_en_periodo=False
+    )
+
+
 def test_proximo_caer():
     assert es_proximo_caer("2026-05-03", "2026-05-31")
     assert not es_proximo_caer("2026-05-28", "2026-05-31")

@@ -22,7 +22,10 @@ def _make_venta(num: str, fecha: str, importe: float, tipo: str = "FACTURA"):
 HOY = date.today().isoformat()
 AYER = (date.today() - timedelta(days=1)).isoformat()
 HACE_20 = (date.today() - timedelta(days=20)).isoformat()
+HACE_28 = (date.today() - timedelta(days=28)).isoformat()
+HACE_32 = (date.today() - timedelta(days=32)).isoformat()
 HACE_35 = (date.today() - timedelta(days=35)).isoformat()
+HACE_248 = (date.today() - timedelta(days=248)).isoformat()
 
 
 class TestMatched:
@@ -31,8 +34,8 @@ class TestMatched:
     def test_match_exacto(self):
         cc = {"deuda_total": 10000.0, "cantidad_comprobantes": 2, "antiguedad_dias": 30}
         ventas = [
-            _make_venta("F001", HACE_20, 6000.0),
-            _make_venta("F002", HACE_35, 4000.0),
+            _make_venta("F001", HACE_28, 6000.0),
+            _make_venta("F002", HACE_32, 4000.0),
         ]
         result = match_deuda_comprobantes(cc, ventas)
         assert result["estado"] == "matched"
@@ -42,7 +45,7 @@ class TestMatched:
 
     def test_match_dentro_tolerancia(self):
         cc = {"deuda_total": 10000.0, "cantidad_comprobantes": 1, "antiguedad_dias": 20}
-        ventas = [_make_venta("F001", HACE_20, 9600.0)]  # -4% → dentro de ±15%
+        ventas = [_make_venta("F001", HACE_20, 7200.0)]  # -28% → dentro de ±30%
         result = match_deuda_comprobantes(cc, ventas)
         assert result["estado"] == "matched"
 
@@ -116,6 +119,28 @@ class TestCaso44413:
         assert result["estado"] == "matched"
         assert len(result["comprobantes"]) == 1
         assert result["comprobantes"][0]["numero"] == "999001"
+
+
+class TestMatchFechaEstricta:
+    """Deuda antigua no matchea comprobantes recientes (regla 90% antigüedad)."""
+
+    def test_deuda_248d_rechaza_remito_reciente(self):
+        cc = {
+            "deuda_total": 126500.0,
+            "cantidad_comprobantes": 2,
+            "antiguedad_dias": 248,
+        }
+        ventas = [
+            _make_venta("PRVTA1", HACE_20, 76200.0),
+            _make_venta("PRVTA2", HACE_35, 63500.0),
+            _make_venta("OLD1", HACE_248, 70000.0),
+            _make_venta("OLD2", HACE_248, 56500.0),
+        ]
+        result = match_deuda_comprobantes(cc, ventas)
+        assert result["estado"] == "matched"
+        nums = {c["numero"] for c in result["comprobantes"]}
+        assert "PRVTA1" not in nums
+        assert "PRVTA2" not in nums
 
 
 class TestSinComprobantes:

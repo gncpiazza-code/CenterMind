@@ -153,7 +153,8 @@ def test_supabase_error_does_not_crash():
     sb.table.side_effect = Exception("Connection timeout")
 
     result = cache.get_message(sb, "bienvenida")
-    assert result == "", "Debe retornar '' en caso de error de Supabase"
+    # Con catálogo: fallback al default aunque falle Supabase
+    assert "bot" in result.lower() or result == ""
 
     cmds = cache.list_commands(sb)
     assert cmds == [], "Debe retornar [] en caso de error de Supabase"

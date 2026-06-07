@@ -20,9 +20,17 @@ class BotSettingsCache:
         self._ts_cmd: float = 0.0
 
     def get_message(self, sb: Client, key: str) -> str:
+        from core.bot_message_catalog import normalize_message_key, get_default_message
+        canon = normalize_message_key(key)
         if time.time() - self._ts_msg > _CACHE_TTL:
             self._refresh_messages(sb)
-        return self._messages.get(key, "")
+        db_val = self._messages.get(canon, "")
+        if db_val.strip():
+            return db_val
+        # Alias legacy en DB
+        if canon != key and self._messages.get(key, "").strip():
+            return self._messages[key]
+        return get_default_message(canon)
 
     def list_commands(self, sb: Client) -> list[dict]:
         if time.time() - self._ts_cmd > _CACHE_TTL:
@@ -38,8 +46,12 @@ class BotSettingsCache:
 
     def _refresh_messages(self, sb: Client) -> None:
         try:
+            from core.bot_message_catalog import normalize_message_key
             rows = sb.table("bot_message_templates").select("message_key,body_html").execute().data or []
-            self._messages = {r["message_key"]: r["body_html"] for r in rows}
+            self._messages = {
+                normalize_message_key(r["message_key"]): r["body_html"]
+                for r in rows
+            }
         except Exception:
             pass
         self._ts_msg = time.time()

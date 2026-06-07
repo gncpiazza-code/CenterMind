@@ -109,6 +109,19 @@ from core.exhibicion_aggregate import (
     integrante_ids_for_erp_vendors,
 )
 from core.tenant_tables import tenant_table_name
+from core.bot_dynamic_messages import (
+    build_objetivos_item_line,
+    build_objetivos_message,
+    build_ranking_result_message,
+    build_stats_message,
+    build_upload_estado_label,
+    build_upload_foto_line,
+    build_upload_fotos_text,
+    build_upload_historial_block,
+    build_upload_objetivo_badge,
+    build_upload_rich_message,
+    build_upload_stats_block,
+)
 
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
 # ─────────────────────────────────────────────
@@ -1208,14 +1221,23 @@ class BotWorker:
             if self.estado_operativo != "Activo" and update.effective_message:
                 motivo = self.motivo_bloqueo or "Consultar con soporte"
                 await update.effective_message.reply_text(
-                    f"⚠️ <b>Carga pausada por disposición de Casa Matriz.</b>\n\n"
-                    f"Motivo: <i>{motivo}</i>",
-                    parse_mode=ParseMode.HTML
+                    self._msg("compliance_blocked", motivo=motivo),
+                    parse_mode=ParseMode.HTML,
                 )
                 return False
         except Exception as e:
             self.logger.error(f"Error en check_compliance: {e}")
         return True
+
+    def _msg(self, key: str, *, fallback: str | None = None, **variables) -> str:
+        from core.bot_messages import resolve_bot_message
+        return resolve_bot_message(
+            self.db.sb,
+            key,
+            fallback=fallback,
+            nombre_dist=self.nombre_dist,
+            **variables,
+        )
 
     def _uptime(self) -> str:
         return str(timedelta(seconds=int(time.time() - self.start_time)))
@@ -1360,29 +1382,14 @@ class BotWorker:
             m.from_user.username or "", m.from_user.first_name or "Usuario"
         ))
         await m.reply_text(
-            f"¡Hola! Soy el bot de <b>{self.nombre_dist}</b>.\n"
-            "Enviá una foto para cargar una exhibición.\n"
-            "Usá /help para ver los comandos disponibles.",
+            self._msg("start"),
             parse_mode=ParseMode.HTML,
         )
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
-        text = (
-            f"📘 <b>Ayuda — {self.nombre_dist}</b>\n\n"
-            "📸 <b>Cómo cargar una exhibición:</b>\n"
-            "1️⃣ Enviá una foto al grupo\n"
-            "2️⃣ El bot te pedirá el <b>NRO CLIENTE</b> (solo números)\n"
-            "3️⃣ Seleccioná el <b>tipo de PDV</b> en los botones\n"
-            "4️⃣ La exhibición queda registrada como <b>Pendiente</b>\n"
-            "5️⃣ Un supervisor la aprueba desde la app\n\n"
-            "📊 <b>Comandos:</b>\n"
-            "• /stats — Tus estadísticas\n"
-            "• /ranking — Ranking del mes\n"
-            "• /objetivos — Tus objetivos y progreso\n"
-            "• /help — Esta ayuda"
-        )
+        text = self._msg("help")
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def cmd_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1426,7 +1433,7 @@ class BotWorker:
             LUCIANO_UIDS = [6823099488, 9000005, 9000202] if self.distribuidor_id == 3 else []
 
             if uid in EXCLUDE_UIDS:
-                await m.reply_text("⚠️ <b>Esta cuenta ha sido desactivada o unificada.</b>", parse_mode=ParseMode.HTML)
+                await m.reply_text(self._msg("stats_account_disabled"), parse_mode=ParseMode.HTML)
                 return
 
             now = datetime.now(AR_TZ)
@@ -1485,7 +1492,7 @@ class BotWorker:
                     if group_vid is not None
                     else "Contactá al supervisor o usá /vincular en este grupo."
                 )
-                await m.reply_text(f"⚠️ No hay estadísticas disponibles. {hint}", parse_mode=ParseMode.HTML)
+                await m.reply_text(self._msg("stats_no_data", hint=hint), parse_mode=ParseMode.HTML)
                 return
 
             counts_actual = {
@@ -1496,49 +1503,41 @@ class BotWorker:
                 **stats["mes_anterior"],
                 "total_logicas": stats["mes_anterior"]["total"],
             }
-            total_actual = counts_actual["total_logicas"]
-            total_prev = counts_prev["total_logicas"]
 
-            # Obtener posición en ranking actual
-            ranking_line = ""
+            ranking_pos: int | None = None
+            ranking_total = 0
+            ranking_delta = 0
             try:
                 from core.bot_ranking_delta import ranking_with_deltas
                 ranking_data = await asyncio.to_thread(
                     ranking_with_deltas, self.db.sb, self.distribuidor_id
                 )
                 erp_name_upper = (display_name or "").strip().upper()
+                ranking_total = len(ranking_data)
                 for entry in ranking_data:
                     if entry.get("vendedor", "").upper() == erp_name_upper:
-                        pos = entry["pos_now"]
-                        total_v = len(ranking_data)
-                        delta_icon = "↑" if entry["delta"] == 1 else ("↓" if entry["delta"] == -1 else "—")
-                        ranking_line = f"\n   • 📍 Posición: <b>#{pos} de {total_v}</b> {delta_icon}"
+                        ranking_pos = entry["pos_now"]
+                        ranking_delta = entry.get("delta", 0)
                         break
             except Exception:
                 pass
 
-            msg = (
-                f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n"
-                f"👤 Identidad: {display_name}\n\n"
-                f"🗓️ <b>Mes Actual ({self.MESES[now.month]}):</b>\n"
-                f"   • ✅ Aprobadas:  {counts_actual['aprobadas']}\n"
-                f"   • 🔥 Destacadas: {counts_actual['destacadas']}\n"
-                f"   • ❌ Rechazadas: {counts_actual['rechazadas']}\n"
-                f"   • ⏳ Pendientes: {counts_actual['pendientes']}\n"
-                f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (exhibiciones: {total_actual})"
-                f"{ranking_line}\n\n"
-                f"📅 <b>Mes Anterior ({self.MESES[prev_m]}):</b>\n"
-                f"   • ✅ Aprobadas:  {counts_prev['aprobadas']}\n"
-                f"   • 🔥 Destacadas: {counts_prev['destacadas']}\n"
-                f"   • ❌ Rechazadas: {counts_prev['rechazadas']}\n"
-                f"   • ⏳ Pendientes: {counts_prev['pendientes']}\n"
-                f"   • 🏆 <b>Puntos: {counts_prev['puntos']}</b>  (exhibiciones: {total_prev})\n"
-                f"<i>(Exhibiciones únicas por cliente y día)</i>"
+            msg = build_stats_message(
+                self.db.sb,
+                nombre_dist=self.nombre_dist,
+                display_name=display_name,
+                mes_actual_nombre=self.MESES[now.month],
+                mes_anterior_nombre=self.MESES[prev_m],
+                counts_actual=counts_actual,
+                counts_prev=counts_prev,
+                ranking_pos=ranking_pos,
+                ranking_total=ranking_total,
+                ranking_delta=ranking_delta,
             )
             await m.reply_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:
             self.logger.error(f"[stats] Error uid={uid} dist={self.distribuidor_id}: {type(e).__name__}: {e}", exc_info=True)
-            await m.reply_text("❌ Error al obtener estadísticas. Intentá de nuevo en un momento.")
+            await m.reply_text(self._msg("stats_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_vincular(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Vincula el grupo actual a un vendedor ERP."""
@@ -1550,10 +1549,10 @@ class BotWorker:
 
         # Solo funciona en grupos
         if m.chat.type not in ("group", "supergroup"):
-            await m.reply_text("⚠️ Este comando solo funciona en grupos.")
+            await m.reply_text(self._msg("vincular_solo_grupo"))
             return
 
-        await m.reply_text("🔍 Buscando vendedores candidatos...")
+        await m.reply_text(self._msg("vincular_buscando"))
 
         try:
             from core.telegram_group_matcher import score_group_vendor_candidates, apply_group_binding
@@ -1563,11 +1562,7 @@ class BotWorker:
             )
 
             if not candidates:
-                await m.reply_text(
-                    "⚠️ No encontré candidatos para este grupo.\n"
-                    "Asegurate de que el nombre del grupo incluya el nombre del vendedor, "
-                    "o contactá a la compañía."
-                )
+                await m.reply_text(self._msg("vincular_sin_candidatos"))
                 return
 
             top = candidates[:5]
@@ -1580,9 +1575,11 @@ class BotWorker:
                     InlineKeyboardButton("❌ No", callback_data=f"VINCULAR_CANCEL_{chat_id}"),
                 ]])
                 await m.reply_text(
-                    f"🎯 Detecté que este grupo corresponde a <b>{cand['nombre_erp']}</b> "
-                    f"(confianza {int(cand['score']*100)}%).\n"
-                    f"¿Confirmás la vinculación?",
+                    self._msg(
+                        "vincular_confirm_auto",
+                        nombre_erp=cand["nombre_erp"],
+                        confianza=int(cand["score"] * 100),
+                    ),
                     parse_mode=ParseMode.HTML,
                     reply_markup=keyboard,
                 )
@@ -1599,13 +1596,13 @@ class BotWorker:
             buttons.append([InlineKeyboardButton("❌ Cancelar", callback_data=f"VINCULAR_CANCEL_{chat_id}")])
 
             await m.reply_text(
-                "👥 <b>Seleccioná el vendedor para este grupo:</b>",
+                self._msg("vincular_select_list"),
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
         except Exception as e:
             self.logger.error(f"[vincular] Error chat={chat_id}: {e}", exc_info=True)
-            await m.reply_text("❌ Error al buscar candidatos. Intentá de nuevo.")
+            await m.reply_text(self._msg("vincular_error"))
 
     async def cmd_ranking(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -1630,7 +1627,7 @@ class BotWorker:
             buttons.append([InlineKeyboardButton(f"📊 {month_name} {y}", callback_data=f"RANKING_{m}_{y}_{update.message.from_user.id}")])
 
         await update.message.reply_text(
-            "🏆 <b>Ranking de Exhibiciones</b>\nSeleccioná el mes que querés consultar:",
+            self._msg("ranking_picker"),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
@@ -1673,11 +1670,7 @@ class BotWorker:
             m.from_user.id,
         )
         if vid is None:
-            await m.reply_text(
-                "⚠️ No pude vincular este grupo a un vendedor.\n"
-                "Usá /vincular para asignar el grupo.",
-                parse_mode=ParseMode.HTML,
-            )
+            await m.reply_text(self._msg("vendor_not_linked"), parse_mode=ParseMode.HTML)
             return
 
         if force_mode:
@@ -1691,7 +1684,7 @@ class BotWorker:
             ]
         ])
         await m.reply_text(
-            "📋 <b>Cartera de clientes</b>\n¿Qué cartera querés ver?",
+            self._msg("cartera_prompt"),
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
@@ -1702,8 +1695,22 @@ class BotWorker:
         context: ContextTypes.DEFAULT_TYPE,
         id_vendedor: int,
         mode: str,
+        *,
+        callback_query=None,
     ) -> None:
         chat_id = update.effective_chat.id
+        prompt_msg_id = callback_query.message.message_id if callback_query and callback_query.message else None
+
+        if callback_query and prompt_msg_id:
+            try:
+                await callback_query.edit_message_text(
+                    self._msg("cartera_loading"),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None,
+                )
+            except Exception:
+                pass
+
         try:
             await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
             pdf_bytes, snapshot_label = await asyncio.to_thread(
@@ -1724,13 +1731,24 @@ class BotWorker:
                 caption=f"📋 <b>Cartera {'de hoy' if mode == 'hoy' else 'general'}</b>\n<i>{snapshot_label}</i>",
                 parse_mode=ParseMode.HTML,
             )
+            if prompt_msg_id:
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=prompt_msg_id)
+                except Exception:
+                    pass
         except Exception as e:
             self.logger.error(f"[cartera] Error generando PDF mode={mode}: {e}", exc_info=True)
+            err_text = self._msg("cartera_error")
             try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="❌ Error generando PDF de cartera. Intentá de nuevo.",
-                )
+                if prompt_msg_id:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=prompt_msg_id,
+                        text=err_text,
+                        reply_markup=None,
+                    )
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text=err_text)
             except Exception:
                 pass
 
@@ -1748,7 +1766,7 @@ class BotWorker:
             vid = int(parts[3])
         except (IndexError, ValueError):
             return
-        await self._send_cartera_pdf(update, context, vid, mode)
+        await self._send_cartera_pdf(update, context, vid, mode, callback_query=q)
 
     async def cmd_ventas(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Envía PDF de ventas MTD del vendedor."""
@@ -1767,14 +1785,10 @@ class BotWorker:
             m.from_user.id,
         )
         if vid is None:
-            await m.reply_text(
-                "⚠️ No pude vincular este grupo a un vendedor.\n"
-                "Usá /vincular para asignar el grupo.",
-                parse_mode=ParseMode.HTML,
-            )
+            await m.reply_text(self._msg("vendor_not_linked"), parse_mode=ParseMode.HTML)
             return
 
-        await m.reply_text("⏳ Generando PDF de ventas...")
+        await m.reply_text(self._msg("ventas_loading"), parse_mode=ParseMode.HTML)
         try:
             await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
             from services.bot_ventas_pdf_service import build_ventas_pdf
@@ -1793,7 +1807,7 @@ class BotWorker:
             )
         except Exception as e:
             self.logger.error(f"[ventas] Error generando PDF: {e}", exc_info=True)
-            await m.reply_text("❌ Error generando PDF de ventas. Intentá de nuevo.")
+            await m.reply_text(self._msg("ventas_error"))
 
     async def cmd_cuentas(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Envía PDF de cuentas corrientes del vendedor."""
@@ -1812,10 +1826,7 @@ class BotWorker:
             m.from_user.id,
         )
         if vid is None:
-            await m.reply_text(
-                "⚠️ No pude vincular este grupo a un vendedor.",
-                parse_mode=ParseMode.HTML,
-            )
+            await m.reply_text(self._msg("vendor_not_linked"), parse_mode=ParseMode.HTML)
             return
 
         keyboard = InlineKeyboardMarkup([
@@ -1825,7 +1836,7 @@ class BotWorker:
             ]
         ])
         await m.reply_text(
-            "💳 <b>Cuentas Corrientes</b>\n¿Qué clientes querés ver?",
+            self._msg("cuentas_prompt"),
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
@@ -1844,6 +1855,18 @@ class BotWorker:
         except (IndexError, ValueError):
             return
         chat_id = update.effective_chat.id
+        prompt_msg_id = q.message.message_id if q.message else None
+
+        if prompt_msg_id:
+            try:
+                await q.edit_message_text(
+                    self._msg("cuentas_loading"),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None,
+                )
+            except Exception:
+                pass
+
         try:
             await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
             from services.cc_difusion_service import export_cc_pdf_supervision
@@ -1864,11 +1887,34 @@ class BotWorker:
                 caption=caption,
                 parse_mode=ParseMode.HTML,
             )
+            if prompt_msg_id:
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=prompt_msg_id)
+                except Exception:
+                    pass
         except ValueError as e:
-            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ {e}")
+            err = f"⚠️ {e}"
+            if prompt_msg_id:
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id, message_id=prompt_msg_id, text=err, reply_markup=None,
+                    )
+                except Exception:
+                    await context.bot.send_message(chat_id=chat_id, text=err)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=err)
         except Exception as e:
             self.logger.error(f"[cuentas] Error generando PDF: {e}", exc_info=True)
-            await context.bot.send_message(chat_id=chat_id, text="❌ Error generando PDF. Intentá de nuevo.")
+            err_text = self._msg("cuentas_error")
+            if prompt_msg_id:
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id, message_id=prompt_msg_id, text=err_text, reply_markup=None,
+                    )
+                except Exception:
+                    await context.bot.send_message(chat_id=chat_id, text=err_text)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text=err_text)
 
     async def _handle_custom_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Maneja comandos custom de tipo static_media registrados en bot_commands."""
@@ -2029,12 +2075,7 @@ class BotWorker:
                 vendedor_nombre = m.from_user.first_name or "Vendedor"
 
             if not id_vendedor:
-                await m.reply_text(
-                    "⚠️ No pude vincular tu usuario a un vendedor en este grupo.\n"
-                    "Pedile al admin que revise el mapeo en Fuerza de Ventas, "
-                    "o usá /vincular para asignar este grupo a un vendedor.",
-                    parse_mode=ParseMode.HTML,
-                )
+                await m.reply_text(self._msg("objetivos_no_vendor"), parse_mode=ParseMode.HTML)
                 return
 
             objetivos_res = await asyncio.to_thread(
@@ -2056,11 +2097,7 @@ class BotWorker:
             objetivos = [o for o in (objetivos_res.data or []) if objetivo_activo_para_vendedor(o, hoy)]
 
             if not objetivos:
-                await m.reply_text(
-                    "🎯 <b>No tenés objetivos activos en este momento.</b>\n"
-                    "<i>Los objetivos vencidos o aún no lanzados no se muestran aquí.</i>",
-                    parse_mode=ParseMode.HTML,
-                )
+                await m.reply_text(self._msg("objetivos_empty"), parse_mode=ParseMode.HTML)
                 return
 
             obj_ids = [str(o["id"]) for o in objetivos if o.get("id")]
@@ -2146,7 +2183,7 @@ class BotWorker:
 
             from datetime import date as _date_cls, timezone as _tz_cls
 
-            lines = [f"🎯 <b>Objetivos de {html.escape(str(vendedor_nombre), quote=False)}</b>"]
+            item_lines: list[str] = []
             shown = 0
             for obj in objetivos:
                 shown += 1
@@ -2250,36 +2287,60 @@ class BotWorker:
                     if parts:
                         pdv_line = f"\n   • {' · '.join(parts)}{count_txt}"
 
-                lines.append(
-                    f"\n{estado_icon} <b>{tipo_txt}{origen_tag}</b>"
-                    f"\n   • Progreso: <b>{int(va) if va.is_integer() else round(va, 2)}/{int(vo) if vo.is_integer() else round(vo, 2)}</b> ({pct}%)"
-                    f"{f' · Vence: {fecha_fmt}{dias_restantes_txt}' if fecha_fmt else ''}"
-                    f"{mes_ref_txt}"
-                    f"{tasa_txt}"
-                    f"{avance_semanal_txt}"
-                    f"{pdv_line}"
+                progreso = (
+                    f"{int(va) if va.is_integer() else round(va, 2)}/"
+                    f"{int(vo) if vo.is_integer() else round(vo, 2)}"
+                )
+                vence_line = (
+                    f" · Vence: {fecha_fmt}{dias_restantes_txt}" if fecha_fmt else ""
                 )
 
-            if len(objetivos) > 8:
-                lines.append(f"\n<i>Mostrando 8 de {len(objetivos)} objetivos.</i>")
+                item_lines.append(
+                    build_objetivos_item_line(
+                        self.db.sb,
+                        estado_icon=estado_icon,
+                        tipo_txt=tipo_txt,
+                        origen_tag=origen_tag,
+                        progreso=progreso,
+                        pct=pct,
+                        vence_line=vence_line,
+                        mes_ref_line=mes_ref_txt,
+                        tasa_line=tasa_txt,
+                        avance_semanal_line=avance_semanal_txt,
+                        pdv_line=pdv_line,
+                    )
+                )
+
+            full_text = build_objetivos_message(
+                self.db.sb,
+                vendedor_nombre=vendedor_nombre,
+                item_lines=item_lines,
+                total_count=len(objetivos),
+                shown_count=min(8, len(objetivos)),
+            )
 
             # Enviar dividiendo si supera el límite de Telegram (~4096 chars)
             TELE_MAX = 4000
-            full_text = "\n".join(lines)
             if len(full_text) <= TELE_MAX:
                 await m.reply_text(full_text, parse_mode=ParseMode.HTML)
             else:
-                # Dividir por bloques de objetivos individuales
-                header = lines[0]
+                header = build_objetivos_message(
+                    self.db.sb,
+                    vendedor_nombre=vendedor_nombre,
+                    item_lines=[],
+                    total_count=len(objetivos),
+                    shown_count=min(8, len(objetivos)),
+                )
                 chunks: list[str] = []
-                current = header
-                for line in lines[1:]:
-                    if len(current) + len(line) + 1 > TELE_MAX:
+                current = header.rstrip()
+                for line in item_lines:
+                    if len(current) + len(line) > TELE_MAX:
                         chunks.append(current)
-                        current = line
+                        current = line.lstrip("\n")
                     else:
-                        current += ("\n" if current else "") + line
-                chunks.append(current)
+                        current += line
+                if current:
+                    chunks.append(current)
                 for chunk in chunks:
                     await m.reply_text(chunk, parse_mode=ParseMode.HTML)
         except Exception as e:
@@ -2287,7 +2348,7 @@ class BotWorker:
                 f"[objetivos] Error uid={uid} chat={chat_id} dist={dist_id}: {type(e).__name__}: {e}",
                 exc_info=True,
             )
-            await m.reply_text("❌ No pude consultar tus objetivos en este momento.")
+            await m.reply_text(self._msg("objetivos_error"))
 
     async def cmd_cadenaone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -2439,7 +2500,7 @@ class BotWorker:
                 try:
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text="⚠️ <b>Tu carga anterior quedó incompleta.</b>\nPor favor, <b>reenviá la imagen</b>.",
+                        text=self._msg("upload_incomplete"),
                         parse_mode=ParseMode.HTML,
                         reply_to_message_id=old_photos[0]["message_id"],
                     )
@@ -2467,9 +2528,9 @@ class BotWorker:
 
         n = len(self.upload_sessions[user_id]["photos"])
         if n > 1:
-            texto = f"📸 <b>{n} fotos recibidas.</b> Enviá el <b>NRO CLIENTE</b> (solo números):"
+            texto = self._msg("foto_recibida_multi", n_fotos=n)
         else:
-            texto = "📸 Foto recibida. Enviá el <b>NRO CLIENTE</b> (solo números):"
+            texto = self._msg("foto_recibida")
 
         try:
             await update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_to_message_id=msg_id)
@@ -2504,9 +2565,7 @@ class BotWorker:
         if not session:
             if self._text_looks_like_nro_cliente(text):
                 await update.message.reply_text(
-                    "⚠️ <b>No tengo una carga de foto activa</b> "
-                    "(puede pasar tras un reinicio del servidor).\n\n"
-                    "Por favor <b>reenviá la foto</b> del PDV y después el NRO CLIENTE.",
+                    self._msg("no_active_session"),
                     parse_mode=ParseMode.HTML,
                     reply_to_message_id=msg_id,
                 )
@@ -2514,7 +2573,7 @@ class BotWorker:
 
         if session.get("stage") == self.STAGE_WAITING_ID_BLOCKED:
             await update.message.reply_text(
-                "⚠️ Usá los botones de la pantalla anterior para continuar.",
+                self._msg("use_buttons"),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -2525,7 +2584,7 @@ class BotWorker:
         clean = text.lower().replace("cliente", "").replace("#", "").replace("nro", "").strip()
         if not clean.isnumeric():
             await update.message.reply_text(
-                "⚠️ Por favor, enviá <b>solo números</b> para el NRO CLIENTE.",
+                self._msg("nro_invalid"),
                 parse_mode=ParseMode.HTML,
                 reply_to_message_id=msg_id,
             )
@@ -2553,8 +2612,7 @@ class BotWorker:
                     kb = build_cartera_blocked_keyboard(user_id)
                     try:
                         await update.message.reply_text(
-                            f"⚠️ El cliente <code>{clean}</code> no se encontró en tu cartera.\n\n"
-                            f"¿Fue un error de tipeo o es un PDV nuevo?",
+                            self._msg("cartera_not_found", nro_cliente=clean),
                             parse_mode=ParseMode.HTML,
                             reply_markup=kb,
                             reply_to_message_id=msg_id,
@@ -2603,8 +2661,7 @@ class BotWorker:
 
         try:
             await update.message.reply_text(
-                f"✅ NRO CLIENTE: <code>{clean}</code>{pdv_name_display}\n\n"
-                f"Seleccioná el <b>tipo de PDV</b>:",
+                self._msg("nro_ok_select_tipo", nro_cliente=clean, pdv_name=pdv_name_display),
                 parse_mode=ParseMode.HTML,
                 reply_markup=build_pdv_type_keyboard(user_id),
             )
@@ -2640,18 +2697,20 @@ class BotWorker:
         chat_id = session["chat_id"]
         chat_title = session.get("chat_title") or str(chat_id)
 
-        _n_pics = len(photos)
         _pics_str = f"{_n_pics} fotos" if _n_pics > 1 else "1 foto"
+        _reg_msg = self._msg(
+            "registering",
+            nro_cliente=nro_cliente,
+            pdv_name=pdv_name_display,
+            tipo_pdv=tipo_pdv,
+            fotos_label=_pics_str,
+        )
         try:
             if status_chat_id and status_message_id:
                 await context.bot.edit_message_text(
                     chat_id=status_chat_id,
                     message_id=status_message_id,
-                    text=(
-                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>{pdv_name_display}\n"
-                        f"📍 <b>{tipo_pdv}</b>\n\n"
-                        f"⏳ Registrando {_pics_str}..."
-                    ),
+                    text=_reg_msg,
                     parse_mode=ParseMode.HTML,
                     reply_markup=None,
                     link_preview_options=_NO_LINK_PREVIEW,
@@ -2659,11 +2718,7 @@ class BotWorker:
             else:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=(
-                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>{pdv_name_display}\n"
-                        f"📍 <b>{tipo_pdv}</b>\n\n"
-                        f"⏳ Registrando {_pics_str}..."
-                    ),
+                    text=_reg_msg,
                     parse_mode=ParseMode.HTML,
                     link_preview_options=_NO_LINK_PREVIEW,
                 )
@@ -2770,11 +2825,11 @@ class BotWorker:
             )
             primera_id = exhibicion_ids[0]["id"]
             en_cuarentena_flag = any(e["estado"] == "PENDIENTE" for e in exhibicion_ids)
-            msg_text = (
-                f"✅ <b>Exhibición registrada</b>\n\n"
-                f"🏪 <b>Cliente:</b> {nro_cliente}\n"
-                f"📍 <b>Tipo:</b> {tipo_pdv}\n"
-                f"📸 <b>Fotos:</b> {procesadas}"
+            msg_text = self._msg(
+                "upload_success",
+                nro_cliente=nro_cliente,
+                tipo_pdv=tipo_pdv,
+                procesadas=procesadas,
             )
             photo_msg_id = photos[0]["message_id"] if photos else None
             if photo_msg_id:
@@ -2815,7 +2870,7 @@ class BotWorker:
                     fail_kw["reply_parameters"] = _reply_to_photo(chat_id, photo_msg_id)
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"⚠️ {fallidas} foto(s) no pudieron registrarse. Si falta alguna, reenviala.",
+                    text=self._msg("upload_partial_fail", fallidas=fallidas),
                     link_preview_options=_NO_LINK_PREVIEW,
                     **fail_kw,
                 )
@@ -2825,11 +2880,7 @@ class BotWorker:
                 err_kw["reply_parameters"] = _reply_to_photo(chat_id, photos[0]["message_id"])
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=(
-                    "⚠️ <b>Error de conexión con el servidor.</b>\n\n"
-                    f"No se pudo registrar la exhibición, {uploader_name}.\n"
-                    "Por favor <b>reenviá la foto</b>."
-                ),
+                text=self._msg("upload_error", uploader_name=uploader_name),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=_NO_LINK_PREVIEW,
                 **err_kw,
@@ -2859,7 +2910,7 @@ class BotWorker:
                 await q.answer("❌ Esta consulta no es para vos.", show_alert=True)
                 return
 
-            await q.edit_message_text("⏳ Obteniendo ranking...")
+            await q.edit_message_text(self._msg("ranking_loading"))
 
             try:
                 periodo = f"{year}-{month:02d}"
@@ -2899,25 +2950,22 @@ class BotWorker:
                     ranking = [{**r, "delta": 0} for r in (ranking_legacy or [])]
 
                 if not ranking:
-                    await q.edit_message_text("📊 No hay datos para ese período.")
+                    await q.edit_message_text(self._msg("ranking_empty"))
                     return
 
-                msg = f"🏆 <b>RANKING {month_name.upper()} {year} — {self.nombre_dist}</b>\n\n"
-                for i, entry in enumerate(ranking[:10], 1):
-                    emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                    sucursal_text = f" ({entry['sucursal']})" if entry.get('sucursal') else ""
-                    delta = entry.get("delta", 0)
-                    arrow = " ↑" if delta == 1 else (" ↓" if delta == -1 else "")
-                    msg += (
-                        f"{emoji} <b>{entry['vendedor']}</b>{sucursal_text}{arrow}\n"
-                        f"   ✅ Aprod: {entry['aprobadas']} | 🔥 Dest: {entry['destacadas']}\n"
-                        f"   ⭐ Puntos: {entry['puntos']}\n\n"
-                    )
+                msg = build_ranking_result_message(
+                    self.db.sb,
+                    nombre_dist=self.nombre_dist,
+                    mes_nombre=month_name,
+                    year=year,
+                    entries=ranking,
+                    limit=10,
+                )
 
                 await q.edit_message_text(msg, parse_mode=ParseMode.HTML)
             except Exception as e:
                 self.logger.error(f"Error en callback ranking: {e}")
-                await q.edit_message_text("❌ Error al obtener el ranking.")
+                await q.edit_message_text(self._msg("ranking_error"))
             return
 
         # ── CARTERA_: PDF de cartera ─────────────────────────────────────────
@@ -2949,7 +2997,7 @@ class BotWorker:
             await self._upload_session_save(target_uid)
             try:
                 await q.edit_message_text(
-                    "📋 Enviá el <b>NRO CLIENTE</b> nuevamente.",
+                    self._msg("retry_nro"),
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
@@ -2978,8 +3026,7 @@ class BotWorker:
             await self._upload_session_save(target_uid)
             try:
                 await q.edit_message_text(
-                    f"✅ PDV nuevo: <code>{nro}</code>\n\n"
-                    f"Seleccioná el <b>tipo de PDV</b>:",
+                    self._msg("pdv_nuevo_ok", nro_cliente=nro),
                     parse_mode=ParseMode.HTML,
                     reply_markup=build_pdv_type_keyboard(target_uid),
                 )
@@ -3013,8 +3060,7 @@ class BotWorker:
                     )
                     nombre = v_res.data[0]["nombre_erp"] if v_res.data else f"Vendedor #{id_vendedor_v2}"
                     await update.callback_query.edit_message_text(
-                        f"✅ Grupo vinculado a <b>{nombre}</b>.\n"
-                        f"Los comandos /stats, /objetivos y /ranking ahora usan este vendedor.",
+                        self._msg("vincular_ok", nombre_erp=nombre),
                         parse_mode=ParseMode.HTML,
                     )
                 except Exception as e:
@@ -3023,7 +3069,7 @@ class BotWorker:
             return
 
         if data.startswith("VINCULAR_CANCEL_"):
-            await update.callback_query.edit_message_text("❌ Vinculación cancelada.")
+            await update.callback_query.edit_message_text(self._msg("vincular_cancel"))
             return
 
         parsed = parse_type_callback(data)
@@ -3325,40 +3371,38 @@ class BotWorker:
                 pass
 
             mes = stats.get("mes_actual", {})
-            racha_text = f"   🔥 Racha: {racha} consecutivas aprobadas\n" if racha >= 2 else ""
-            stats_text = (
-                f"\n\n📊 <b>Tu mes ({datetime.now(AR_TZ).strftime('%B').capitalize()}):</b>\n"
-                f"   ✅ {mes.get('aprobadas', 0)} aprobadas   "
-                f"🔥 {mes.get('destacadas', 0)} destacadas\n"
-                f"   ❌ {mes.get('rechazadas', 0)} rechazadas   "
-                f"⏳ {mes.get('pendientes', 0)} pendientes\n"
-                f"   🏆 Puntos: {mes.get('puntos', 0)}   📦 Exhibiciones: {mes.get('total', 0)}\n"
-                f"   <i>(Únicas por cliente y día — mismo criterio que el ranking)</i>\n"
-                f"{racha_text}"
+            now_ar = datetime.now(AR_TZ)
+            stats_text = build_upload_stats_block(
+                self.db.sb,
+                mes_nombre=self.MESES.get(now_ar.month, now_ar.strftime("%B")),
+                aprobadas=mes.get("aprobadas", 0),
+                destacadas=mes.get("destacadas", 0),
+                rechazadas=mes.get("rechazadas", 0),
+                pendientes=mes.get("pendientes", 0),
+                puntos=mes.get("puntos", 0),
+                total=mes.get("total", 0),
+                racha=racha,
             )
 
             # Historial del cliente en este PDV
             historial_text = ""
             if historial:
                 estado_emoji = {"Aprobado": "✅", "Destacado": "🔥", "Rechazado": "❌", "Pendiente": "⏳"}
-                lineas = [
+                lineas = "\n".join(
                     f"   • {h['fecha']} — {h['tipo_pdv']} — {estado_emoji.get(h['estado'], '❓')} {h['estado']}"
                     for h in historial
-                ]
-                historial_text = (
-                    f"\n\n📂 <b>Historial en este PDV ({len(historial)} anteriores):</b>\n"
-                    + "\n".join(lineas)
+                )
+                historial_text = build_upload_historial_block(
+                    self.db.sb,
+                    lineas=lineas,
+                    count=len(historial),
                 )
 
-            fotos_text = f"📸 <b>{procesadas} fotos subidas</b>\n\n" if procesadas > 1 else ""
-
-            # Link a la foto (ya tenemos la URL de Supabase de la última subida)
-            foto_line = f"🔗 <a href='{drive_link}'>Ver foto</a>\n" if drive_link else ""
-
-            estado_label = (
-                f"⚠️ <b>Estado: REVISIÓN</b> — Pendiente de validación ERP"
-                if en_cuarentena_flag else
-                "⏳ <b>Estado:</b> Pendiente de evaluación"
+            fotos_text = build_upload_fotos_text(self.db.sb, procesadas)
+            foto_line = build_upload_foto_line(self.db.sb, drive_link or "")
+            estado_label = build_upload_estado_label(
+                self.db.sb,
+                en_cuarentena=en_cuarentena_flag,
             )
 
             # ── INTERCEPTOR DE OBJETIVO DE EXHIBICIÓN ──────────────────────
@@ -3532,16 +3576,15 @@ class BotWorker:
                         obj_id_match = obj_match_res.data[0]["id"]
                         obj_ids_watcher_refresh.append(obj_id_match)
                         if obj_match_es_global:
-                            objetivo_badge = (
-                                f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
-                                f"Esta exhibición cuenta para tu meta general. "
-                                f"Quedó a la espera de evaluación del supervisor."
+                            objetivo_badge = build_upload_objetivo_badge(
+                                self.db.sb,
+                                es_global=True,
                             )
                         else:
-                            objetivo_badge = (
-                                f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
-                                f"Este PDV (<b>{pdv_nombre_obj}</b>) está en tus metas. "
-                                f"Ha pasado a revisión del supervisor."
+                            objetivo_badge = build_upload_objetivo_badge(
+                                self.db.sb,
+                                es_global=False,
+                                pdv_nombre=pdv_nombre_obj,
                             )
 
                         # 1. Patch id_cliente_pdv + id_objetivo en exhibiciones
@@ -3673,17 +3716,18 @@ class BotWorker:
                 except Exception as _e_wpost:
                     self.logger.warning(f"[Watcher] No se pudo disparar post-interceptor: {_e_wpost}")
 
-            msg_text = (
-                f"📋 <b>Exhibición registrada</b>\n\n"
-                f"{fotos_text}"
-                f"👤 <b>Vendedor:</b> {uploader_name}\n"
-                f"🏪 <b>Cliente:</b> {nro_cliente} - {cliente_nombre}\n"
-                f"📍 <b>Tipo:</b> {tipo_pdv}\n"
-                f"{foto_line}"
-                f"{estado_label}"
-                f"{objetivo_badge}"
-                f"{stats_text}"
-                f"{historial_text}"
+            msg_text = build_upload_rich_message(
+                self.db.sb,
+                fotos_text=fotos_text,
+                uploader_name=uploader_name,
+                nro_cliente=nro_cliente,
+                cliente_nombre=cliente_nombre,
+                tipo_pdv=tipo_pdv,
+                foto_line=foto_line,
+                estado_label=estado_label,
+                objetivo_badge=objetivo_badge,
+                stats_text=stats_text,
+                historial_text=historial_text,
             )
 
             photo_msg_id = photos[0]["message_id"]
@@ -3871,22 +3915,27 @@ class BotWorker:
                 icon = {"Aprobado": "✅", "Rechazado": "❌", "Destacado": "🔥"}.get(estado, "⏳")
 
                 if estado == "Destacado":
-                    estado_text = (
-                        "🔥 <b>¡EXHIBICIÓN DESTACADA!</b> 🔥\n"
-                        "🚀 ¡Ejecución perfecta!"
-                    )
+                    estado_text = self._msg("eval_destacada")
+                elif estado == "Aprobado":
+                    estado_text = self._msg("eval_aprobada", supervisor=supervisor)
+                elif estado == "Rechazado":
+                    estado_text = self._msg("eval_rechazada", supervisor=supervisor)
                 else:
                     estado_text = f"{icon} <b>{estado}</b> por {supervisor}"
 
                 if comentario:
-                    estado_text += f"\n\n📝 <b>Nota:</b> <i>{comentario}</i>"
+                    estado_text += self._msg("eval_nota", comentario=comentario)
 
-                msg_text = (
-                    f"📋 <b>Exhibición evaluada</b>\n\n"
-                    f"👤 <b>Vendedor:</b> {vendedor_txt}\n"
-                    f"🏪 <b>Cliente:</b> {cliente_txt}\n"
-                    f"📍 <b>Tipo:</b> {tipo_txt}\n\n"
-                    f"{estado_text}"
+                msg_text = self._msg(
+                    "eval_header",
+                    vendedor=vendedor_txt,
+                    cliente=cliente_txt,
+                    tipo=tipo_txt,
+                    estado_bloque=estado_text,
+                    __raw_estado_bloque=True,
+                    __raw_vendedor=True,
+                    __raw_cliente=True,
+                    __raw_tipo=True,
                 )
 
                 try:

@@ -8,9 +8,10 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { Button } from "@/components/ui/Button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BotSettingsMessagesTab } from "@/components/admin/BotSettingsMessagesTab";
+import { BotSettingsFlowsTab } from "@/components/admin/BotSettingsFlowsTab";
 import { BotSettingsCommandsTab } from "@/components/admin/BotSettingsCommandsTab";
 import { BotSettingsCustomTab } from "@/components/admin/BotSettingsCustomTab";
+import { BotSettingsPreviewChat } from "@/components/admin/BotSettingsPreviewChat";
 import { refreshBotMenuCommands } from "@/lib/api";
 import { toast } from "sonner";
 import { Bot, RefreshCw, Loader2 } from "lucide-react";
@@ -46,7 +47,7 @@ export default function BotSettingsPage() {
       <div className="flex flex-col flex-1 min-w-0">
         <Topbar title="Bot Settings" />
 
-        <main className="flex-1 p-4 md:p-8 pb-28 md:pb-8 overflow-auto w-full max-w-[1200px] mx-auto">
+        <main className="flex-1 p-4 md:p-8 pb-28 md:pb-8 overflow-auto w-full max-w-[1400px] mx-auto">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
             <div className="flex items-start gap-3 min-w-0">
@@ -78,26 +79,33 @@ export default function BotSettingsPage() {
             </Button>
           </div>
 
-          {/* Tabs */}
-          <Tabs defaultValue="messages" className="w-full">
-            <TabsList className="mb-4">
-              <TabsTrigger value="messages">Mensajes</TabsTrigger>
-              <TabsTrigger value="commands">Comandos built-in</TabsTrigger>
-              <TabsTrigger value="custom">Comandos custom</TabsTrigger>
-            </TabsList>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px] gap-6 items-start">
+            {/* Tabs de configuración */}
+            <Tabs defaultValue="flows" className="w-full min-w-0">
+              <TabsList className="mb-4">
+                <TabsTrigger value="flows">Flujos y mensajes</TabsTrigger>
+                <TabsTrigger value="commands">Comandos built-in</TabsTrigger>
+                <TabsTrigger value="custom">Comandos custom</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="messages">
-              <BotSettingsMessagesTab />
-            </TabsContent>
+              <TabsContent value="flows">
+                <BotSettingsFlowsTab />
+              </TabsContent>
 
-            <TabsContent value="commands">
-              <BotSettingsCommandsTab />
-            </TabsContent>
+              <TabsContent value="commands">
+                <BotSettingsCommandsTab />
+              </TabsContent>
 
-            <TabsContent value="custom">
-              <BotSettingsCustomTab />
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="custom">
+                <BotSettingsCustomTab />
+              </TabsContent>
+            </Tabs>
+
+            {/* Simulador de chat — sticky en desktop */}
+            <div className="lg:sticky lg:top-4 h-[calc(100vh-8rem)] max-h-[720px] min-h-[420px]">
+              <BotSettingsPreviewChat />
+            </div>
+          </div>
         </main>
       </div>
     </div>

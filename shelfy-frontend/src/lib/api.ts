@@ -4301,9 +4301,37 @@ export async function fetchLiquidacionExportBlob(distId: number, mes: string): P
 
 export interface BotMessageTemplate {
   message_key: string;
+  label?: string;
+  flow_id?: string;
+  flow_title?: string;
+  placeholders?: string[];
+  description?: string;
+  default_html?: string;
+  is_customized?: boolean;
   body_html: string;
-  updated_at: string;
+  updated_at?: string;
   updated_by?: string;
+}
+
+export interface BotFlowNode {
+  message_key: string;
+  label: string;
+  description: string;
+  node_type: string;
+  sort_order: number;
+  placeholders: string[];
+  body_html: string;
+  default_html: string;
+  is_customized: boolean;
+}
+
+export interface BotMessageFlow {
+  flow_id: string;
+  title: string;
+  description: string;
+  icon: string;
+  sort_order: number;
+  nodes: BotFlowNode[];
 }
 
 export interface BotCommand {
@@ -4343,6 +4371,17 @@ export async function updateBotMessageTemplate(key: string, bodyHtml: string): P
     method: "PUT",
     body: JSON.stringify({ body_html: bodyHtml }),
   });
+}
+
+export async function resetBotMessageTemplate(key: string): Promise<void> {
+  await apiFetch<void>(`/api/bot-settings/messages/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchBotMessageFlows(): Promise<BotMessageFlow[]> {
+  const res = await apiFetch<{ flows: BotMessageFlow[] }>("/api/bot-settings/flows");
+  return res.flows ?? [];
 }
 
 export async function fetchBotCommands(): Promise<BotCommand[]> {
@@ -4389,5 +4428,29 @@ export async function deleteBotCustomCommand(command: string): Promise<void> {
 export async function refreshBotMenuCommands(): Promise<{ updated: number; errors: string[] }> {
   return apiFetch<{ updated: number; errors: string[] }>("/api/bot-settings/refresh-menu", {
     method: "POST",
+  });
+}
+
+export type BotPreviewButton = { label: string; action: string };
+
+export type BotPreviewMessage =
+  | { type: "text"; html: string; buttons?: BotPreviewButton[][] }
+  | { type: "photo"; photo_url: string; caption_html?: string }
+  | { type: "document"; filename: string; caption_html: string; size_bytes: number };
+
+export async function previewBotInteraction(body: {
+  dist_id: number;
+  id_vendedor?: number | null;
+  input?: string;
+  callback_action?: string;
+}): Promise<{ messages: BotPreviewMessage[] }> {
+  return apiFetch<{ messages: BotPreviewMessage[] }>("/api/bot-settings/preview", {
+    method: "POST",
+    body: JSON.stringify({
+      dist_id: body.dist_id,
+      id_vendedor: body.id_vendedor ?? null,
+      input: body.input ?? null,
+      callback_action: body.callback_action ?? null,
+    }),
   });
 }

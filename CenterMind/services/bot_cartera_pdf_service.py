@@ -8,7 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from io import BytesIO
 from supabase import Client
-from core.helpers import tenant_table_name
+from core.tenant_tables import tenant_table_name
 from core.padron_cliente_vitalidad import activo_comercial_por_fecha, DIAS_ACTIVO_COMERCIAL
 from core.bot_snapshot_meta import resolve_snapshot_label
 
@@ -21,18 +21,24 @@ DIA_MAP = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 
 DIAS_PROXIMO_CAER_MIN = 23
 
 
+def _norm_dia(value: str) -> str:
+    s = (value or "").strip().lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        s = s.replace(a, b)
+    return s
+
+
 def build_cartera_pdf(sb: Client, dist_id: int, id_vendedor: int, mode: str = "general") -> tuple[bytes, str]:
     """
     Genera PDF de cartera.
     mode: 'general' | 'hoy'
     Retorna (pdf_bytes, snapshot_label)
     """
-    # 1. Obtener rutas del vendedor
+    # 1. Obtener rutas del vendedor (rutas_v2_d* no tiene id_distribuidor)
     rutas_table = tenant_table_name("rutas_v2", dist_id)
     rutas = (
         sb.table(rutas_table)
         .select("id_ruta,dia_semana")
-        .eq("id_distribuidor", dist_id)
         .eq("id_vendedor", id_vendedor)
         .execute().data or []
     )
@@ -40,7 +46,8 @@ def build_cartera_pdf(sb: Client, dist_id: int, id_vendedor: int, mode: str = "g
     # 2. Filtrar por hoy si mode='hoy'
     if mode == "hoy":
         hoy_nombre = DIA_MAP.get(datetime.now(AR_TZ).weekday(), "")
-        rutas = [r for r in rutas if r.get("dia_semana") == hoy_nombre]
+        hoy_norm = _norm_dia(hoy_nombre)
+        rutas = [r for r in rutas if _norm_dia(r.get("dia_semana") or "") == hoy_norm]
 
     # 3. Para cada ruta, obtener PDVs
     pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)

@@ -49,6 +49,13 @@ class CustomCommandCreate(BaseModel):
     kind: str = "static_media"
 
 
+class BotPreviewRequest(BaseModel):
+    dist_id: int
+    id_vendedor: int | None = None
+    input: str | None = None
+    callback_action: str | None = None
+
+
 # ─── Slug validation ──────────────────────────────────────────────────────────
 
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
@@ -81,7 +88,21 @@ async def get_messages(user_payload: dict = Depends(verify_auth)):
     except Exception as e:
         logger.error(f"[bot-settings] get_messages: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    return {"messages": rows}
+    from core.bot_message_catalog import merge_messages_for_api
+    return {"messages": merge_messages_for_api(rows)}
+
+
+@router.get("/flows")
+async def get_message_flows(user_payload: dict = Depends(verify_auth)):
+    _require_superadmin(user_payload)
+    try:
+        rows = sb.table("bot_message_templates").select("message_key,body_html").execute().data or []
+    except Exception as e:
+        logger.error(f"[bot-settings] get_flows: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    from core.bot_message_catalog import build_flows_payload, normalize_message_key
+    db_map = {normalize_message_key(r["message_key"]): r.get("body_html") or "" for r in rows}
+    return {"flows": build_flows_payload(db_map)}
 
 
 @router.put("/messages/{key}")
@@ -93,10 +114,12 @@ async def update_message(
     _require_superadmin(user_payload)
     if not key.strip():
         raise HTTPException(status_code=400, detail="message_key inválido")
+    from core.bot_message_catalog import normalize_message_key
+    canon = normalize_message_key(key)
     try:
         result = (
             sb.table("bot_message_templates")
-            .upsert({"message_key": key, "body_html": body.body_html})
+            .upsert({"message_key": canon, "body_html": body.body_html})
             .execute()
         )
     except Exception as e:
@@ -106,6 +129,26 @@ async def update_message(
     # Invalidar cache para que el próximo uso lea el valor actualizado
     get_settings_cache().invalidate()
     return {"ok": True, "message_key": key}
+
+
+@router.delete("/messages/{key}")
+async def reset_message(
+    key: str,
+    user_payload: dict = Depends(verify_auth),
+):
+    """Elimina override en DB → vuelve al default del catálogo."""
+    _require_superadmin(user_payload)
+    from core.bot_message_catalog import normalize_message_key, get_message_def
+    canon = normalize_message_key(key)
+    if not get_message_def(canon):
+        raise HTTPException(status_code=404, detail="message_key desconocido")
+    try:
+        sb.table("bot_message_templates").delete().eq("message_key", canon).execute()
+    except Exception as e:
+        logger.error(f"[bot-settings] reset_message key={canon}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    get_settings_cache().invalidate()
+    return {"ok": True, "message_key": canon}
 
 
 # ─── Endpoints: comandos ──────────────────────────────────────────────────────
@@ -244,6 +287,36 @@ async def delete_custom_command(
 
     get_settings_cache().invalidate()
     return {"ok": True, "command": cmd}
+
+
+# ─── Preview / simulador de chat ─────────────────────────────────────────────
+
+@router.post("/preview")
+async def preview_bot(
+    body: BotPreviewRequest,
+    user_payload: dict = Depends(verify_auth),
+):
+    _require_superadmin(user_payload)
+    if not body.input and not body.callback_action:
+        raise HTTPException(status_code=400, detail="Enviá input o callback_action")
+    if body.dist_id <= 0:
+        raise HTTPException(status_code=400, detail="dist_id inválido")
+
+    from services.bot_preview_service import preview_bot_interaction
+
+    try:
+        messages = preview_bot_interaction(
+            sb,
+            dist_id=body.dist_id,
+            id_vendedor=body.id_vendedor,
+            input_text=body.input,
+            callback_action=body.callback_action,
+        )
+    except Exception as e:
+        logger.error(f"[bot-settings] preview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"messages": messages}
 
 
 # ─── Endpoint: refresh menú en todos los bots ─────────────────────────────────

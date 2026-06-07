@@ -1,8 +1,11 @@
 import { create } from 'zustand';
 import type { ObjetivoTipo } from '@/lib/api';
+import { currentMonthAR } from '@/lib/galeria-month';
 
 type ViewMode = 'kanban' | 'lista' | 'timeline' | 'stats' | 'supervisor' | 'print';
 type KanbanPhase = 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | 'liquidacion' | null;
+
+const DEFAULT_FILTER_MES = currentMonthAR();
 
 interface ObjetivosStore {
   // Filters
@@ -43,7 +46,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
   filterCumplido: null,
   filterKanbanPhase: null,
   filterSucursal: null,
-  filterMes: null,
+  filterMes: DEFAULT_FILTER_MES,
   searchText: '',
   viewMode: 'kanban',
   selectedTenantId: null,
@@ -70,7 +73,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
     filterCumplido: null,
     filterKanbanPhase: null,
     filterSucursal: null,
-    filterMes: null,
+    filterMes: currentMonthAR(),
     searchText: '',
   }),
 }));

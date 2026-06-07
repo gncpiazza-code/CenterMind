@@ -38,6 +38,7 @@ import {
   type PDVCatalogItem,
 } from "@/lib/api";
 import { resolveObjetivoMes, collectMesesConDatos, formatObjetivoMesLabel } from "@/lib/objetivo-utils";
+import { currentMonthAR } from "@/lib/galeria-month";
 import { ObjetivoLiquidacionToolbar } from "@/components/objetivos/ObjetivoLiquidacionToolbar";
 import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
 import { ObjetivoDetalleModal } from "@/components/objetivos/ObjetivoDetalleModal";
@@ -3372,7 +3373,12 @@ export default function ObjetivosPage() {
 
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
-  const mesesConDatos = useMemo(() => collectMesesConDatos(objetivos), [objetivos]);
+  const mesesConDatos = useMemo(() => {
+    const meses = collectMesesConDatos(objetivos);
+    const current = currentMonthAR();
+    if (!meses.includes(current)) return [current, ...meses];
+    return meses;
+  }, [objetivos]);
 
   const canVerLiquidacion = user?.is_superadmin || user?.rol === 'compania';
 

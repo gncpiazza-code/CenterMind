@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { loginApi, type AuthResponse } from "@/lib/api";
 import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
 import { clearPortalBundleCache, getShelfyQueryClient } from "@/lib/portal-cache-persist";
+import { resetTenantScopedStores } from "@/lib/zustand-reset";
 
 function readShelfActiveDistId(): number | null {
   if (typeof window === "undefined") return null;
@@ -132,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const logout = useCallback(() => {
+    resetTenantScopedStores(readShelfActiveDistId() ?? undefined);
     clearPortalBundleCache(getShelfyQueryClient());
     clearToken();
     setUser(null);
@@ -167,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchDistributor = useCallback((id: number, nombre: string) => {
     if (!canSwitchDistribuidor) return;
+    resetTenantScopedStores(readShelfActiveDistId() ?? undefined);
     clearPortalBundleCache(getShelfyQueryClient());
     setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
     localStorage.setItem("shelfy_active_dist", JSON.stringify({ id, nombre }));

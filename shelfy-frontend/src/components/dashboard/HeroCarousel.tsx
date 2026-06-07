@@ -15,6 +15,8 @@ interface HeroCarouselProps {
   compact?: boolean;
   isDark?: boolean;
   className?: string;
+  /** Si true, desactiva la animación 3D cube entre vendedores (recomendado en mobile). */
+  disableCube?: boolean;
 }
 
 const AUTOPLAY_MS = 8000;
@@ -457,7 +459,7 @@ function preloadStoryImage(item: UltimaEvaluada) {
   if (src) void preloadStoryImageUrl(src);
 }
 
-export function HeroCarousel({ items, compact = false, isDark: _isDark = false, className }: HeroCarouselProps) {
+export function HeroCarousel({ items, compact = false, isDark: _isDark = false, className, disableCube = false }: HeroCarouselProps) {
   const notRejected = items.filter((e) => !/rechaz/i.test(e.estado ?? ""));
   const coherent = notRejected.filter((e) => isUltimaCoherenteConVendedor(e));
   const assigned = notRejected.filter((e) => e.pdv_asignado_vendedor !== false);
@@ -591,7 +593,7 @@ export function HeroCarousel({ items, compact = false, isDark: _isDark = false, 
       <IpadStatusBar />
       <StoriesProgressBar total={filtered.length} activeIndex={safeIdx} progressKey={progressKey} />
 
-      <StoriesViewport enableCube={transitionKind === "cube"}>
+      <StoriesViewport enableCube={transitionKind === "cube" && !disableCube}>
         <AnimatePresence initial={false} custom={direction}>
           <HeroSlide
             key={slideKey}

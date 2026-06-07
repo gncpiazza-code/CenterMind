@@ -29,6 +29,7 @@ import {
 import { filterUltimasCoherentes } from "@/lib/dashboard-ultimas";
 import { bundleKeys } from "@/lib/query-keys";
 import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
+import { invalidateDashboardBundle } from "@/lib/query-invalidation";
 import { HeroCarouselSkeleton } from "@/components/dashboard/HeroCarouselSkeleton";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 import {
@@ -37,6 +38,7 @@ import {
   type DashboardLayoutConfig,
 } from "@/lib/dashboard-layout";
 import { DashboardLayoutTuner } from "@/components/dashboard/DashboardLayoutTuner";
+import { DashboardMobileScroll } from "@/components/dashboard/DashboardMobileScroll";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -176,7 +178,7 @@ export default function DashboardPage() {
             const now = Date.now();
             if (now - lastWsInvalidateAtRef.current < 5000) return;
             lastWsInvalidateAtRef.current = now;
-            queryClient.invalidateQueries({ queryKey: ['bundle', 'dashboard'] });
+            invalidateDashboardBundle(queryClient, distId);
           }
         } catch {}
       };
@@ -225,7 +227,31 @@ export default function DashboardPage() {
       {!isFullscreen && <Sidebar />}
       {!isFullscreen && <BottomNav />}
 
-      <div className="flex flex-col flex-1 min-w-0 relative h-full">
+      {/* Mobile: scroll vertical continuo */}
+      <div className="flex flex-col flex-1 min-w-0 md:hidden h-full overflow-hidden">
+        <DashboardMobileScroll
+          kpis={kpis}
+          evolucion={evolucion}
+          ranking={rankingFiltrado}
+          ultimasHero={ultimasHero}
+          sucursales={sucursales}
+          loading={loading}
+          isDark={isDark}
+          periodPreset={periodPreset}
+          customYear={customYear}
+          customMonth={customMonth}
+          kpiHeightPx={dashLayout.kpiHeightPx}
+          chartYear={bounds.start.getFullYear()}
+          chartMonth={bounds.start.getMonth()}
+          onPeriodChange={handlePeriodChange}
+          sucursalFiltro={sucursalFiltro}
+          onSucursal={setSucursalFiltro}
+          onToggleTheme={toggleTheme}
+        />
+      </div>
+
+      {/* Desktop: layout original intacto */}
+      <div className="hidden md:flex flex-col flex-1 min-w-0 relative h-full">
 
         {/* Blobs decorativos — solo en modo claro */}
         {!isDark && (
@@ -355,6 +381,7 @@ export default function DashboardPage() {
 
         </main>
       </div>
+      {/* Fin desktop layout */}
 
       <DashboardLayoutTuner layout={dashLayout} onChange={handleDashLayoutChange} />
     </div>

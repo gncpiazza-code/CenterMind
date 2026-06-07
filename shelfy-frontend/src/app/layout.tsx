@@ -26,6 +26,7 @@ import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { PortalCacheProvider } from "@/components/providers/PortalCacheProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/react";
 
 export default function RootLayout({
   children,
@@ -42,6 +43,7 @@ export default function RootLayout({
                 {children}
                 <Toaster richColors position="top-right" />
                 <SpeedInsights />
+                <Analytics />
               </UIProvider>
             </PortalCacheProvider>
           </AuthProvider>

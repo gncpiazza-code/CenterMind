@@ -1,7 +1,7 @@
 /** KPIs del sidebar expandido (arriba/abajo del radar) — 6 métricas, 2 filas × 3. */
 
 import type { VendorRawKpis } from "@/lib/api";
-import { resolvePdvsExhibidosCount } from "@/lib/vendor-radar-fusion";
+import { exhibitionCoveragePct } from "@/lib/vendor-radar-fusion";
 
 export type VendorDetalleSidebarKpiKey =
   | "pdvs"
@@ -31,8 +31,9 @@ export const VENDOR_DETALLE_SIDEBAR_KPIS: VendorDetalleSidebarKpiItem[] = [
   },
   {
     key: "pdvs_exhibidos",
-    label: "PDVs Exhibidos",
-    description: "Cantidad de PDVs distintos con al menos una exhibición lógica en el período.",
+    label: "Cartera exhibida",
+    description:
+      "Porcentaje de la cartera con al menos una exhibición lógica en el período (PDVs exhibidos ÷ PDVs). Mismo valor que el eje CEX del radar.",
   },
   {
     key: "compradores",
@@ -63,7 +64,7 @@ export function formatVendorDetalleSidebarKpiValue(
       return `${pct.toFixed(1)}%`;
     }
     case "pdvs_exhibidos":
-      return String(resolvePdvsExhibidosCount(raw));
+      return `${exhibitionCoveragePct(raw).toFixed(1)}%`;
     default:
       return String(raw[key as keyof VendorRawKpis] ?? 0);
   }

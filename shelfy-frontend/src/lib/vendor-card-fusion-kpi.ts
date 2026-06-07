@@ -1,5 +1,6 @@
 import type { VendorCartaResumen, VendorRawKpis } from "@/lib/api";
 import type { RadarKPI } from "@/lib/api";
+import { exhibitionCoveragePct } from "@/lib/vendor-radar-fusion";
 
 /** KPIs de la grilla 2×3 donde puede mostrarse corona de liderazgo (alineado al sidebar expandido). */
 export type VendorStatLeaderKey =
@@ -56,7 +57,11 @@ const STAT_LEADER_GETTERS: {
 }[] = [
   { key: "pdvs", get: (k) => k.pdvs, label: "PDVs" },
   { key: "exhibiciones", get: (k) => k.exhibiciones, label: "Exhibiciones" },
-  { key: "pdvs_exhibidos", get: (k) => k.pdvs_exhibidos ?? 0, label: "PDVs exhibidos" },
+  {
+    key: "pdvs_exhibidos",
+    get: (k) => exhibitionCoveragePct(k),
+    label: "Cartera exhibida",
+  },
   { key: "compradores", get: (k) => k.compradores, label: "Compradores" },
   { key: "cobertura_compra", get: coberturaCompraPct, label: "Cobertura compra" },
   { key: "bultos", get: (k) => k.bultos, label: "Bultos" },

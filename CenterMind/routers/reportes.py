@@ -741,6 +741,8 @@ def _enrich_por_sucursal_rows(rows: list[dict], distribuidor_id: int) -> list[di
         loc = str(row.get("location_id") or "").strip()
         suc_name = (row.get("sucursal") or "").strip().upper()
         pk = erp_to_pk.get(loc) or erp_to_pk.get(loc.lstrip("0") or "0") or nombre_to_pk.get(suc_name)
+        if pk is None:
+            continue
         enriched.append({**row, "id_sucursal": pk})
     return enriched
 

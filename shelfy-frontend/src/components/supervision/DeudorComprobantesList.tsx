@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Package, AlertCircle, CheckCircle2 } from "lucide-react";
+import { ChevronDown, Package, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -24,12 +24,10 @@ function fmtFecha(s: string): string {
 interface Props {
   deuda: DeudorDetalle["deuda"];
   estado: DeudorDetalle["estado"];
-  confianza: DeudorDetalle["confianza"];
   comprobantes: DeudorDetalle["comprobantes"];
-  resumen?: string | null;
 }
 
-export function DeudorComprobantesList({ deuda, estado, confianza, comprobantes, resumen }: Props) {
+export function DeudorComprobantesList({ deuda, estado, comprobantes }: Props) {
   /** Por defecto expandido; el usuario puede compactar. */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -72,24 +70,6 @@ export function DeudorComprobantesList({ deuda, estado, confianza, comprobantes,
 
   return (
     <div className="flex flex-col gap-1.5">
-      {resumen ? (
-        <p className="text-[11px] text-foreground/90 font-medium leading-snug" title={resumen}>
-          Adeuda (estimado): {resumen}
-        </p>
-      ) : null}
-      {confianza === "baja" && (
-        <p className="flex items-center gap-1 text-[10px] text-amber-700/90 mb-0.5">
-          <AlertCircle size={11} className="shrink-0" />
-          Coincidencia estimada — los comprobantes pueden variar
-        </p>
-      )}
-      {confianza === "alta" && (
-        <p className="flex items-center gap-1 text-[10px] text-emerald-700/90 mb-0.5">
-          <CheckCircle2 size={11} className="shrink-0" />
-          Comprobantes identificados con alta confianza
-        </p>
-      )}
-
       <div className="rounded-lg border overflow-hidden divide-y">
         {comprobantes.map((cbte) => {
           const isOpen = !collapsed[cbte.numero];

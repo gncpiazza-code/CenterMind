@@ -203,9 +203,19 @@ export function useSupervisionPanelQueries(
     ...supervisionBundleQueryOptions(distId, sucursalParam ?? null, null),
     enabled: !!distId,
     placeholderData: keepPreviousData,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data?.meta?.revalidating) return false;
+      if ((data.cuentas?.vendedores?.length ?? 0) > 0) return false;
+      return 5_000;
+    },
   });
   const cuentasData = bundleQuery.data?.cuentas ?? undefined;
-  const loadingCuentas = bundleQuery.isLoading && !bundleQuery.data;
+  const waitingSnapshot =
+    !!bundleQuery.data?.meta?.revalidating &&
+    (bundleQuery.data?.cuentas?.vendedores?.length ?? 0) === 0;
+  const loadingCuentas =
+    (bundleQuery.isLoading && !bundleQuery.data) || waitingSnapshot;
   const fetchingCuentas = bundleQuery.isFetching;
 
   const ccKpisQuery = useQuery<CcKpisResponse>({

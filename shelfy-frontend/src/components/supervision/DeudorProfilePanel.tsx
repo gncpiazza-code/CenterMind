@@ -213,9 +213,7 @@ function ProfileContent({
         <DeudorComprobantesList
           deuda={data.deuda}
           estado={data.estado}
-          confianza={data.confianza}
           comprobantes={data.comprobantes}
-          resumen={data.comprobantes_adeuda_resumen}
         />
       </div>
 

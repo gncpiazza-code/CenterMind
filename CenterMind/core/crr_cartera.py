@@ -81,14 +81,17 @@ def es_perdido_en_periodo(
     *,
     compro_en_periodo: bool,
 ) -> bool:
-    """Activo al inicio, inactivo al cierre, sin recompra en el período."""
+    """Activo al inicio del período, inactivo hoy (ref viva), sin recompra en el período."""
     if compro_en_periodo:
+        return False
+    ref = ref_cartera_viva(hasta)
+    if activo_comercial_por_fecha(fecha_ultima_compra, ref_iso=ref):
         return False
     activo_inicio = not inactivo_comercial_en(
         fecha_ultima_compra, fecha_compra_anterior, desde
     )
     inactivo_fin = inactivo_comercial_en(
-        fecha_ultima_compra, fecha_compra_anterior, hasta
+        fecha_ultima_compra, fecha_compra_anterior, ref
     )
     return activo_inicio and inactivo_fin
 

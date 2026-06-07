@@ -30,6 +30,8 @@ interface RankingTableProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onToggleTheme?: () => void;
+  /** Si true, desactiva el autoscroll RAF (recomendado en mobile donde el usuario controla el scroll). */
+  disableAutoscroll?: boolean;
 }
 
 const TOP3_STYLES = [
@@ -151,6 +153,7 @@ export function RankingTable({
   isFullscreen = false,
   onToggleFullscreen,
   onToggleTheme,
+  disableAutoscroll = false,
 }: RankingTableProps) {
   const [showCompaniaLens, setShowCompaniaLens] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
@@ -233,7 +236,7 @@ export function RankingTable({
   // Auto-scroll continuo (rAF + delta) — solo con 6+ integrantes
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || ranking.length === 0 || !enableAutoscrollLoop) return;
+    if (!el || ranking.length === 0 || !enableAutoscrollLoop || disableAutoscroll) return;
 
     let rafId = 0;
     let lastTs = performance.now();

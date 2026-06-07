@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 5 de Junio, 2026 (v12)  
+**Ultima actualizacion:** 7 de Junio, 2026 (v13)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -24,6 +24,8 @@
 - 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase; SQL `20260605_objetivo_jobs.sql` en Supabase; SQL `20260605_objetivos_flags_liquidacion.sql` en Supabase; runbook post-deploy objetivos compradores.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+34. Performance mobile + desembarco inteligente (2026-06-07): Orquestador v2 T0/T1/T2/T3 con `portal-idle-scheduler.ts` + `portal-route-prefetch.ts`; `BACKGROUND_MODULE_ORDER` + `ROUTE_PREFETCH_ORDER` en config; warm ampliado a visor; guard red 2g/saveData. Mobile dashboard: `DashboardMobileScroll.tsx` (sticky filtros → KPI → hero `disableCube` → ranking estático sin RAF); `HeroCarousel` prop `disableCube`; `RankingTable` prop `disableAutoscroll`. Mobile estadísticas/visor: scroll habilitado, header sticky, VendorCardExpanded lazy, contentVisibility, backdropFilter reducido. Zustand hygiene: `zustand-reset.ts` + `resetTenantScopedStores()` en logout/switch; `useDashboardStore` eliminado; `query-invalidation.ts` predicate acotado por distId. Observabilidad: `@vercel/analytics` + RQ Devtools dev + bundle-analyzer + Lighthouse CI. Sin SQL pendiente.
 
 33. Estadísticas — filtro sucursal instantáneo + SWR silencioso (2026-06-05): bundle estadísticas sin sucursal en queryKey (`['bundle','estadisticas',distId,mesesKey]`); `fetchEstadisticasBundle` siempre llama con `null`; staleTime extendido a 15 min (`ESTADISTICAS_BUNDLE_STALE_MS`). Filtro sucursal 100% client-side: helper puro `filterCartasBySucursal` en `lib/estadisticas-filter.ts`; page.tsx filtra antes de pasar a `VendorCollection`. UX loading alineada a Dashboard: `showLoadingStrip` solo en primera carga sin datos; overlay `waitingSnapshot` solo si revalidating con cartas vacías. Warm condicional: `useEffect` con gate `getQueryState + age < ESTADISTICAS_BUNDLE_STALE_MS` (evita warm en cada re-entrada). `refetchInterval` corregido: solo si `cartas.length === 0 && revalidating`. Persist buster bump a v2. Tests: `estadisticas-filter.test.ts` (5) + `useEstadisticasQueries.test.ts` (3); 72/72 suite verde.
 

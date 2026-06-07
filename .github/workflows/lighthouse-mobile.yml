@@ -1,0 +1,55 @@
+name: Lighthouse Mobile CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'shelfy-frontend/**'
+
+jobs:
+  lighthouse:
+    name: Lighthouse mobile audit
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: shelfy-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: shelfy-frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: shelfy-frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL || 'http://localhost:8000' }}
+
+      - name: Start server
+        working-directory: shelfy-frontend
+        run: npm run start &
+        env:
+          PORT: 3000
+
+      - name: Wait for server
+        run: npx wait-on http://localhost:3000 --timeout 30000
+
+      - name: Run Lighthouse mobile — /dashboard
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: |
+            http://localhost:3000/dashboard
+            http://localhost:3000/estadisticas
+            http://localhost:3000/visor
+          configPath: .github/lighthouse-mobile-budget.json
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  # Budget de referencia: perf >= 85, INP <= 200ms mobile

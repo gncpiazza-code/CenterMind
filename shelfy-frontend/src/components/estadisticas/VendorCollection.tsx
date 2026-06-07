@@ -5,8 +5,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import type { Variants } from "framer-motion";
 import { MousePointerClick } from "lucide-react";
+import dynamic from "next/dynamic";
 import { VendorCard } from "./VendorCard";
-import { VendorCardExpanded } from "./VendorCardExpanded";
+const VendorCardExpanded = dynamic(
+  () => import("./VendorCardExpanded").then((m) => ({ default: m.VendorCardExpanded })),
+  { ssr: false, loading: () => null },
+);
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import { computeStatLeadersByVendor } from "@/lib/vendor-card-fusion-kpi";
@@ -171,7 +175,7 @@ export function VendorCollection({
             key={vendor.id_vendedor}
             data-vendor-id={vendor.id_vendedor}
             variants={cardVariants}
-            style={{ minWidth: 0 }}
+            style={{ minWidth: 0, contentVisibility: "auto", containIntrinsicSize: "0 300px" }}
             animate={
               activeVendorId
                 ? vendor.id_vendedor === activeVendorId

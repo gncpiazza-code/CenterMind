@@ -200,7 +200,8 @@ export default function EstadisticasPage() {
           display: "flex",
           flexDirection: "column",
           minWidth: 0,
-          paddingBottom: 64,
+          paddingBottom: "max(80px, calc(64px + env(safe-area-inset-bottom)))",
+          overflowY: "auto",
         }}
       >
         <Topbar title="Estadísticas" />
@@ -216,7 +217,8 @@ export default function EstadisticasPage() {
             background: "var(--shelfy-bg)",
           }}
         >
-          {/* ── Page header ── */}
+          {/* ── Page header + controls (sticky en mobile) ── */}
+          <div style={{ position: "sticky", top: 0, zIndex: 10, background: isDark ? "#0f172a" : "var(--shelfy-bg)" }}>
           <div
             style={{
               display: "flex",
@@ -304,12 +306,13 @@ export default function EstadisticasPage() {
               alignItems: "flex-start",
               flexWrap: "wrap",
               gap: 12,
-              padding: "16px 24px 0",
+              padding: "16px 24px 12px",
             }}
           >
             <PeriodSelector mesesDisponibles={mesesDisponibles} isLoading={loadingMeses} />
             <SucursalSelector sucursales={sucursales} />
           </div>
+          </div>{/* /sticky header */}
 
           {/* ── Vendor count summary ── */}
           {!isLoading && hasVendors && (

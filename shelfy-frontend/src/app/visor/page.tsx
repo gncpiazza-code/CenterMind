@@ -1621,8 +1621,8 @@ export function VisorPageContent() {
                         style={{
                           paddingBottom: "max(8px, env(safe-area-inset-bottom))",
                           background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
-                          backdropFilter: "blur(40px) saturate(180%)",
-                          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                          backdropFilter: "blur(20px) saturate(160%)",
+                          WebkitBackdropFilter: "blur(20px) saturate(160%)",
                           border: "1px solid rgba(255,255,255,0.18)",
                           boxShadow: "0 14px 32px rgba(2,6,23,0.5), inset 0 1px 0 rgba(255,255,255,0.26)",
                         }}

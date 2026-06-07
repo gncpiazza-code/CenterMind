@@ -1,6 +1,22 @@
 /** Módulos portal con bundle snapshot — P0 performance. */
 export type PortalModuleId = "dashboard" | "supervision" | "estadisticas" | "visor";
 
+/** Orden canónico de precarga de bundles API en background (T2). */
+export const BACKGROUND_MODULE_ORDER = [
+  "dashboard",
+  "visor",
+  "estadisticas",
+  "supervision",
+] as const satisfies readonly PortalModuleId[];
+
+/** Orden canónico de prefetch de chunks JS de rutas (T1 route-chunk). */
+export const ROUTE_PREFETCH_ORDER = [
+  "/dashboard",
+  "/visor",
+  "/estadisticas",
+  "/supervision",
+] as const;
+
 export const PORTAL_BUNDLE_PREFIX = "bundle" as const;
 
 export const PERSIST_MAX_AGE_MS = 30 * 60 * 1000; // alineado BUNDLE_GC_MS

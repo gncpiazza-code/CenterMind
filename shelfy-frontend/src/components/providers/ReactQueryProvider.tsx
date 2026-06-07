@@ -3,6 +3,18 @@
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { useState } from "react";
+import dynamic from "next/dynamic";
+
+const ReactQueryDevtools =
+  process.env.NODE_ENV === "development"
+    ? dynamic(
+        () =>
+          import("@tanstack/react-query-devtools").then((m) => ({
+            default: m.ReactQueryDevtools,
+          })),
+        { ssr: false },
+      )
+    : null;
 import {
   createPortalPersister,
   portalPersistOptions,
@@ -47,6 +59,7 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
       }}
     >
       {children}
+      {ReactQueryDevtools && <ReactQueryDevtools initialIsOpen={false} />}
     </PersistQueryClientProvider>
   );
 }

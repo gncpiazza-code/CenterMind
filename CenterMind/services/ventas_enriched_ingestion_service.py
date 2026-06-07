@@ -185,10 +185,14 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
 
     # Registrar en motor_runs
     try:
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
         sb.table("motor_runs").insert({
             "dist_id": dist_id,
             "motor": "ventas_enriched",
             "estado": "ok",
+            "iniciado_en": now_iso,
+            "finalizado_en": now_iso,
             "registros": {"rows": len(rows), "upserted": upserted, "actualizados": actualizados}
         }).execute()
     except Exception as e:

@@ -23,7 +23,7 @@ def resolve_snapshot_label(sb: Client, dist_id: int, source: str) -> str:
                 .eq("dist_id", dist_id)
                 .eq("motor", motor)
                 .eq("estado", "ok")
-                .order("finalizado_en", desc=True)
+                .order("iniciado_en", desc=True)
                 .limit(1)
                 .execute().data or []
             )

@@ -223,6 +223,148 @@ def _build_cc_detail_table(clientes: list[dict]) -> "Table":
     return t
 
 
+_CC_DIA_CANONICAL: tuple[tuple[str, str], ...] = (
+    ("lunes", "Lunes"),
+    ("martes", "Martes"),
+    ("miercoles", "Miércoles"),
+    ("jueves", "Jueves"),
+    ("viernes", "Viernes"),
+    ("sabado", "Sábado"),
+    ("domingo", "Domingo"),
+)
+
+
+def _norm_dia_cc(value: str) -> str:
+    s = (value or "").strip().lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        s = s.replace(a, b)
+    return s
+
+
+def _erp_keys_for_dia_match(value: object) -> list[str]:
+    from core.exhibicion_aggregate import erp_lookup_keys
+
+    return erp_lookup_keys(value)
+
+
+def _fetch_erp_dia_semana_map(dist_id: int, id_vendedor: int) -> dict[str, str]:
+    """Mapa claves ERP → día de ruta (rutas_v2.dia_semana vía clientes_pdv_v2)."""
+    try:
+        rutas_table = tenant_table_name("rutas_v2", dist_id)
+        rutas = (
+            sb.table(rutas_table)
+            .select("id_ruta,dia_semana")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", id_vendedor)
+            .execute()
+            .data
+            or []
+        )
+        ruta_dia: dict[int, str] = {}
+        for r in rutas:
+            rid = r.get("id_ruta")
+            if rid is None:
+                continue
+            ruta_dia[int(rid)] = (r.get("dia_semana") or "Variable").strip() or "Variable"
+        if not ruta_dia:
+            return {}
+
+        pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+        erp_map: dict[str, str] = {}
+        offset = 0
+        while True:
+            batch = (
+                sb.table(pdv_table)
+                .select("id_cliente_erp,id_ruta")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_ruta", list(ruta_dia.keys()))
+                .range(offset, offset + 999)
+                .execute()
+                .data
+                or []
+            )
+            for pdv in batch:
+                rid = pdv.get("id_ruta")
+                if rid is None:
+                    continue
+                dia = ruta_dia.get(int(rid), "Variable")
+                for key in _erp_keys_for_dia_match(pdv.get("id_cliente_erp")):
+                    erp_map[key] = dia
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        return erp_map
+    except Exception as e:
+        logger.warning(f"[CCDifusion] erp_dia_map dist={dist_id} vend={id_vendedor}: {e}")
+        return {}
+
+
+def _resolve_cliente_dia_semana(cliente: dict, erp_to_dia: dict[str, str]) -> str:
+    for key in _erp_keys_for_dia_match(cliente.get("id_cliente_erp")):
+        dia = erp_to_dia.get(key)
+        if dia:
+            return dia
+    return "Sin día asignado"
+
+
+def _group_clientes_por_dia_semana(
+    clientes: list[dict],
+    erp_to_dia: dict[str, str],
+) -> list[tuple[str, list[dict]]]:
+    buckets: dict[str, list[dict]] = {}
+    for c in clientes:
+        dia = _resolve_cliente_dia_semana(c, erp_to_dia)
+        buckets.setdefault(dia, []).append(c)
+
+    for items in buckets.values():
+        items.sort(key=lambda x: float(x.get("antiguedad") or 0), reverse=True)
+
+    ordered: list[tuple[str, list[dict]]] = []
+    used: set[str] = set()
+    for norm, label in _CC_DIA_CANONICAL:
+        for dia_key, items in buckets.items():
+            if _norm_dia_cc(dia_key) == norm and items:
+                ordered.append((label, items))
+                used.add(dia_key)
+
+    for fallback in ("Variable", "Sin día asignado"):
+        if fallback in buckets and fallback not in used and buckets[fallback]:
+            ordered.append((fallback, buckets[fallback]))
+            used.add(fallback)
+
+    for dia_key, items in sorted(buckets.items(), key=lambda x: x[0].casefold()):
+        if dia_key not in used and items:
+            ordered.append((dia_key, items))
+
+    return ordered
+
+
+def _fmt_cc_money(amount: float) -> str:
+    return f"${amount:,.0f}".replace(",", ".")
+
+
+def _append_cc_detalle_por_dia(
+    story: list,
+    sect_style,
+    clientes: list[dict],
+    erp_to_dia: dict[str, str],
+) -> None:
+    groups = _group_clientes_por_dia_semana(clientes, erp_to_dia)
+    if not groups:
+        story.append(Paragraph("Sin clientes deudores.", sect_style))
+        return
+    for dia_label, subset in groups:
+        subtotal = sum(float(c.get("deuda_total") or 0) for c in subset)
+        story.append(
+            Paragraph(
+                f"{dia_label} — {len(subset)} clientes · Deuda: <b>{_fmt_cc_money(subtotal)}</b>",
+                sect_style,
+            )
+        )
+        story.append(_build_cc_detail_table(subset))
+        story.append(Spacer(1, 8))
+
+
 # ─── PDF generation ───────────────────────────────────────────────────────────
 
 def _build_cc_pdf(
@@ -231,6 +373,9 @@ def _build_cc_pdf(
     fecha: str,
     clientes: list[dict],
     deuda_total: float,
+    *,
+    dist_id: int | None = None,
+    id_vendedor: int | None = None,
 ) -> bytes:
     """Genera PDF con la tabla de clientes deudores para un vendedor."""
     if not _REPORTLAB:
@@ -288,10 +433,20 @@ def _build_cc_pdf(
         Paragraph("Distribución de deuda por antigüedad", sect_style),
         sum_tbl,
         Spacer(1, 10),
-        Paragraph("Detalle por cliente", sect_style),
     ])
 
-    story.append(_build_cc_detail_table(clientes))
+    erp_to_dia: dict[str, str] = {}
+    if dist_id is not None and id_vendedor is not None:
+        erp_to_dia = _fetch_erp_dia_semana_map(dist_id, id_vendedor)
+
+    if erp_to_dia:
+        story.append(Paragraph("Detalle por día de ruta", sect_style))
+        _append_cc_detalle_por_dia(story, sect_style, clientes, erp_to_dia)
+    else:
+        story.extend([
+            Paragraph("Detalle por cliente", sect_style),
+            _build_cc_detail_table(clientes),
+        ])
 
     doc.build(story)
     return buf.getvalue()
@@ -605,6 +760,8 @@ def enviar_cc_vendedor(
             fecha=fecha_fmt,
             clientes=clientes,
             deuda_total=deuda_total,
+            dist_id=dist_id,
+            id_vendedor=id_vendedor,
         )
         # Nombre corto: Telegram trunca nombres largos en la UI del chat
         ftag = fecha_snapshot[:10].replace("-", "")
@@ -1261,14 +1418,17 @@ def export_cc_pdf_supervision(
         if not clientes:
             continue
         nombre = _extract_display_name(vd["vendedor_nombre"])
+        real_id = vd.get("id_vendedor") or vid
+        vend_id: int | None = int(real_id) if isinstance(real_id, int) else None
         pdf_bytes = _build_cc_pdf(
             vendedor_nombre=nombre,
             dist_nombre=dist_nombre,
             fecha=fecha_fmt,
             clientes=clientes,
             deuda_total=vd.get("deuda_total", 0.0),
+            dist_id=dist_id,
+            id_vendedor=vend_id,
         )
-        real_id = vd.get("id_vendedor") or vid
         safe_name = re.sub(r"[^\w\-]+", "_", nombre)[:40] or str(real_id)
         pdfs.append((f"CC_{ftag}_{safe_name}.pdf", pdf_bytes))
 

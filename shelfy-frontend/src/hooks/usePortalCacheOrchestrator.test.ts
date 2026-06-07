@@ -64,11 +64,11 @@ describe("BACKGROUND_MODULE_ORDER", () => {
     expect(BACKGROUND_MODULE_ORDER[0]).toBe("dashboard");
   });
 
-  it("follows order: dashboard → visor → estadisticas → supervision", () => {
+  it("follows order: dashboard → estadisticas → visor → supervision", () => {
     expect(Array.from(BACKGROUND_MODULE_ORDER)).toEqual([
       "dashboard",
-      "visor",
       "estadisticas",
+      "visor",
       "supervision",
     ]);
   });

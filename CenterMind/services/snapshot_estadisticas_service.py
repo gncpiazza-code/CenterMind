@@ -18,6 +18,7 @@ from services.snapshot_common import (
     is_fresh,
     is_invalidated,
     is_serveable_stale,
+    run_single_flight,
     trigger_background_refresh,
 )
 
@@ -25,6 +26,7 @@ logger = logging.getLogger("snapshot_estadisticas_service")
 
 ESTADISTICAS_MAX_STALE_SECONDS = 900  # 15 min
 ESTADISTICAS_SERVE_STALE_SECONDS = 86400  # 24 h
+ESTADISTICAS_COLD_COMPUTE_TIMEOUT = 25.0  # single-flight cap (Railway worker)
 
 
 def _percent_from_raw(raw: dict, pct_key: str, fallback_num: str) -> float:
@@ -263,19 +265,10 @@ def get_or_refresh_estadisticas(
             )
 
     key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
-    trigger_background_refresh(
+    return run_single_flight(
         key,
-        lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
-    )
-    return _build_estadisticas_response(
-        [],
-        dist_id,
-        meses,
-        sucursal,
-        datetime.now(timezone.utc).isoformat(),
-        cache_hit=False,
-        stale=False,
-        revalidating=True,
+        lambda: _cold_compute_estadisticas(dist_id, meses, sucursal, meses_hash),
+        timeout=ESTADISTICAS_COLD_COMPUTE_TIMEOUT,
     )
 
 

@@ -4,8 +4,8 @@ export type PortalModuleId = "dashboard" | "supervision" | "estadisticas" | "vis
 /** Orden canónico de precarga de bundles API en background (T2). */
 export const BACKGROUND_MODULE_ORDER = [
   "dashboard",
-  "visor",
   "estadisticas",
+  "visor",
   "supervision",
 ] as const satisfies readonly PortalModuleId[];
 

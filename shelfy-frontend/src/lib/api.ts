@@ -571,6 +571,8 @@ export function coerceDashboardRankingRows(raw: unknown): Record<string, unknown
 
 /** Timeout HTTP para bundles — respuesta rápida + poll en background. */
 const BUNDLE_FETCH_TIMEOUT_MS = 8_000;
+/** Estadísticas: cold compute síncrono en cache miss (hasta ~10s). */
+const ESTADISTICAS_BUNDLE_FETCH_TIMEOUT_MS = 12_000;
 /** Normaliza listas de bundle que pudieron persistirse como dict indexado. */
 export function coerceBundleList<T>(raw: unknown): T[] {
   if (Array.isArray(raw)) return raw as T[];
@@ -692,7 +694,7 @@ export async function fetchEstadisticasBundle(
   const url = `${API_URL}/api/bundle/estadisticas/${distId}?${q.toString()}`;
   const res = await fetch(url, {
     headers: getHeaders(),
-    signal: AbortSignal.timeout(BUNDLE_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(ESTADISTICAS_BUNDLE_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     handleSessionExpired401(`/api/bundle/estadisticas/${distId}`, res.status);

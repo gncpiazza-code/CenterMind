@@ -128,6 +128,7 @@ export default function DashboardPage() {
     placeholderData: (prev, prevQuery) => {
       if (!prev || !prevQuery) return undefined;
       const key = prevQuery.queryKey;
+      if (key[2] !== distId) return undefined;
       if (key[3] !== periodo || key[4] !== (sucursalFiltro || null)) return undefined;
       return prev;
     },
@@ -170,7 +171,9 @@ export default function DashboardPage() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
-      socket = new WebSocket(getWSUrl(distId));
+      const wsUrl = getWSUrl(distId);
+      if (!wsUrl) return;
+      socket = new WebSocket(wsUrl);
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);

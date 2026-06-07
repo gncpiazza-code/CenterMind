@@ -326,22 +326,24 @@ function getHeaders(): HeadersInit {
   };
 }
 
-export function getWSUrl(distId: number): string {
-  // En producción (Vercel) necesitamos wss:// si el origen es https://
+export function getWSUrl(distId: number): string | null {
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  if (!token) return null;
+
+  const q = `token=${encodeURIComponent(token)}`;
   const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
 
   if (API_URL.startsWith('http')) {
     const baseUrl = API_URL.replace(/^http/, 'ws');
-    return `${baseUrl}/api/ws/exhibiciones/${distId}`;
+    return `${baseUrl}/api/ws/exhibiciones/${distId}?${q}`;
   }
 
-  // Si API_URL es relativa (ej: /api), construimos la absoluta basada en el host actual
   if (typeof window !== 'undefined') {
     const host = window.location.host;
-    return `${protocol}://${host}/api/ws/exhibiciones/${distId}`;
+    return `${protocol}://${host}/api/ws/exhibiciones/${distId}?${q}`;
   }
 
-  return `ws://localhost:8000/api/ws/exhibiciones/${distId}`;
+  return `ws://localhost:8000/api/ws/exhibiciones/${distId}?${q}`;
 }
 
 /** WebSocket notificaciones superadmin (`?token=JWT`). */

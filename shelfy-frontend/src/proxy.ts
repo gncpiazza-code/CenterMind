@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { TOKEN_KEY } from "@/lib/constants";
 
 const CANONICAL_HOST = "shelfycenter.com";
-const LEGACY_HOSTS = new Set(["shelfycenter.vercel.app", "www.shelfycenter.com"]);
+const LEGACY_HOSTS = new Set(["shelfycenter.vercel.app", "shelfy.vercel.app", "www.shelfycenter.com"]);
 
 const PUBLIC_PATHS = ["/login", "/", "/estadisticas/preview-fusion", "/visor/demo"];
 

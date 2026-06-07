@@ -1,0 +1,9 @@
+---
+alwaysApply: true
+description: Snyk Security At Inception
+---
+
+# Project security best practices
+
+- Always run **snyk_code_scan** for new first-party code in supported languages.
+- Fix issues using Snyk context; rescan until clean.

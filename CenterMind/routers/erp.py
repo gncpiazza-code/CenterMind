@@ -766,14 +766,7 @@ async def motor_cuentas(
 
 @router.options("/api/procesar-cuentas-corrientes")
 def options_procesar_cuentas_corrientes():
-    return JSONResponse(
-        content="OK",
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        },
-    )
+    return JSONResponse(content="OK")
 
 
 @router.post("/api/procesar-cuentas-corrientes", summary="Procesar Excel de Cuentas Corrientes y Alertas de Crédito")

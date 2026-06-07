@@ -561,7 +561,9 @@ export function VisorPageContent() {
     };
 
     const connect = () => {
-      socket = new WebSocket(getWSUrl(distId));
+      const wsUrl = getWSUrl(distId);
+      if (!wsUrl) return;
+      socket = new WebSocket(wsUrl);
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);

@@ -34,7 +34,6 @@ def test_build_cartera_pdf_rutas_sin_id_distribuidor():
                     "nombre_razon_social": "TEST",
                     "nombre_fantasia": "",
                     "fecha_ultima_compra": "2026-06-01",
-                    "activo": True,
                 }
             ]
         else:

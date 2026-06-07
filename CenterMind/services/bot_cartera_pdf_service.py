@@ -61,7 +61,7 @@ def build_cartera_pdf(sb: Client, dist_id: int, id_vendedor: int, mode: str = "g
         while True:
             batch = (
                 sb.table(pdv_table)
-                .select("id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,fecha_ultima_compra,activo")
+                .select("id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
                 .range(offset, offset + PAGE - 1)

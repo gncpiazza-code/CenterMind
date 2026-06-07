@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { Bold, Italic, Underline, Code } from "lucide-react";
+import { Bold, CornerDownLeft, Italic, Underline, Code } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import {
@@ -79,6 +79,40 @@ export function TelegramRichEditor({
     onChange(normalized);
   }, [onChange]);
 
+  const insertLineBreak = useCallback(() => {
+    if (disabled) return;
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      if (!el.contains(range.commonAncestorContainer)) {
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+
+    if (document.queryCommandSupported("insertLineBreak")) {
+      document.execCommand("insertLineBreak");
+    } else {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      const br = document.createElement("br");
+      range.insertNode(br);
+      range.setStartAfter(br);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    emitChange();
+  }, [disabled, emitChange]);
+
   const applyFormat = useCallback((cmd: FormatCmd) => {
     if (disabled) return;
     const el = editorRef.current;
@@ -124,7 +158,15 @@ export function TelegramRichEditor({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (disabled || (!e.metaKey && !e.ctrlKey)) return;
+      if (disabled) return;
+
+      if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        insertLineBreak();
+        return;
+      }
+
+      if (!e.metaKey && !e.ctrlKey) return;
       const key = e.key.toLowerCase();
       if (key === "b") {
         e.preventDefault();
@@ -137,7 +179,7 @@ export function TelegramRichEditor({
         applyFormat("underline");
       }
     },
-    [disabled, applyFormat],
+    [disabled, applyFormat, insertLineBreak],
   );
 
   const BUTTONS: {
@@ -172,8 +214,20 @@ export function TelegramRichEditor({
             <Icon className="h-3.5 w-3.5" />
           </Button>
         ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-7 w-7"
+          title="Salto de línea (Enter)"
+          disabled={disabled}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={insertLineBreak}
+        >
+          <CornerDownLeft className="h-3.5 w-3.5" />
+        </Button>
         <span className="text-[10px] text-zinc-400 self-center ml-1 leading-snug">
-          ⌘/Ctrl+B I U · seleccioná texto — se ve como en Telegram
+          ⌘/Ctrl+B I U · Enter ↵ · se guarda como salto de línea en Telegram
         </span>
       </div>
 

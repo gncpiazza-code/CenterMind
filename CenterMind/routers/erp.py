@@ -28,7 +28,7 @@ from services.padron_ingestion_service import padron_service
 from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
 from services.ventas_ingestion_service import ingest as ventas_ingest, TENANT_DIST_MAP
 from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
-from services.ventas_enriched_ingestion_service import ingest_enriched as ventas_enriched_ingest
+from services.ventas_enriched_ingestion_service import accept_enriched_upload
 from services.rendimiento_calle_analytics_service import (
     obtener_analytics_rendimiento_calle,
     persistir_analisis_rendimiento_calle,
@@ -588,14 +588,19 @@ async def motor_ventas_enriched(
     _=Depends(verify_key),
 ):
     """
-    Ingesta de Informe de Ventas (Reporteador Genérico) con métricas enriquecidas
-    de $ y bultos por línea.
+    Ingesta de Informe de Ventas (Reporteador Genérico) con métricas enriquecidas.
+
+    Patrón async como erp-padrón: acepta el Excel, responde al RPA de inmediato (202)
+    y procesa upsert pesado en thread (evita 524/502 de Cloudflare en corridas largas).
     """
     if not (file.filename.endswith(".xlsx") or file.filename.endswith(".xls")):
         raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
     try:
         file_bytes = await file.read()
-        return ventas_enriched_ingest(tenant_id, file_bytes)
+        payload = accept_enriched_upload(tenant_id, file_bytes)
+        return JSONResponse(status_code=202, content=payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error en motor_ventas_enriched ({tenant_id}): {e}")
         raise HTTPException(status_code=500, detail=str(e))

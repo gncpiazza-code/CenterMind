@@ -6,7 +6,9 @@ Ingesta de ventas enriquecidas (Reporteador Genérico: Informe de Ventas).
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from db import sb
@@ -45,14 +47,138 @@ def _upsert_ventas_chunk(table: str, chunk: list[dict[str, Any]]) -> None:
         raise last_err
 
 
-def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
+def _start_run(dist_id: int) -> int:
+    res = sb.table("motor_runs").insert({
+        "motor": "ventas_enriched",
+        "dist_id": dist_id,
+        "estado": "en_curso",
+        "iniciado_en": datetime.now(timezone.utc).isoformat(),
+    }).execute()
+    return int(res.data[0]["id"])
+
+
+def _finish_run(
+    run_id: int,
+    estado: str,
+    *,
+    dist_id: int,
+    registros: dict[str, Any] | None = None,
+    error_msg: str | None = None,
+) -> None:
+    sb.table("motor_runs").update({
+        "estado": estado,
+        "finalizado_en": datetime.now(timezone.utc).isoformat(),
+        "registros": registros,
+        "error_msg": (error_msg or "")[:500] or None,
+    }).eq("id", run_id).execute()
+    if estado == "error" and error_msg:
+        try:
+            from services.motor_ops_notification_service import notify_run_error
+
+            notify_run_error("ventas_enriched", dist_id, error_msg[:500], run_id)
+        except Exception as e_ops:
+            logger.debug("[ventas_enriched] notify ops omitido: %s", e_ops)
+
+
+def _resolve_dist_id(tenant_id: str) -> int:
     dist_id = TENANT_DIST_MAP.get((tenant_id or "").strip().lower())
     if not dist_id:
         raise ValueError(f"tenant_id desconocido para enriquecido: {tenant_id}")
+    return int(dist_id)
 
+
+def ingest_enriched_rpa_background(tenant_id: str, file_bytes: bytes, run_id: int) -> None:
+    """Worker en thread: parseo + upsert pesado fuera del request HTTP."""
+    tid = (tenant_id or "").strip().lower()
+    try:
+        dist_id = _resolve_dist_id(tid)
+    except ValueError as e:
+        logger.error("[ventas_enriched RPA] tenant inválido %s: %s", tenant_id, e)
+        return
+    try:
+        ingest_enriched(tid, file_bytes, run_id=run_id)
+    except Exception as exc:
+        logger.exception(
+            "[ventas_enriched RPA] ingest falló tras POST async (dist=%s run=%s): %s",
+            dist_id,
+            run_id,
+            exc,
+        )
+
+
+def accept_enriched_upload(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
+    """
+    Valida tenant, crea motor_run en_curso y devuelve payload para 202 Accepted.
+    La ingesta corre en thread (ver ingest_enriched_rpa_background).
+    """
+    tid = (tenant_id or "").strip().lower()
+    dist_id = _resolve_dist_id(tid)
+    if not file_bytes:
+        raise ValueError("Archivo vacío")
+    run_id = _start_run(dist_id)
+    threading.Thread(
+        target=ingest_enriched_rpa_background,
+        args=(tid, file_bytes, run_id),
+        daemon=True,
+    ).start()
+    return {
+        "status": "accepted",
+        "ok": True,
+        "dist_id": dist_id,
+        "run_id": run_id,
+        "tenant_id": tid,
+        "bytes": len(file_bytes),
+        "message": (
+            f"Informe ventas recibido para {tid} (dist {dist_id}, "
+            f"{len(file_bytes):,} bytes). Procesando en segundo plano."
+        ),
+    }
+
+
+def ingest_enriched(
+    tenant_id: str,
+    file_bytes: bytes,
+    *,
+    run_id: int | None = None,
+) -> dict[str, Any]:
+    tid = (tenant_id or "").strip().lower()
+    dist_id = _resolve_dist_id(tid)
+    own_run = run_id is None
+    if own_run:
+        run_id = _start_run(dist_id)
+
+    try:
+        result = _ingest_enriched_core(tid, dist_id, file_bytes)
+        _finish_run(
+            run_id,
+            "ok",
+            dist_id=dist_id,
+            registros={
+                "rows": result["rows"],
+                "upserted": result["upserted"],
+                "actualizados": result["actualizados"],
+            },
+        )
+        return result
+    except Exception as e:
+        _finish_run(run_id, "error", dist_id=dist_id, error_msg=str(e))
+        raise
+
+
+def _ingest_enriched_core(
+    tenant_id: str,
+    dist_id: int,
+    file_bytes: bytes,
+) -> dict[str, Any]:
     rows = parse_informe_ventas_enriched(file_bytes)
     if not rows:
-        return {"ok": True, "rows": 0, "upserted": 0, "dist_id": dist_id}
+        return {
+            "ok": True,
+            "rows": 0,
+            "upserted": 0,
+            "actualizados": 0,
+            "dist_id": dist_id,
+        }
 
     payload: list[dict[str, Any]] = []
     tenant_table = tenant_table_name("ventas_enriched_v2", dist_id)
@@ -60,7 +186,7 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         payload.append(
             {
                 "id_distribuidor": dist_id,
-                "tenant_id": tenant_id,
+                "tenant_id": tenant_id.strip().lower() if isinstance(tenant_id, str) else tenant_id,
                 "fecha_factura": r.get("fecha_factura"),
                 "fecha_pedido": r.get("fecha_pedido"),
                 "anulado": bool(r.get("anulado", False)),
@@ -183,25 +309,16 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
     except Exception as e_watch:
         logger.warning(f"[ventas_enriched] Watcher de objetivos omitido: {e_watch}")
 
-    # Registrar en motor_runs
-    try:
-        from datetime import datetime, timezone
-        now_iso = datetime.now(timezone.utc).isoformat()
-        sb.table("motor_runs").insert({
-            "dist_id": dist_id,
-            "motor": "ventas_enriched",
-            "estado": "ok",
-            "iniciado_en": now_iso,
-            "finalizado_en": now_iso,
-            "registros": {"rows": len(rows), "upserted": upserted, "actualizados": actualizados}
-        }).execute()
-    except Exception as e:
-        logger.warning(f"[ventas_enriched] No se pudo registrar en motor_runs: {e}")
-
     try:
         from services.snapshot_refresh_service import refresh_eager
         refresh_eager(dist_id, ["estadisticas", "dashboard"])
     except Exception as e_snap:
         logger.warning(f"[ventas_enriched] snapshot refresh_eager omitido: {e_snap}")
 
-    return {"ok": True, "rows": len(rows), "upserted": upserted, "actualizados": actualizados, "dist_id": dist_id}
+    return {
+        "ok": True,
+        "rows": len(rows),
+        "upserted": upserted,
+        "actualizados": actualizados,
+        "dist_id": dist_id,
+    }

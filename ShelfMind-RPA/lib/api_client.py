@@ -429,7 +429,8 @@ async def subir_ventas_enriched(archivo_path, tenant_id: str) -> bool:
                     f"{len(payload_bytes) / (1024 * 1024):.1f} MB"
                 )
 
-        timeout = httpx.Timeout(connect=20.0, read=240.0, write=180.0, pool=20.0)
+        # Ingesta async (202): solo esperamos ACK del API; upsert corre en background.
+        timeout = httpx.Timeout(connect=20.0, read=90.0, write=180.0, pool=20.0)
         for intento in range(1, 4):
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
@@ -445,15 +446,16 @@ async def subir_ventas_enriched(archivo_path, tenant_id: str) -> bool:
                             )
                         },
                     )
-                if resp.status_code in (200, 201):
+                if resp.status_code in (200, 201, 202):
                     try:
                         data = resp.json()
                     except Exception:
                         data = {}
+                    status = data.get("status") or ("accepted" if resp.status_code == 202 else "ok")
                     logger.info(
-                        f"  ✅ Ventas enriched subido — rows={data.get('rows', '?')} "
-                        f"upserted={data.get('upserted', '?')} dist={data.get('dist_id', '?')} "
-                        f"(intento {intento}/3)"
+                        f"  ✅ Ventas enriched {status} — dist={data.get('dist_id', '?')} "
+                        f"run_id={data.get('run_id', '?')} bytes={data.get('bytes', '?')} "
+                        f"(HTTP {resp.status_code}, intento {intento}/3)"
                     )
                     return True
                 logger.warning(

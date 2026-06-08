@@ -243,6 +243,11 @@ export function VisorPageContent() {
   const distId = user?.id_distribuidor || 0;
   const isSubmittingRef = useRef(false);
   const focusHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Evita flash-back cuando el refetch trae snapshot viejo tras evaluar. */
+  const [hiddenEvalIds, setHiddenEvalIds] = useState<Set<number>>(() => new Set());
+  const lastWsInvalidateAtRef = useRef(0);
+  const lastEvalMutationAtRef = useRef(0);
+  const visorSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -268,9 +273,36 @@ export function VisorPageContent() {
 
 
   // Extract data from bundle (field names adapted to match existing JSX)
-  const gruposFromApi: GrupoPendiente[] = (visorBundle?.pendientes ?? [])
-    .filter((g) => Array.isArray(g.fotos) && g.fotos.length > 0) as GrupoPendiente[];
+  const gruposFromApi: GrupoPendiente[] = useMemo(() => {
+    return (visorBundle?.pendientes ?? [])
+      .filter((g) => Array.isArray(g.fotos) && g.fotos.length > 0)
+      .filter(
+        (g) =>
+          !(g.fotos ?? []).some((f) => hiddenEvalIds.has(f.id_exhibicion)),
+      ) as GrupoPendiente[];
+  }, [visorBundle?.pendientes, hiddenEvalIds]);
   const grupos: GrupoPendiente[] = mockFitDemo ? VISOR_MOCK_GRUPOS : gruposFromApi;
+
+  // Limpiar ocultos solo cuando el servidor ya no devuelve ese id en pendientes
+  useEffect(() => {
+    if (!visorBundle?.pendientes?.length || hiddenEvalIds.size === 0) return;
+    const pendingIds = new Set(
+      visorBundle.pendientes.flatMap((g) =>
+        (g.fotos ?? []).map((f) => f.id_exhibicion),
+      ),
+    );
+    setHiddenEvalIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of prev) {
+        if (!pendingIds.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [visorBundle, hiddenEvalIds.size]);
 
   useEffect(() => {
     if (!mockFitDemo) return;
@@ -438,25 +470,50 @@ export function VisorPageContent() {
 
   // ── Mutations ────────────────────────────────────────────────────────────────
 
+  const scheduleVisorBundleSync = useCallback(() => {
+    if (visorSyncTimerRef.current) clearTimeout(visorSyncTimerRef.current);
+    visorSyncTimerRef.current = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
+    }, 12_000);
+  }, [distId, queryClient]);
+
+  const releaseHiddenEvalIds = useCallback((ids: number[]) => {
+    if (!ids.length) return;
+    setHiddenEvalIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of ids) {
+        if (next.delete(id)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
   const mutationEvaluar = useMutation({
     mutationFn: ({ ids, estado, comentario }: { ids: number[]; estado: string; comentario: string }) =>
       evaluar(ids, estado, user?.usuario || "system", comentario),
     onSettled: () => {
       isSubmittingRef.current = false;
+      lastEvalMutationAtRef.current = Date.now();
     },
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: bundleKeys.visor(distId) });
       const previousBundle = queryClient.getQueryData<VisorBundle>(bundleKeys.visor(distId));
 
+      setHiddenEvalIds((prev) => {
+        const next = new Set(prev);
+        variables.ids.forEach((id) => next.add(id));
+        return next;
+      });
+
+      let nextLen = 0;
       queryClient.setQueryData<VisorBundle>(bundleKeys.visor(distId), (old) => {
         if (!old) return old;
         const firstEvalId = variables.ids[0];
         const nextPendientes = old.pendientes.filter(
-          (g: GrupoPendiente) => !(g.fotos ?? []).some((f) => f.id_exhibicion === firstEvalId)
+          (g: GrupoPendiente) => !(g.fotos ?? []).some((f) => f.id_exhibicion === firstEvalId),
         );
-        setCurrentIndex(Math.min(currentIndex, Math.max(0, nextPendientes.length - 1)));
-        resetGroupState();
-        setComentario("");
+        nextLen = nextPendientes.length;
         return {
           ...old,
           pendientes: nextPendientes,
@@ -469,26 +526,34 @@ export function VisorPageContent() {
         };
       });
 
+      const idx = useViewerStore.getState().currentIndex;
+      setCurrentIndex(Math.min(idx, Math.max(0, nextLen - 1)));
+      resetGroupState();
+      setComentario("");
+
       setFlash({ msg: variables.estado, type: "ok" });
       setTimeout(() => setFlash(null), 2000);
 
-      return { previousBundle };
+      return { previousBundle, evalIds: variables.ids };
     },
-    onSuccess: (data: { affected?: number } | undefined, _vars, context) => {
+    onSuccess: (data: { affected?: number } | undefined, variables, context) => {
       if (data?.affected === 0) {
         setFlash({ msg: "Ya evaluado por otro usuario", type: "err" });
         setTimeout(() => setFlash(null), 2000);
+        releaseHiddenEvalIds(context?.evalIds ?? variables.ids);
         if (context?.previousBundle) {
           queryClient.setQueryData(bundleKeys.visor(distId), context.previousBundle);
         }
         queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
         return;
       }
-      queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
+      // Sync diferido: el filtro hiddenEvalIds evita volver a la exhibición ya evaluada.
+      scheduleVisorBundleSync();
     },
-    onError: (err, _vars, context) => {
+    onError: (err, variables, context) => {
       setFlash({ msg: "Error al evaluar", type: "err" });
       console.error(err);
+      releaseHiddenEvalIds(context?.evalIds ?? variables.ids);
       if (context?.previousBundle) {
         queryClient.setQueryData(bundleKeys.visor(distId), context.previousBundle);
       }
@@ -568,6 +633,16 @@ export function VisorPageContent() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "new_exhibition" || data.type === "evaluation_updated") {
+            const now = Date.now();
+            // Eco WS de la propia evaluación + refetch del snapshot viejo → flash-back
+            if (
+              data.type === "evaluation_updated" &&
+              now - lastEvalMutationAtRef.current < 8_000
+            ) {
+              return;
+            }
+            if (now - lastWsInvalidateAtRef.current < 5_000) return;
+            lastWsInvalidateAtRef.current = now;
             queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
           }
         } catch {
@@ -589,6 +664,12 @@ export function VisorPageContent() {
       closeSocket();
     };
   }, [distId, queryClient]);
+
+  useEffect(() => {
+    return () => {
+      if (visorSyncTimerRef.current) clearTimeout(visorSyncTimerRef.current);
+    };
+  }, []);
 
   // ── Combined keyboard handler ─────────────────────────────────────────────────
 

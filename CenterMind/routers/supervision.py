@@ -628,6 +628,14 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             try:
                 from services.snapshot_refresh_service import handle_ingestion_event
                 handle_ingestion_event("evaluacion", dist_id)
+                import threading
+                from services.snapshot_visor_service import force_persist_visor
+
+                threading.Thread(
+                    target=force_persist_visor,
+                    args=(dist_id,),
+                    daemon=True,
+                ).start()
             except Exception as _e:
                 logger.debug(f"[evaluar] snapshot invalidate: {_e}")
 

@@ -402,6 +402,54 @@ def test_exhibiciones_por_vendedor_integrante_to_vid_sin_match_nombre():
     assert unique[38] == 1
 
 
+def test_exhibiciones_por_vendedor_codigo_integrante_sin_v2():
+    """Integrante sin id_vendedor_v2 pero con id_vendedor_erp → vendedor por código."""
+    from core.exhibicion_aggregate import build_client_key_to_erp_map
+    from services.estadisticas_service import _exhibiciones_por_vendedor
+
+    key_map = build_client_key_to_erp_map(
+        [{"id_cliente_erp": "9001", "id_cliente": 1}]
+    )
+    ex_rows = [
+        {
+            "id_exhibicion": "ex_codigo",
+            "id_integrante": 328,
+            "estado": "Aprobado",
+            "timestamp_subida": "2026-06-02T10:00:00",
+            "id_cliente_pdv": 1,
+            "id_cliente": None,
+            "cliente_sombra_codigo": None,
+            "url_foto_drive": None,
+            "telegram_msg_id": None,
+            "telegram_chat_id": None,
+        },
+    ]
+    logicas, unique = _exhibiciones_por_vendedor(
+        ex_rows,
+        {},  # sin id_vendedor_v2 en mapa directo
+        {328: "Romina"},
+        {},
+        key_map,
+        {81: {"9001"}},
+        iid_to_codigo={328: "4047"},
+        codigo_to_vid={"4047": 81},
+    )
+    assert logicas[81] == 1
+    assert unique[81] == 1
+
+
+def test_resolve_vid_for_exhibicion_iid_fuzzy_nombre():
+    from services.estadisticas_service import _resolve_vid_for_exhibicion_iid
+
+    vid = _resolve_vid_for_exhibicion_iid(
+        99,
+        integrante_to_vid={},
+        iid_to_erp={99: "JUAN PEREZ"},
+        erp_to_vid={"JUAN PEREZ GOMEZ": 12},
+    )
+    assert vid == 12
+
+
 def test_reconcile_exhibiciones_corrige_cero_en_raw():
     from services.estadisticas_service import _reconcile_exhibiciones_en_all_raw
 

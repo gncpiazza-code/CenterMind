@@ -202,13 +202,26 @@ def _cartas_comercial_ventas_plausible(
 def _exhibiciones_canonical_por_vid(
     ex_rows: list[dict],
     integrante_to_vid: dict[int, int],
+    iid_to_erp: dict[int, str] | None = None,
+    erp_to_vid: dict[str, int] | None = None,
+    iid_to_codigo: dict[int, str] | None = None,
+    codigo_to_vid: dict[str, int] | None = None,
 ) -> tuple[dict[int, int], dict[int, list[dict]]]:
-    """Re-cuenta exhibiciones lógicas por vendedor vía id_vendedor_v2 (misma regla que objetivos)."""
+    """Re-cuenta exhibiciones lógicas por vendedor (misma atribución que cartas batch)."""
     rows_by_vid: dict[int, list[dict]] = defaultdict(list)
+    iid_to_erp = iid_to_erp or {}
+    erp_to_vid = erp_to_vid or {}
     for row in ex_rows:
         try:
             iid = int(row.get("id_integrante"))
-            vid = integrante_to_vid.get(iid)
+            vid = _resolve_vid_for_exhibicion_iid(
+                iid,
+                integrante_to_vid=integrante_to_vid,
+                iid_to_erp=iid_to_erp,
+                erp_to_vid=erp_to_vid,
+                codigo_to_vid=codigo_to_vid,
+                iid_to_codigo=iid_to_codigo,
+            )
         except (TypeError, ValueError):
             continue
         if vid is not None:
@@ -226,12 +239,24 @@ def _reconcile_exhibiciones_en_all_raw(
     integrante_to_vid: dict[int, int],
     client_key_to_erp: dict[str, str],
     pdvs_by_vend: dict[int, set],
+    *,
+    iid_to_erp: dict[int, str] | None = None,
+    erp_to_vid: dict[str, int] | None = None,
+    iid_to_codigo: dict[int, str] | None = None,
+    codigo_to_vid: dict[str, int] | None = None,
 ) -> int:
     """
     Corrige exhibiciones/pdvs exhibidos en raw cuando el batch quedó en 0 pero hay fotos del vendedor.
     Retorna cantidad de vendedores corregidos.
     """
-    canonical, rows_by_vid = _exhibiciones_canonical_por_vid(ex_rows, integrante_to_vid)
+    canonical, rows_by_vid = _exhibiciones_canonical_por_vid(
+        ex_rows,
+        integrante_to_vid,
+        iid_to_erp=iid_to_erp,
+        erp_to_vid=erp_to_vid,
+        iid_to_codigo=iid_to_codigo,
+        codigo_to_vid=codigo_to_vid,
+    )
     fixed = 0
     for vid_str, raw in list(all_raw.items()):
         if vid_str.startswith("__"):
@@ -1479,6 +1504,68 @@ def _carta_cache_key(dist_id: int, meses: list[str], sucursal: str | None) -> st
     return f"{dist_id}|{','.join(sorted(meses))}|{(sucursal or '').lower()}"
 
 
+def _codigo_to_vid_from_vend_rows(vend_rows: list[dict] | None) -> dict[str, int]:
+    """id_vendedor_erp Consolido → id_vendedor (variantes sin ceros a la izquierda)."""
+    out: dict[str, int] = {}
+    for v in vend_rows or []:
+        try:
+            vid = int(v["id_vendedor"])
+        except (TypeError, ValueError):
+            continue
+        cod = str(v.get("id_vendedor_erp") or "").strip()
+        if not cod:
+            continue
+        out[cod] = vid
+        stripped = cod.lstrip("0") or cod
+        if stripped != cod:
+            out[stripped] = vid
+    return out
+
+
+def _resolve_vid_from_vendedor_erp_codigo(
+    cod: str, codigo_to_vid: dict[str, int]
+) -> int | None:
+    c = (cod or "").strip()
+    if not c:
+        return None
+    vid = codigo_to_vid.get(c)
+    if vid is None:
+        stripped = c.lstrip("0") or c
+        vid = codigo_to_vid.get(stripped)
+    return vid
+
+
+def _resolve_vid_for_exhibicion_iid(
+    iid: int,
+    *,
+    integrante_to_vid: dict[int, int],
+    iid_to_erp: dict[int, str],
+    erp_to_vid: dict[str, int],
+    codigo_to_vid: dict[str, int] | None = None,
+    iid_to_codigo: dict[int, str] | None = None,
+) -> int | None:
+    """
+    Atribuye id_integrante de una exhibición → id_vendedor.
+    Prioridad: id_vendedor_v2 → nombre ERP exacto → nombre fuzzy → código ERP del integrante.
+    """
+    vid = integrante_to_vid.get(iid)
+    if vid is not None:
+        return vid
+    erp_name = (iid_to_erp.get(iid) or "").strip().upper()
+    if erp_name:
+        vid = erp_to_vid.get(erp_name)
+        if vid is not None:
+            return vid
+        for en, v in erp_to_vid.items():
+            if _vendor_names_match_venta(erp_name, en):
+                return v
+    if codigo_to_vid and iid_to_codigo:
+        cod = (iid_to_codigo.get(iid) or "").strip()
+        if cod:
+            return _resolve_vid_from_vendedor_erp_codigo(cod, codigo_to_vid)
+    return None
+
+
 def _build_integrante_to_vid(
     dist_id: int, vend_rows: list[dict] | None = None
 ) -> dict[int, int]:
@@ -1486,13 +1573,26 @@ def _build_integrante_to_vid(
     integrantes_grupo.id_integrante → id_vendedor (vendedores_v2).
 
     Misma fuente que objetivos/ranking (id_vendedor_v2), con rollup Tabaco en cartas.
+    Fallback: id_vendedor_erp del integrante → código Consolido del vendedor; luego nombre fuzzy.
     """
     out: dict[int, int] = {}
+    codigo_to_vid = _codigo_to_vid_from_vend_rows(vend_rows)
+    nombre_to_vid: dict[str, int] = {}
+    for v in vend_rows or []:
+        try:
+            vid = int(v["id_vendedor"])
+        except (TypeError, ValueError):
+            continue
+        nom = (v.get("nombre_erp") or "").strip().upper()
+        if nom:
+            nombre_to_vid[nom] = vid
+
+    pending_fuzzy: list[tuple[int, str]] = []
     offset = 0
     while True:
         batch = (
             sb.table("integrantes_grupo")
-            .select("id_integrante,id_vendedor_v2")
+            .select("id_integrante,id_vendedor_v2,id_vendedor_erp,nombre_integrante")
             .eq("id_distribuidor", dist_id)
             .range(offset, offset + PAGE - 1)
             .execute()
@@ -1502,13 +1602,38 @@ def _build_integrante_to_vid(
         for r in batch:
             try:
                 iid = int(r["id_integrante"])
-                vid = int(r["id_vendedor_v2"])
             except (TypeError, ValueError):
                 continue
-            out[iid] = vid
+            v2_raw = r.get("id_vendedor_v2")
+            if v2_raw is not None:
+                try:
+                    out[iid] = int(v2_raw)
+                    continue
+                except (TypeError, ValueError):
+                    pass
+            cod = str(r.get("id_vendedor_erp") or "").strip()
+            vid = _resolve_vid_from_vendedor_erp_codigo(cod, codigo_to_vid) if cod else None
+            if vid is not None:
+                out[iid] = vid
+                continue
+            tg = (r.get("nombre_integrante") or "").strip().upper()
+            if tg:
+                pending_fuzzy.append((iid, tg))
         if len(batch) < PAGE:
             break
         offset += PAGE
+
+    for iid, tg in pending_fuzzy:
+        if iid in out:
+            continue
+        vid = nombre_to_vid.get(tg)
+        if vid is None:
+            for en, v in nombre_to_vid.items():
+                if _vendor_names_match_venta(tg, en):
+                    vid = v
+                    break
+        if vid is not None:
+            out[iid] = vid
 
     if dist_id == TABACO_DIST_ID:
         for v in vend_rows or []:
@@ -1522,6 +1647,34 @@ def _build_integrante_to_vid(
     return out
 
 
+def _build_iid_to_vendedor_erp_codigo(dist_id: int) -> dict[int, str]:
+    """integrantes_grupo.id_vendedor_erp (código Consolido) por id_integrante."""
+    out: dict[int, str] = {}
+    offset = 0
+    while True:
+        batch = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante,id_vendedor_erp")
+            .eq("id_distribuidor", dist_id)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        for r in batch:
+            try:
+                iid = int(r["id_integrante"])
+            except (TypeError, ValueError):
+                continue
+            cod = str(r.get("id_vendedor_erp") or "").strip()
+            if cod:
+                out[iid] = cod
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return out
+
+
 def _exhibiciones_por_vendedor(
     ex_rows: list[dict],
     integrante_to_vid: dict[int, int],
@@ -1529,6 +1682,9 @@ def _exhibiciones_por_vendedor(
     erp_to_vid: dict[str, int],
     client_key_to_erp: dict[str, str],
     pdvs_by_vend: dict[int, set],
+    *,
+    iid_to_codigo: dict[int, str] | None = None,
+    codigo_to_vid: dict[str, int] | None = None,
 ) -> tuple[dict[int, int], dict[int, int]]:
     """Una pasada: lógicas vendor-scope + PDVs únicos exhibidos (ERP en cartera) por vendedor."""
     best: dict[tuple[int, str], dict] = {}
@@ -1539,10 +1695,14 @@ def _exhibiciones_por_vendedor(
             iid = int(row.get("id_integrante"))
         except (TypeError, ValueError):
             continue
-        vid = integrante_to_vid.get(iid)
-        if vid is None:
-            erp = (iid_to_erp.get(iid) or "").strip().upper()
-            vid = erp_to_vid.get(erp)
+        vid = _resolve_vid_for_exhibicion_iid(
+            iid,
+            integrante_to_vid=integrante_to_vid,
+            iid_to_erp=iid_to_erp,
+            erp_to_vid=erp_to_vid,
+            codigo_to_vid=codigo_to_vid,
+            iid_to_codigo=iid_to_codigo,
+        )
         if vid is None:
             continue
         lk = vendor_logic_key(row)
@@ -1896,6 +2056,11 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
     vend_rows = source.get("vendedores") or []
     meses_set = set(meses)
     integrante_to_vid = _build_integrante_to_vid(dist_id, vend_rows)
+    iid_to_erp = source.get("integrantes") or {}
+    ex_attrib_indexes = _build_vendor_match_indexes(vend_rows, dist_id) if vend_rows else {}
+    erp_to_vid: dict[str, int] = ex_attrib_indexes.get("nombre_to_vid") or {}  # type: ignore[assignment]
+    codigo_to_vid: dict[str, int] = ex_attrib_indexes.get("codigo_to_vid") or {}  # type: ignore[assignment]
+    iid_to_codigo = _build_iid_to_vendedor_erp_codigo(dist_id) if dist_id else {}
     ex_rows = [
         r
         for r in (source.get("ex") or [])
@@ -1921,6 +2086,10 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
         integrante_to_vid,
         build_client_key_to_erp_map(source.get("pdv") or []),
         dict(pdvs_by_vend),
+        iid_to_erp=iid_to_erp,
+        erp_to_vid=erp_to_vid,
+        iid_to_codigo=iid_to_codigo,
+        codigo_to_vid=codigo_to_vid,
     )
     all_raw, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
     _refresh_top_localidades_on_raw(dist_id, all_raw, vend_rows, localidad_by_vend)
@@ -1977,9 +2146,14 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
             and ventas_unmatched_pct >= _ERP_SYNC_UNMATCHED_UMBRAL
         )
         exhibiciones_val = int(raw.get("exhibiciones") or 0)
-        canonical_ex = _exhibiciones_canonical_por_vid(ex_rows, integrante_to_vid)[0].get(
-            int(vid), 0
-        )
+        canonical_ex = _exhibiciones_canonical_por_vid(
+            ex_rows,
+            integrante_to_vid,
+            iid_to_erp=iid_to_erp,
+            erp_to_vid=erp_to_vid,
+            iid_to_codigo=iid_to_codigo,
+            codigo_to_vid=codigo_to_vid,
+        )[0].get(int(vid), 0)
         exhibicion_sync_alert = (
             int(raw.get("pdvs") or 0) > 0
             and exhibiciones_val == 0

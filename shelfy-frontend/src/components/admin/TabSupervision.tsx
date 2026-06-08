@@ -51,10 +51,11 @@ import {
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente, VendedorKpis } from "./MapaRutas";
 import { isInactivo30, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
-import { hasValidCoords } from "@/lib/supervisionMapPinesBuilder";
+import { hasValidCoords, syncSupervisionMapPins } from "@/lib/supervisionMapPinesBuilder";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useSupervisionMapPreload } from "@/hooks/useSupervisionMapPreload";
+import { useSupervisionMapPinsEngine } from "@/hooks/useSupervisionMapPinsEngine";
 import { SupervisionMapToolbar } from "./map/SupervisionMapToolbar";
 import { SupervisionMapView } from "./map/SupervisionMapView";
 import { ObjetivoPorZonaPanel } from "./map/ObjetivoPorZonaPanel";
@@ -453,7 +454,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     visibleVends,
     visibleRutas,
     visibleClientes,
-    toggleVendor: toggleVendorStore,
     toggleRuta: toggleRutaStore,
     toggleCliente: toggleClienteStore,
     setVisibleVends,
@@ -864,11 +864,27 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   }, [vendedores, selectedSucursal]);
 
   useSupervisionMapPreload(selectedDist, vendedoresFiltrados, !!selectedSucursal && vendedoresFiltrados.length > 0);
+  // Siempre montado aquí: antes vivía dentro de SupervisionMapView, que no se renderizaba con mapPins vacío.
+  useSupervisionMapPinsEngine({
+    distId: selectedDist,
+    vendedores,
+    cuentasData,
+    getVendorColor,
+  });
 
   const mapPins = useSupervisionStore((s) => s.mapPins);
   const finishPolygonRef = useRef<(() => void) | null>(null);
   const vendorPanelRef = useRef<React.ReactNode>(null);
   const getFullscreenPanel = useCallback(() => vendorPanelRef.current, []);
+
+  const flushMapPins = useCallback(() => {
+    syncSupervisionMapPins(queryClient, {
+      distId: selectedDist,
+      vendedores,
+      cuentasData,
+      getVendorColor,
+    });
+  }, [queryClient, selectedDist, vendedores, cuentasData, getVendorColor]);
 
   const handleShowAllVendors = useCallback(async () => {
     const ids = new Set(vendedoresFiltrados.map(v => v.id_vendedor));
@@ -893,14 +909,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     }
     setVisibleRutas(rutaIds);
     setVisibleClientes(clienteIds);
-  }, [vendedoresFiltrados, selectedDist, queryClient, setVisibleVends, setVisibleRutas, setVisibleClientes]);
+    flushMapPins();
+  }, [vendedoresFiltrados, selectedDist, queryClient, setVisibleVends, setVisibleRutas, setVisibleClientes, flushMapPins]);
 
   const handleHideAllVendors = useCallback(() => {
     setVisibleVends(new Set());
     setVisibleRutas(new Set());
     setVisibleClientes(new Set());
     setVisibleCapaIds(new Set());
-  }, [setVisibleVends, setVisibleRutas, setVisibleClientes, setVisibleCapaIds]);
+    flushMapPins();
+  }, [setVisibleVends, setVisibleRutas, setVisibleClientes, setVisibleCapaIds, flushMapPins]);
 
   const handleMapToolModeChange = useCallback((mode: typeof mapToolMode) => {
     setMapToolMode(mode);
@@ -1079,19 +1097,46 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   async function toggleVendor(vendId: number) {
     const isOn = visibleVends.has(vendId);
     if (isOn) {
-      // Turn OFF: remove vendor from map
-      toggleVendorStore(vendId);
-    } else {
-      // Turn ON: load everything, enable all routes+clients
-      setLoadingMap(p => new Set([...p, vendId]));
-      try {
-        const { allRutaIds, allClientIds } = await loadDataForVendor(vendId);
-        setVisibleVends(new Set([...visibleVends, vendId]));
-        setVisibleRutas(new Set([...visibleRutas, ...allRutaIds]));
-        setVisibleClientes(new Set([...visibleClientes, ...allClientIds]));
-      } finally {
-        setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
+      const vendRutas =
+        queryClient.getQueryData<RutaSupervision[]>(["supervision-rutas", selectedDist, vendId]) ?? [];
+      const rutaIds = new Set(vendRutas.map((r) => r.id_ruta));
+      const nextVends = new Set(visibleVends);
+      nextVends.delete(vendId);
+      const nextRutas = new Set([...visibleRutas].filter((id) => !rutaIds.has(id)));
+      const nextClientes = new Set(visibleClientes);
+      for (const rutaId of rutaIds) {
+        const rutaClientes =
+          queryClient.getQueryData<ClienteSupervision[]>(["supervision-clientes", selectedDist, rutaId]) ?? [];
+        for (const c of rutaClientes) {
+          const stillVisible = [...nextRutas].some((rid) => {
+            const clients =
+              queryClient.getQueryData<ClienteSupervision[]>(["supervision-clientes", selectedDist, rid]) ?? [];
+            return clients.some((x) => x.id_cliente === c.id_cliente);
+          });
+          if (!stillVisible) nextClientes.delete(c.id_cliente);
+        }
       }
+      setVisibleVends(nextVends);
+      setVisibleRutas(nextRutas);
+      setVisibleClientes(nextClientes);
+      flushMapPins();
+      return;
+    }
+
+    setLoadingMap((p) => new Set([...p, vendId]));
+    try {
+      const { allRutaIds, allClientIds } = await loadDataForVendor(vendId);
+      const st = useSupervisionStore.getState();
+      setVisibleVends(new Set([...st.visibleVends, vendId]));
+      setVisibleRutas(new Set([...st.visibleRutas, ...allRutaIds]));
+      setVisibleClientes(new Set([...st.visibleClientes, ...allClientIds]));
+      flushMapPins();
+    } finally {
+      setLoadingMap((p) => {
+        const s = new Set(p);
+        s.delete(vendId);
+        return s;
+      });
     }
   }
 
@@ -1116,16 +1161,19 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         }
       });
       setVisibleClientes(newVisibleClientes);
+      flushMapPins();
     } else {
       // Turn ON: ensure vendor + ruta are on, load clients
       setLoadingMap(p => new Set([...p, vendId]));
       try {
         const cli = await queryClient.fetchQuery(getClientesQuery(rutaId));
 
-        setVisibleVends(new Set([...visibleVends, vendId]));
-        setVisibleRutas(new Set([...visibleRutas, rutaId]));
+        const st = useSupervisionStore.getState();
+        setVisibleVends(new Set([...st.visibleVends, vendId]));
+        setVisibleRutas(new Set([...st.visibleRutas, rutaId]));
         const ids = cli.map((c) => c.id_cliente);
-        setVisibleClientes(new Set([...visibleClientes, ...ids]));
+        setVisibleClientes(new Set([...st.visibleClientes, ...ids]));
+        flushMapPins();
       } finally {
         setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
       }
@@ -1135,9 +1183,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   // ── PDV TOGGLE (uses Zustand store) ──────────────────────────────────────
   function toggleCliente(clienteId: number) {
     toggleClienteStore(clienteId);
+    flushMapPins();
   }
 
-  // Map pins: derivados en Zustand vía SupervisionMapView + useSupervisionMapPinsEngine
+  // Map pins: derivados en Zustand vía useSupervisionMapPinsEngine (TabSupervision)
 
   const selectedVendorIdsKey = useMemo(() => {
     const ids = [
@@ -2020,33 +2069,56 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         <div className={`${mapOnly ? "flex flex-1 min-h-0 lg:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
-            {loading && mapPins.length === 0 ? (
+            {loading && !selectedSucursal ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
                 <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
                 <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
               </div>
-            ) : mapPins.length === 0 ? (
+            ) : !selectedSucursal ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
                 <MapIcon className="w-12 h-12 opacity-15" />
                 <p className="text-sm font-medium text-center px-8 leading-relaxed">
-                  {!selectedSucursal
-                    ? "Seleccioná una sucursal para comenzar"
-                    : "Activá un vendedor, ruta o PDV para verlos en el mapa"
-                  }
+                  Seleccioná una sucursal para comenzar
                 </p>
               </div>
             ) : (
-              <SupervisionMapView
-                distId={selectedDist}
-                isSuperadmin={isSuperadmin}
-                canEditObjetivos={hasPermiso("action_edit_objetivos")}
-                vendedores={vendedores}
-                cuentasData={cuentasData}
-                getVendorColor={getVendorColor}
-                vendedorKpis={vendedorKpis}
-                getFullscreenPanel={getFullscreenPanel}
-                onFinishPolygonRef={finishPolygonRef}
-              />
+              <>
+                {loadingMap.size > 0 && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/50 pointer-events-none">
+                    <Loader2 className="w-6 h-6 animate-spin text-amber-400/80" />
+                    <p className="text-sm text-[var(--shelfy-muted)]">Cargando PDVs…</p>
+                  </div>
+                )}
+                {loadingMap.size === 0 && visibleVends.size === 0 && visibleRutas.size === 0 && visibleClientes.size === 0 && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none">
+                    <MapIcon className="w-12 h-12 opacity-15" />
+                    <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                      Activá un vendedor, ruta o PDV para verlos en el mapa
+                    </p>
+                  </div>
+                )}
+                {loadingMap.size === 0 &&
+                  (visibleVends.size > 0 || visibleRutas.size > 0 || visibleClientes.size > 0) &&
+                  mapPins.length === 0 && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none">
+                    <MapIcon className="w-12 h-12 opacity-15" />
+                    <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                      Las capas activas no tienen PDVs con ubicación en el mapa
+                    </p>
+                  </div>
+                )}
+                <div className="absolute inset-0 h-full w-full min-h-[280px]">
+                  <SupervisionMapView
+                    distId={selectedDist}
+                    isSuperadmin={isSuperadmin}
+                    canEditObjetivos={hasPermiso("action_edit_objetivos")}
+                    vendedores={vendedores}
+                    vendedorKpis={vendedorKpis}
+                    getFullscreenPanel={getFullscreenPanel}
+                    onFinishPolygonRef={finishPolygonRef}
+                  />
+                </div>
+              </>
             )}
           </div>
         </div>

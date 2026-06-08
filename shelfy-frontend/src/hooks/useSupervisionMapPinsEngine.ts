@@ -7,6 +7,7 @@ import type { CuentasSupervision, VendedorSupervision } from "@/lib/api";
 import {
   buildSupervisionMapPines,
   supervisionMapPinsSyncKey,
+  syncSupervisionMapPins,
 } from "@/lib/supervisionMapPinesBuilder";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 
@@ -26,7 +27,6 @@ export function useSupervisionMapPinsEngine({
   getVendorColor,
 }: UseSupervisionMapPinsEngineOptions) {
   const queryClient = useQueryClient();
-  const setMapPins = useSupervisionStore((s) => s.setMapPins);
   const { visibleVends, visibleRutas, visibleClientes, vendorColorOverrides } = useSupervisionStore(
     useShallow((s) => ({
       visibleVends: s.visibleVends,
@@ -57,16 +57,17 @@ export function useSupervisionMapPinsEngine({
     if (!distId) {
       if (lastSyncKeyRef.current !== "") {
         lastSyncKeyRef.current = "";
-        setMapPins([]);
+        useSupervisionStore.getState().setMapPins([]);
       }
       return;
     }
+    const state = useSupervisionStore.getState();
     const pins = buildSupervisionMapPines({
       distId,
       vendedores,
-      visibleVends,
-      visibleRutas,
-      visibleClientes,
+      visibleVends: state.visibleVends,
+      visibleRutas: state.visibleRutas,
+      visibleClientes: state.visibleClientes,
       cuentasData,
       queryClient,
       getVendorColor,
@@ -74,19 +75,15 @@ export function useSupervisionMapPinsEngine({
     const syncKey = `${visibilityKey}::${vendorColorsKey}::${supervisionMapPinsSyncKey(pins)}`;
     if (syncKey === lastSyncKeyRef.current) return;
     lastSyncKeyRef.current = syncKey;
-    setMapPins(pins);
+    useSupervisionStore.getState().setMapPins(pins);
   }, [
     distId,
     vendedores,
     cuentasData,
     visibilityKey,
     vendorColorsKey,
-    visibleVends,
-    visibleRutas,
-    visibleClientes,
     queryClient,
     getVendorColor,
-    setMapPins,
   ]);
 
   useEffect(() => {
@@ -108,4 +105,17 @@ export function useSupervisionMapPinsEngine({
       if (timer) clearTimeout(timer);
     };
   }, [distId, queryClient, recompute]);
+}
+
+/** Llamar tras cambiar visibilidad (toggle vendedor/ruta/PDV) para refresco inmediato. */
+export function flushSupervisionMapPins(
+  queryClient: ReturnType<typeof useQueryClient>,
+  params: {
+    distId: number | undefined;
+    vendedores: VendedorSupervision[];
+    cuentasData: CuentasSupervision | null;
+    getVendorColor: (vendorId: number, idx: number) => string;
+  },
+) {
+  return syncSupervisionMapPins(queryClient, params);
 }

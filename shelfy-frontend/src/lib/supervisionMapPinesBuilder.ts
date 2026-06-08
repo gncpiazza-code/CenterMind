@@ -7,6 +7,7 @@ import type {
   VendedorSupervision,
 } from "@/lib/api";
 import { isInactivo30, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
+import { useSupervisionStore } from "@/store/useSupervisionStore";
 
 interface PinDedupeRow {
   pin: PinCliente;
@@ -200,4 +201,33 @@ export function buildSupervisionMapPines(params: {
   });
 
   return dedupePinsByClienteErp(result);
+}
+
+/** Recalcula pins desde caché + visibilidad actual del store (sync, sin esperar re-render). */
+export function syncSupervisionMapPins(
+  queryClient: QueryClient,
+  params: {
+    distId: number | undefined;
+    vendedores: VendedorSupervision[];
+    cuentasData: CuentasSupervision | null;
+    getVendorColor: (vendorId: number, idx: number) => string;
+  },
+): PinCliente[] {
+  if (!params.distId) {
+    useSupervisionStore.getState().setMapPins([]);
+    return [];
+  }
+  const { visibleVends, visibleRutas, visibleClientes } = useSupervisionStore.getState();
+  const pins = buildSupervisionMapPines({
+    distId: params.distId,
+    vendedores: params.vendedores,
+    visibleVends,
+    visibleRutas,
+    visibleClientes,
+    cuentasData: params.cuentasData,
+    queryClient,
+    getVendorColor: params.getVendorColor,
+  });
+  useSupervisionStore.getState().setMapPins(pins);
+  return pins;
 }

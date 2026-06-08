@@ -4,8 +4,7 @@ import React, { memo, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { CuentasSupervision, VendedorSupervision } from "@/lib/api";
-import { useSupervisionMapPinsEngine } from "@/hooks/useSupervisionMapPinsEngine";
+import type { VendedorSupervision } from "@/lib/api";
 import { useMapaCapasQuery, CrearRutasPanel } from "./CrearRutasPanel";
 import { useSupervisionStore, type DrawnPolygon } from "@/store/useSupervisionStore";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
@@ -26,8 +25,6 @@ export interface SupervisionMapViewProps {
   isSuperadmin?: boolean;
   canEditObjetivos: boolean;
   vendedores: VendedorSupervision[];
-  cuentasData: CuentasSupervision | null;
-  getVendorColor: (vendorId: number, idx: number) => string;
   vendedorKpis?: VendedorKpis;
   getFullscreenPanel?: () => React.ReactNode;
   onFinishPolygonRef?: React.MutableRefObject<(() => void) | null>;
@@ -38,14 +35,10 @@ function SupervisionMapViewInner({
   isSuperadmin,
   canEditObjetivos,
   vendedores,
-  cuentasData,
-  getVendorColor,
   vendedorKpis,
   getFullscreenPanel,
   onFinishPolygonRef,
 }: SupervisionMapViewProps) {
-  useSupervisionMapPinsEngine({ distId, vendedores, cuentasData, getVendorColor });
-
   const mapPins = useSupervisionStore((s) => s.mapPins);
   const finishPolygonRefLocal = useRef<(() => void) | null>(null);
   const finishPolygonRef = onFinishPolygonRef ?? finishPolygonRefLocal;
@@ -124,7 +117,8 @@ function SupervisionMapViewInner({
     ) : undefined;
 
   return (
-    <MapaRutas
+    <div className="h-full w-full min-h-[280px]">
+      <MapaRutas
       pines={mapPins}
       getFullscreenPanel={getFullscreenPanel}
       selectedPDVs={canEditObjetivos ? selectedPDVsForObjective : []}
@@ -145,6 +139,7 @@ function SupervisionMapViewInner({
       onPolygonSelectionChange={handlePolygonSelectionChange}
       activePolygonGeoJson={activePolygonGeoJson}
     />
+    </div>
   );
 }
 

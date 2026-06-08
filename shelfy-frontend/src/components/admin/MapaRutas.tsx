@@ -1,6 +1,5 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { Settings } from "lucide-react";
 import { loadGoogleMapsFull, getGoogleMapsApiKey, ensureGoogleMapsConfigured, subscribeGoogleMapsAuthFailure, googleMapsReferrerWhitelistHint } from "@/lib/googleMapsLoader";
 import type { DrawnPolygon, MapToolMode } from "@/store/useSupervisionStore";
@@ -167,6 +166,34 @@ function buildMarkerIconForPin(
     scaledSize: new window.google.maps.Size(iconSize, iconSize),
     anchor: new window.google.maps.Point(iconSize / 2, iconSize / 2),
   };
+}
+
+/** Cache de iconos SVG — evita regenerar data-URIs en cada pan/zoom/sync. */
+const markerIconCache = new Map<string, google.maps.Icon>();
+
+function markerIconCacheKey(
+  pin: PinCliente,
+  isSelected: boolean,
+  pinConfig: { pin_size_activo: number; pin_size_inactivo: number },
+): string {
+  const size = pin.activo ? pinConfig.pin_size_activo : pinConfig.pin_size_inactivo;
+  const status = getPinStatus(pin);
+  const bc = altaBorderColor(pin.fechaAlta) ?? "";
+  return `${status}:${pin.color}:${size}:${bc}:${isSelected ? 1 : 0}`;
+}
+
+function getCachedMarkerIcon(
+  pin: PinCliente,
+  isSelected: boolean,
+  pinConfig: { pin_size_activo: number; pin_size_inactivo: number },
+): google.maps.Icon {
+  const key = markerIconCacheKey(pin, isSelected, pinConfig);
+  let icon = markerIconCache.get(key);
+  if (!icon) {
+    icon = buildMarkerIconForPin(pin, isSelected, pinConfig);
+    markerIconCache.set(key, icon);
+  }
+  return icon;
 }
 
 function buildPinPopupHTML(p: PinCliente): string {
@@ -356,7 +383,6 @@ function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onCl
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-const MARKER_CLUSTER_THRESHOLD = 60;
 
 function MapaRutas({
   pines,
@@ -387,8 +413,9 @@ function MapaRutas({
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
-  const clustererRef = useRef<MarkerClusterer | null>(null);
-  const clusterModeRef = useRef(false);
+  const markerIconKeysRef = useRef<Map<number, string>>(new Map());
+  const prevSelectedPdvRef = useRef<Set<number>>(new Set());
+  const prevPinDataSyncKeyRef = useRef("");
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const drawnPolyRef  = useRef<google.maps.Polygon | null>(null);
   const capaDataRef   = useRef<Map<number, google.maps.Data>>(new Map());
@@ -560,66 +587,73 @@ function MapaRutas({
     if (!isFullscreen) setShowSidePanel(true);
   }, [isFullscreen]);
 
-  // ── Markers (sync incremental + cluster cuando hay muchos PDVs) ────────────
+  // Ocultar pins mientras se arrastra/hace zoom — reduce lag con muchos PDVs
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !window.google) return;
+
+    let raf: number | null = null;
+    let interacting = false;
+
+    const setMarkersVisible = (visible: boolean) => {
+      markersMapRef.current.forEach((m) => m.setVisible(visible));
+    };
+
+    const onInteractStart = () => {
+      if (routeBuildEnabledRef.current) return;
+      interacting = true;
+      setMarkersVisible(false);
+    };
+
+    const onInteractEnd = () => {
+      if (!interacting) return;
+      interacting = false;
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (!routeBuildEnabledRef.current) setMarkersVisible(true);
+      });
+    };
+
+    const dragStart = map.addListener("dragstart", onInteractStart);
+    const zoomChanged = map.addListener("zoom_changed", onInteractStart);
+    const idle = map.addListener("idle", onInteractEnd);
+
+    return () => {
+      dragStart.remove();
+      zoomChanged.remove();
+      idle.remove();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [mapLoaded]);
+
+  // ── Markers (sync incremental; sin clustering — todos los PDVs visibles) ───
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
 
     // Modo dibujo: ocultar pins para que no intercepten clicks del mapa
     if (routeBuildEnabledRef.current) {
-      clustererRef.current?.clearMarkers();
-      clustererRef.current = null;
       markersMapRef.current.forEach((marker) => marker.setMap(null));
       return;
     }
 
     const nextIds = new Set<number>();
     const conCoords = filteredPinesRef.current.filter(p => p.lat && p.lng);
-    const useCluster =
-      conCoords.length >= MARKER_CLUSTER_THRESHOLD && !routeBuildEnabledRef.current;
-
-    if (useCluster !== clusterModeRef.current) {
-      clustererRef.current?.clearMarkers();
-      clustererRef.current = null;
-      markersMapRef.current.forEach((marker) => {
-        marker.setMap(null);
-        window.google.maps.event.clearInstanceListeners(marker);
-      });
-      markersMapRef.current.clear();
-      clusterModeRef.current = useCluster;
-    }
-
-    const attachMarker = (marker: google.maps.Marker) => {
-      if (useCluster) {
-        if (!clustererRef.current) clustererRef.current = new MarkerClusterer({ map });
-        clustererRef.current.addMarker(marker);
-      } else {
-        marker.setMap(map);
-      }
-    };
-
-    const detachMarker = (marker: google.maps.Marker) => {
-      if (useCluster && clustererRef.current) {
-        clustererRef.current.removeMarker(marker);
-      } else {
-        marker.setMap(null);
-      }
-    };
 
     for (const p of conCoords) {
       nextIds.add(p.id);
-      const icon = buildMarkerIconForPin(p, false, pinConfig);
+      const iconKey = markerIconCacheKey(p, false, pinConfig);
       let marker = markersMapRef.current.get(p.id);
 
       if (!marker) {
         marker = new window.google.maps.Marker({
           position: { lat: p.lat, lng: p.lng },
           clickable: !routeBuildEnabledRef.current,
-          icon,
-          title: `#${p.idClienteErp ?? p.id} - ${p.nombre}`,
+          icon: getCachedMarkerIcon(p, false, pinConfig),
           optimized: true,
           zIndex: p.activo ? 10 : 5,
         });
+        markerIconKeysRef.current.set(p.id, iconKey);
 
         let clickTimer: ReturnType<typeof setTimeout> | null = null;
         const pinId = p.id;
@@ -641,24 +675,28 @@ function MapaRutas({
         });
 
         markersMapRef.current.set(p.id, marker);
-        attachMarker(marker);
+        marker.setMap(map);
       } else {
         const pos = marker.getPosition();
         if (!pos || pos.lat() !== p.lat || pos.lng() !== p.lng) {
           marker.setPosition({ lat: p.lat, lng: p.lng });
         }
-        marker.setIcon(icon);
-        marker.setTitle(`#${p.idClienteErp ?? p.id} - ${p.nombre}`);
-        marker.setZIndex(p.activo ? 10 : 5);
-        if (!useCluster && !marker.getMap()) marker.setMap(map);
+        if (markerIconKeysRef.current.get(p.id) !== iconKey) {
+          marker.setIcon(getCachedMarkerIcon(p, false, pinConfig));
+          markerIconKeysRef.current.set(p.id, iconKey);
+        }
+        const z = p.activo ? 10 : 5;
+        if (marker.getZIndex() !== z) marker.setZIndex(z);
+        if (!marker.getMap()) marker.setMap(map);
       }
     }
 
     markersMapRef.current.forEach((marker, id) => {
       if (!nextIds.has(id)) {
-        detachMarker(marker);
+        marker.setMap(null);
         window.google.maps.event.clearInstanceListeners(marker);
         markersMapRef.current.delete(id);
+        markerIconKeysRef.current.delete(id);
       }
     });
 
@@ -671,17 +709,32 @@ function MapaRutas({
     }
   }, [pinDataSyncKey, mapLoaded, pinConfig, routeBuildEnabled]);
 
-  // ── Selection ring (solo iconos; no recrea markers) ───────────────────────
+  // ── Selection ring (solo iconos que cambiaron de estado) ───────────────────
   useEffect(() => {
     if (!mapLoaded || !window.google) return;
     const selSet = new Set(selectedPDVs ?? []);
+    const prevSel = prevSelectedPdvRef.current;
+    const pinDataChanged = prevPinDataSyncKeyRef.current !== pinDataSyncKey;
+    prevPinDataSyncKeyRef.current = pinDataSyncKey;
+
     markersMapRef.current.forEach((marker, id) => {
+      const isSelected = selSet.has(id);
+      const wasSelected = prevSel.has(id);
+      if (!isSelected && !wasSelected && !pinDataChanged) return;
+      if (isSelected === wasSelected && !pinDataChanged) return;
+
       const pin = filteredPinesRef.current.find(p => p.id === id);
       if (!pin) return;
-      const isSelected = selSet.has(id);
-      marker.setIcon(buildMarkerIconForPin(pin, isSelected, pinConfig));
+
+      const iconKey = markerIconCacheKey(pin, isSelected, pinConfig);
+      if (markerIconKeysRef.current.get(id) !== iconKey) {
+        marker.setIcon(getCachedMarkerIcon(pin, isSelected, pinConfig));
+        markerIconKeysRef.current.set(id, iconKey);
+      }
       marker.setZIndex(isSelected ? 20 : (pin.activo ? 10 : 5));
     });
+
+    prevSelectedPdvRef.current = selSet;
   }, [selectedPDVs, pinDataSyncKey, mapLoaded, pinConfig]);
 
   const resolvePdvIdsInPolygon = useCallback((polygon: google.maps.Polygon) => {

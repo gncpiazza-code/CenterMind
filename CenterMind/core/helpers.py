@@ -945,6 +945,21 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
         return {}
 
 
+def _erp_codigo_variants(cod: str) -> set[str]:
+    """Variantes equivalentes de código ERP (4047, 04047, …)."""
+    raw = str(cod or "").strip()
+    if not raw:
+        return set()
+    out = {raw, raw.lower()}
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if digits:
+        norm = str(int(digits))
+        out.update({norm, norm.lower(), digits, digits.lower()})
+        stripped = digits.lstrip("0") or "0"
+        out.update({stripped, stripped.lower()})
+    return out
+
+
 def resolve_integrante_ids_for_vendor_v2(
     dist_id: int,
     vendor_v2_id: int,
@@ -952,8 +967,12 @@ def resolve_integrante_ids_for_vendor_v2(
     iid_to_erp: dict[int, str] | None = None,
 ) -> list[int]:
     """
-    Todos los id_integrante del vendedor ERP (vendor-scope para /stats y ranking).
-    Une mapa ERP + filas integrantes_grupo.id_vendedor_v2 (binding puede existir solo en grupos).
+    Todos los id_integrante del vendedor ERP (vendor-scope para /stats, ranking y objetivos).
+
+    Une:
+      - mapa nombre ERP (build_integrante_to_erp_name),
+      - integrantes_grupo.id_vendedor_v2,
+      - integrantes con id_vendedor_erp = código del vendedor y sin v2 (gap Telegram).
     """
     try:
         vid = int(vendor_v2_id)
@@ -962,18 +981,23 @@ def resolve_integrante_ids_for_vendor_v2(
 
     erp_map = iid_to_erp if iid_to_erp is not None else build_integrante_to_erp_name(dist_id)
     target_norm = ""
+    vendor_codigo_variants: set[str] = set()
     try:
         t_vend = tenant_table_name("vendedores_v2", dist_id)
         v_res = (
             sb.table(t_vend)
-            .select("nombre_erp")
+            .select("nombre_erp,id_vendedor_erp")
             .eq("id_distribuidor", dist_id)
             .eq("id_vendedor", vid)
             .limit(1)
             .execute()
         )
         if v_res.data:
-            target_norm = _norm_name(v_res.data[0].get("nombre_erp"))
+            vrow = v_res.data[0]
+            target_norm = _norm_name(vrow.get("nombre_erp"))
+            vendor_codigo_variants = _erp_codigo_variants(
+                str(vrow.get("id_vendedor_erp") or "")
+            )
     except Exception as e:
         logger.warning(f"resolve_integrante_ids_for_vendor_v2 dist={dist_id} vid={vid}: {e}")
 
@@ -1006,6 +1030,35 @@ def resolve_integrante_ids_for_vendor_v2(
             _add(row.get("id_integrante"))
     except Exception as e:
         logger.warning(f"resolve_integrante_ids_for_vendor_v2 ig dist={dist_id} vid={vid}: {e}")
+
+    if vendor_codigo_variants:
+        try:
+            cod_list = sorted(vendor_codigo_variants)
+            for i in range(0, len(cod_list), 80):
+                chunk = cod_list[i : i + 80]
+                ig_cod = (
+                    sb.table("integrantes_grupo")
+                    .select("id_integrante,id_vendedor_v2")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_vendedor_erp", chunk)
+                    .execute()
+                    .data
+                    or []
+                )
+                for row in ig_cod:
+                    v2_raw = row.get("id_vendedor_v2")
+                    if v2_raw is None:
+                        _add(row.get("id_integrante"))
+                        continue
+                    try:
+                        if int(v2_raw) == vid:
+                            _add(row.get("id_integrante"))
+                    except (TypeError, ValueError):
+                        pass
+        except Exception as e:
+            logger.warning(
+                f"resolve_integrante_ids_for_vendor_v2 codigo dist={dist_id} vid={vid}: {e}"
+            )
 
     return out
 

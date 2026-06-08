@@ -364,6 +364,21 @@ def _mes_actual_ar() -> str:
     return ar_now.strftime("%Y-%m")
 
 
+MESES_SELECTOR_LOOKBACK = 24
+_MESES_DISPONIBLES_CACHE: dict[int, tuple[float, list[str]]] = {}
+_MESES_DISPONIBLES_CACHE_TTL = 15 * 60
+_MESES_DISPONIBLES_CACHE_LOCK = Lock()
+
+
+def _mes_lookback_desde(cap_yyyy_mm: str, months_back: int) -> str:
+    """Primer día YYYY-MM-DD del mes más antiguo a incluir en el selector."""
+    y, m = int(cap_yyyy_mm[:4]), int(cap_yyyy_mm[5:7])
+    d = date(y, m, 1)
+    for _ in range(max(0, months_back - 1)):
+        d = (d.replace(day=1) - timedelta(days=1)).replace(day=1)
+    return d.isoformat()
+
+
 def _mes_from_venta_row(row: dict) -> str | None:
     """Mes comercial de una fila ventas_enriched (excluye recaudaciones)."""
     if _es_recaudacion(row.get("tipo_documento")):
@@ -386,7 +401,9 @@ def _vendedores_prescan_franquicia(dist_id: int) -> list[dict]:
     )
 
 
-def _collect_meses_ventas_comerciales(dist_id: int) -> set[str]:
+def _collect_meses_ventas_comerciales(
+    dist_id: int, *, desde: str | None = None
+) -> set[str]:
     """Meses con ventas no anuladas (mismo scope que cartas, incl. franquicias Real)."""
     vend_prescan = _vendedores_prescan_franquicia(dist_id)
     ventas_ctx = resolve_estadisticas_ventas_fetch(
@@ -405,6 +422,8 @@ def _collect_meses_ventas_comerciales(dist_id: int) -> set[str]:
             .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
             .eq("anulado", False)
         )
+        if desde:
+            q = q.gte("fecha_factura", desde)
         q = _apply_ventas_scope(q, ventas_ctx)
         q = _ventas_enriched_query_order(q)
         batch = q.range(offset, offset + PAGE - 1).execute().data or []
@@ -418,7 +437,13 @@ def _collect_meses_ventas_comerciales(dist_id: int) -> set[str]:
     return meses
 
 
-def _paginate_meses(dist_id: int, table_base: str, field: str) -> set[str]:
+def _paginate_meses(
+    dist_id: int,
+    table_base: str,
+    field: str,
+    *,
+    desde: str | None = None,
+) -> set[str]:
     """Meses YYYY-MM con paginación PostgREST (1000 filas)."""
     t = tenant_table_name(table_base, dist_id)
     meses: set[str] = set()
@@ -427,6 +452,8 @@ def _paginate_meses(dist_id: int, table_base: str, field: str) -> set[str]:
         q = sb.table(t).select(field)
         if tenant_table_supports_distribuidor_filter(table_base):
             q = q.eq("id_distribuidor", dist_id)
+        if desde:
+            q = q.gte(field, desde)
         batch = q.range(offset, offset + PAGE - 1).execute().data or []
         meses |= _collect_meses_from_rows(batch, field)
         if len(batch) < PAGE:
@@ -487,38 +514,104 @@ def _any_vendor_carta_visible(
     return False
 
 
+def _mes_tiene_actividad_comercial(dist_id: int, mes: str) -> bool:
+    """
+    Heurística rápida para el selector de períodos: exhibiciones o ventas comerciales
+    en el mes. Evita agregar KPIs completos por cada candidato (timeout en portal).
+    """
+    fecha_desde, fecha_hasta = _get_fecha_bounds([mes])
+    t_ex = tenant_table_name("exhibiciones", dist_id)
+    ex = (
+        sb.table(t_ex)
+        .select("id_exhibicion")
+        .eq("id_distribuidor", dist_id)
+        .gte("timestamp_subida", fecha_desde)
+        .lte("timestamp_subida", fecha_hasta + "T23:59:59")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if ex:
+        return True
+
+    vend_prescan = _vendedores_prescan_franquicia(dist_id)
+    ventas_ctx = resolve_estadisticas_ventas_fetch(
+        dist_id, vend_prescan if vend_prescan else None
+    )
+    t = str(
+        ventas_ctx.get("table_name")
+        or tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    )
+    q = (
+        sb.table(t)
+        .select("fecha_factura,tipo_documento")
+        .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
+        .eq("anulado", False)
+        .gte("fecha_factura", fecha_desde)
+        .lte("fecha_factura", fecha_hasta)
+    )
+    q = _apply_ventas_scope(q, ventas_ctx)
+    batch = q.limit(80).execute().data or []
+    return any(_mes_from_venta_row(r) for r in batch)
+
+
 def _meses_con_cartas_visibles(dist_id: int, candidates: list[str]) -> list[str]:
-    """
-    Filtra candidatos a meses con al menos una carta vendedor visible.
-    Una sola lectura de fuentes para todo el rango; agrega KPIs por mes.
-    """
+    """Filtra candidatos a meses con actividad comercial visible en cartas."""
     if not candidates:
         return []
-    source = _fetch_carta_source_rows(dist_id, candidates)
-    vend_rows = source.get("vendedores") or []
-    visible: list[str] = []
-    for mes in sorted(candidates, reverse=True):
-        all_raw, _loc = _aggregate_kpis_from_rows(source, [mes])
-        all_raw.pop("__ventas_meta__", None)
-        rolled, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
-        if _any_vendor_carta_visible(dist_id, rolled, vend_rows, hidden_vids):
-            visible.append(mes)
-    return visible
+    ordered = sorted(candidates, reverse=True)
+    hits: set[str] = set()
+    workers = min(8, len(ordered))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(_mes_tiene_actividad_comercial, dist_id, mes): mes
+            for mes in ordered
+        }
+        for fut in as_completed(futures):
+            mes = futures[fut]
+            try:
+                if fut.result():
+                    hits.add(mes)
+            except Exception as e:
+                logger.warning(
+                    "[estadisticas] probe mes dist=%s mes=%s: %s", dist_id, mes, e
+                )
+    return [mes for mes in ordered if mes in hits]
+
+
+def _meses_candidatos_selector(cap_yyyy_mm: str, limit: int = MESES_SELECTOR_LOOKBACK) -> list[str]:
+    """Últimos `limit` meses calendario hasta `cap` (desc)."""
+    y, m = int(cap_yyyy_mm[:4]), int(cap_yyyy_mm[5:7])
+    d = date(y, m, 1)
+    out: list[str] = []
+    for _ in range(limit):
+        mes = d.strftime("%Y-%m")
+        if mes <= cap_yyyy_mm:
+            out.append(mes)
+        d = (d.replace(day=1) - timedelta(days=1)).replace(day=1)
+    return out
 
 
 def fetch_meses_disponibles(dist_id: int) -> list[str]:
     """
     Meses YYYY-MM con al menos una carta vendedor visible (desc).
-    Candidatos: ventas comerciales y/o exhibiciones; excluye padrón y meses futuros AR.
+    Ventana fija de 24 meses; probe liviano por mes (sin batch KPI ni scan ventas).
+    Caché en memoria 15 min para respuesta rápida en portal.
     """
-    meses: set[str] = set()
-    meses |= _collect_meses_ventas_comerciales(dist_id)
-    meses |= _paginate_meses(dist_id, "exhibiciones", "timestamp_subida")
+    now = time.time()
+    with _MESES_DISPONIBLES_CACHE_LOCK:
+        hit = _MESES_DISPONIBLES_CACHE.get(dist_id)
+        if hit and (now - hit[0]) < _MESES_DISPONIBLES_CACHE_TTL:
+            return list(hit[1])
+
     cap = _mes_actual_ar()
-    candidates = sorted((m for m in meses if m <= cap), reverse=True)
-    if not candidates:
-        return []
-    return _meses_con_cartas_visibles(dist_id, candidates)
+    candidates = _meses_candidatos_selector(cap)
+    result = _meses_con_cartas_visibles(dist_id, candidates)
+
+    with _MESES_DISPONIBLES_CACHE_LOCK:
+        _MESES_DISPONIBLES_CACHE[dist_id] = (now, result)
+    return list(result)
 
 
 def _fetch_rutas_vendedor(dist_id: int, id_vendedor: str, select_cols: str = "id_ruta") -> list[dict]:
@@ -993,28 +1086,33 @@ def _resolve_vid_from_venta_row(row: dict, idx: dict[str, object]) -> int | None
     """
     Asigna fila Consolido → vendedor ERP.
 
-    Prioridad: nombre en informe (dsvendedor) → código solo si valida contra nombre ERP.
+    Prioridad:
+    1) Código ERP cuando valida contra el nombre de la fila (desambigua homónimos).
+    2) Nombre en informe (dsvendedor) — p. ej. suplente con c_perso compartido.
+    3) Código sin nombre en fila.
+
     En Aloma/Consolido el mismo c_perso (1001, 1006, …) aparece en filas de distintos
-    nombres (suplentes/rutas); confiar ciego en código inflaba bultos (p. ej. 1001 → CORIA
-    absorbía ventas de GALLO RICARDO / IVAN SOTO).
+    nombres; el código solo cuenta si el nombre ERP del dueño del código coincide con
+    la fila (evita 1001 → CORIA absorbiendo GALLO RICARDO / IVAN SOTO).
+    En Tabaco/Real varios vendedores comparten nombre ERP (p. ej. dos MIGUEL ANGEL MUÑOZ);
+    sin código primero, las ventas del 5102 caían en el otro homónimo (5082).
     """
+    raw_nom = (row.get("nombre_vendedor") or "").strip()
+    vid_to_nombre: dict[int, str] = idx.get("vid_to_nombre") or {}
+
+    cod_vid = _resolve_vid_by_codigo(row, idx)
+    if cod_vid is not None:
+        if not raw_nom:
+            return cod_vid
+        erp_name = vid_to_nombre.get(cod_vid, "")
+        if not erp_name or _vendor_names_match_venta(raw_nom.upper(), erp_name):
+            return cod_vid
+
     nom_vid = _resolve_vid_by_nombre(row, idx)
     if nom_vid is not None:
         return nom_vid
 
-    cod_vid = _resolve_vid_by_codigo(row, idx)
-    if cod_vid is None:
-        return None
-
-    raw_nom = (row.get("nombre_vendedor") or "").strip()
-    if not raw_nom:
-        return cod_vid
-
-    vid_to_nombre: dict[int, str] = idx.get("vid_to_nombre") or {}
-    erp_name = vid_to_nombre.get(cod_vid, "")
-    if erp_name and not _vendor_names_match_venta(raw_nom.upper(), erp_name):
-        return None
-    return cod_vid
+    return None
 
 
 def _venta_matches_vendor(row: dict, ctx: dict) -> bool:

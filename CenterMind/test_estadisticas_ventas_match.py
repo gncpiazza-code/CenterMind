@@ -69,6 +69,35 @@ def test_nombre_gana_sobre_codigo_compartido():
     )
 
 
+def test_codigo_desambigua_homonimos_mismo_nombre_erp():
+    """Tabaco: dos vendedores con mismo nombre_erp y códigos distintos (5082 vs 5102)."""
+    rows = [
+        {"id_vendedor": 67, "id_vendedor_erp": "5082", "nombre_erp": "MIGUEL ANGEL MUÑOZ"},
+        {"id_vendedor": 69, "id_vendedor_erp": "5102", "nombre_erp": "MIGUEL ANGEL MUÑOZ"},
+    ]
+    idx = _build_vendor_match_indexes(rows, dist_id=3)
+    assert (
+        _resolve_vid_from_venta_row(
+            {
+                "codigo_vendedor": "5102",
+                "nombre_vendedor": "MIGUEL ANGEL MUÑOZ",
+            },
+            idx,
+        )
+        == 69
+    )
+    assert (
+        _resolve_vid_from_venta_row(
+            {
+                "codigo_vendedor": "5082",
+                "nombre_vendedor": "MIGUEL ANGEL MUÑOZ",
+            },
+            idx,
+        )
+        == 67
+    )
+
+
 def test_dedupe_ventas_enriched_lines():
     rows = [
         {

@@ -796,20 +796,10 @@ class ObjetivosWatcherService:
             if item_pdv_ids is not None and len(item_pdv_ids) == 0:
                 return (float(obj.get("valor_actual") or 0), 0)
 
-            # Mapear vendedor → id_integrante (v2, luego ERP / paginado — misma lógica que Telegram)
-            from services.objetivos_notification_service import (
-                resolve_integrante_for_objetivos,
-            )
+            # Todos los integrantes del vendedor (v2 + código ERP sin v2 — misma regla que /stats)
+            from core.helpers import resolve_integrante_ids_for_vendor_v2
 
-            # Obtener TODOS los integrantes vinculados a este vendedor
-            ig_res = sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", dist_id).eq("id_vendedor_v2", id_vendedor_v2).execute()
-            id_integrantes = [i["id_integrante"] for i in (ig_res.data or []) if i.get("id_integrante") is not None]
-
-            if not id_integrantes:
-                # Fallback: usar la resolución legacy
-                ig_row = resolve_integrante_for_objetivos(dist_id, id_vendedor_v2)
-                if ig_row and ig_row.get("id_integrante") is not None:
-                    id_integrantes = [ig_row["id_integrante"]]
+            id_integrantes = resolve_integrante_ids_for_vendor_v2(dist_id, id_vendedor_v2)
 
             if not id_integrantes:
                 logger.warning(

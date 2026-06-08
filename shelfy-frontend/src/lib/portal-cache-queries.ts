@@ -8,7 +8,11 @@ import type { PortalModuleId } from "@/lib/portal-cache-config";
 import { resolveModuleFromPath } from "@/lib/portal-cache-config";
 import { markPortalWarmSent } from "@/lib/portal-cache-warm";
 import { cartasBundleQueryOptions } from "@/hooks/useEstadisticasQueries";
-import { supervisionBundleQueryOptions } from "@/hooks/useSupervisionQueries";
+import {
+  supervisionBundleQueryOptions,
+  syncStatusQueryOptions,
+  vendedoresLiteQueryOptions,
+} from "@/hooks/useSupervisionQueries";
 
 export function dashboardBundleQueryOptions(
   distId: number,
@@ -65,17 +69,34 @@ export function moduleBundleQueryOptions(
   }
 }
 
+async function prefetchQueryIfStale(
+  queryClient: QueryClient,
+  opts: { queryKey: QueryKey; queryFn: () => Promise<unknown>; staleTime?: number },
+): Promise<void> {
+  const staleMs = opts.staleTime ?? BUNDLE_STALE_MS;
+  const state = queryClient.getQueryState(opts.queryKey);
+  if (state?.fetchStatus === "fetching") return;
+  if (state?.dataUpdatedAt && Date.now() - state.dataUpdatedAt < staleMs) return;
+  await queryClient.prefetchQuery(opts);
+}
+
 export async function prefetchPortalModule(
   queryClient: QueryClient,
   mod: PortalModuleId,
   distId: number,
 ): Promise<void> {
+  if (distId <= 0) return;
+  if (mod === "supervision") {
+    await Promise.all([
+      prefetchQueryIfStale(queryClient, supervisionBundleDefaultQueryOptions(distId, null)),
+      prefetchQueryIfStale(queryClient, vendedoresLiteQueryOptions(distId)),
+      prefetchQueryIfStale(queryClient, syncStatusQueryOptions(distId)),
+    ]);
+    return;
+  }
   const opts = moduleBundleQueryOptions(mod, distId);
   if (!opts) return;
-  const state = queryClient.getQueryState(opts.queryKey);
-  if (state?.fetchStatus === "fetching") return;
-  if (state?.dataUpdatedAt && Date.now() - state.dataUpdatedAt < BUNDLE_STALE_MS) return;
-  await queryClient.prefetchQuery(opts);
+  await prefetchQueryIfStale(queryClient, opts);
 }
 
 export function prefetchPortalModuleIdle(

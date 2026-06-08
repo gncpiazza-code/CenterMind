@@ -31,6 +31,35 @@ def test_find_ranking_position_normalizado():
     assert pos2 == 2
 
 
+def test_resolve_integrante_ids_for_vendor_v2_por_codigo_erp_sin_v2():
+    mock_sb = MagicMock()
+
+    def table_side(name):
+        tbl = MagicMock()
+        if "vendedores_v2" in name:
+            tbl.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+                {"nombre_erp": "ROMINA SORU", "id_vendedor_erp": "4047"}
+            ]
+        elif name == "integrantes_grupo":
+            chain = tbl.select.return_value.eq.return_value
+            # Primera query: id_vendedor_v2 (vacía)
+            chain.eq.return_value.execute.return_value.data = []
+            # Segunda query: id_vendedor_erp in (...)
+            chain.in_.return_value.execute.return_value.data = [
+                {"id_integrante": 328, "id_vendedor_v2": None},
+            ]
+        return tbl
+
+    mock_sb.table.side_effect = table_side
+
+    with patch("core.helpers.sb", mock_sb), patch(
+        "core.helpers.build_integrante_to_erp_name", return_value={}
+    ):
+        ids = resolve_integrante_ids_for_vendor_v2(3, 81)
+
+    assert ids == [328]
+
+
 def test_resolve_integrante_ids_for_vendor_v2_por_nombre_erp():
     iid_to_erp = {10: "MARIA GARCIA", 11: "MARIA GARCIA", 20: "OTRO"}
     mock_sb = MagicMock()

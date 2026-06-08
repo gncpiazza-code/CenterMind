@@ -13,16 +13,16 @@ def test_mes_from_venta_row_sin_fecha():
 
 def test_fetch_meses_excluye_futuros(monkeypatch):
     monkeypatch.setattr(
-        "services.estadisticas_service._collect_meses_ventas_comerciales",
-        lambda _d: {"2026-05", "2026-12"},
-    )
-    monkeypatch.setattr(
-        "services.estadisticas_service._paginate_meses",
-        lambda _d, _t, _f: {"2026-06"},
+        "services.estadisticas_service._MESES_DISPONIBLES_CACHE",
+        {},
     )
     monkeypatch.setattr(
         "services.estadisticas_service._mes_actual_ar",
         lambda: "2026-06",
+    )
+    monkeypatch.setattr(
+        "services.estadisticas_service._meses_candidatos_selector",
+        lambda _cap, limit=24: ["2026-06", "2026-05", "2026-12"],
     )
     monkeypatch.setattr(
         "services.estadisticas_service._meses_con_cartas_visibles",
@@ -31,45 +31,46 @@ def test_fetch_meses_excluye_futuros(monkeypatch):
     assert fetch_meses_disponibles(1) == ["2026-06", "2026-05"]
 
 
-def test_meses_con_cartas_visibles_desempaqueta_aggregate_tuple(monkeypatch):
-    """Regresión: _aggregate_kpis_from_rows devuelve (raw, localidades)."""
+def test_meses_con_cartas_visibles_filtra_sin_actividad(monkeypatch):
     from services.estadisticas_service import _meses_con_cartas_visibles
 
-    def fake_fetch(_dist_id, _meses):
-        return {
-            "vendedores": [
-                {"id_vendedor": 1, "nombre_erp": "Vendedor A", "id_sucursal": 1},
-            ],
-        }
-
-    def fake_agg(_source, _meses_list):
-        return (
-            {
-                "1": {
-                    "pdvs": 5,
-                    "compradores": 1,
-                    "bultos": 0,
-                    "exhibiciones": 2,
-                },
-                "__ventas_meta__": {},
-            },
-            {},
-        )
-
     monkeypatch.setattr(
-        "services.estadisticas_service._fetch_carta_source_rows",
-        fake_fetch,
-    )
-    monkeypatch.setattr(
-        "services.estadisticas_service._aggregate_kpis_from_rows",
-        fake_agg,
-    )
-    monkeypatch.setattr(
-        "services.estadisticas_service.apply_tabaco_rollups",
-        lambda _d, raw, _v: (raw, set()),
+        "services.estadisticas_service._mes_tiene_actividad_comercial",
+        lambda _d, mes: mes == "2026-05",
     )
 
-    assert _meses_con_cartas_visibles(1, ["2026-05"]) == ["2026-05"]
+    assert _meses_con_cartas_visibles(1, ["2026-06", "2026-05"]) == ["2026-05"]
+
+
+def test_fetch_meses_usa_cache(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_visible(_d, candidates):
+        calls["n"] += 1
+        return list(candidates)
+
+    monkeypatch.setattr(
+        "services.estadisticas_service._meses_con_cartas_visibles",
+        fake_visible,
+    )
+    monkeypatch.setattr(
+        "services.estadisticas_service._meses_candidatos_selector",
+        lambda _cap, limit=24: ["2026-05"],
+    )
+    monkeypatch.setattr(
+        "services.estadisticas_service._mes_actual_ar",
+        lambda: "2026-06",
+    )
+    monkeypatch.setattr(
+        "services.estadisticas_service._MESES_DISPONIBLES_CACHE",
+        {},
+    )
+
+    from services.estadisticas_service import fetch_meses_disponibles
+
+    assert fetch_meses_disponibles(99) == ["2026-05"]
+    assert fetch_meses_disponibles(99) == ["2026-05"]
+    assert calls["n"] == 1
 
 
 def test_any_vendor_carta_visible_requiere_actividad_comercial():

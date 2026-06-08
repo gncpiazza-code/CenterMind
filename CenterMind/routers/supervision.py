@@ -878,27 +878,7 @@ def supervision_vendedores(
         )
         rutas_data = _fetch_rutas_rows(dist_id, "id_ruta,id_vendedor")
 
-        # Fetch ALL clients with pagination — Supabase defaults to 1000 rows which
-        # would truncate large distributors (Tabaco has 13k+ PDVs).
-        # Excluye anulados + fuera de padrón; NO excluye inactivos por sin_compra (siguen en mapa).
         PAGE = 1000
-        all_clients: list[dict] = []
-        offset = 0
-        while True:
-            page_res = (
-                sb.table(t_clientes)
-                .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra,fecha_alta")
-                .eq("id_distribuidor", dist_id)
-                .or_(_SUPERVISION_PADRON_VISIBLE_OR)
-                .range(offset, offset + PAGE - 1)
-                .execute()
-            )
-            batch = page_res.data or []
-            all_clients.extend(batch)
-            if len(batch) < PAGE:
-                break
-            offset += PAGE
-
         suc_map = {int(r["id_sucursal"]): (r.get("nombre_erp") or "Sin sucursal") for r in (suc_res.data or [])}
         rutas_por_vend: dict[int, list[int]] = {}
         vend_por_ruta: dict[int, int] = {}
@@ -911,9 +891,56 @@ def supervision_vendedores(
             vend_por_ruta[rid] = vid
             rutas_por_vend.setdefault(vid, []).append(rid)
 
-        exhibidos_30d: set[int] = set()
-        primera_exhibicion_7d: set[int] = set()
-        if not lite:
+        if lite:
+            # Carga inicial portal CC: sin scan de 13k+ PDVs ni exhibiciones 30d.
+            rows = []
+            for v in (vend_res.data or []):
+                try:
+                    vid = int(v["id_vendedor"])
+                except Exception:
+                    continue
+                sid = v.get("id_sucursal")
+                sid_int = int(sid) if sid is not None else None
+                rutas_ids = rutas_por_vend.get(vid, [])
+                rows.append(
+                    {
+                        "id_vendedor": vid,
+                        "id_vendedor_erp": v.get("id_vendedor_erp"),
+                        "nombre_vendedor": v.get("nombre_erp") or "Sin vendedor",
+                        "sucursal_nombre": suc_map.get(sid_int, "Sin sucursal"),
+                        "total_rutas": len(rutas_ids),
+                        "total_pdv": 0,
+                        "pdv_activos": 0,
+                        "pdv_inactivos": 0,
+                        "pdv_nuevos_7d": 0,
+                        "pdv_activados_7d": 0,
+                        "pdv_exhibidos": 0,
+                        "pdv_exhibidos_nuevos_7d": 0,
+                    }
+                )
+        else:
+            # Fetch ALL clients with pagination — Supabase defaults to 1000 rows which
+            # would truncate large distributors (Tabaco has 13k+ PDVs).
+            # Excluye anulados + fuera de padrón; NO excluye inactivos por sin_compra (siguen en mapa).
+            all_clients: list[dict] = []
+            offset = 0
+            while True:
+                page_res = (
+                    sb.table(t_clientes)
+                    .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra,fecha_alta")
+                    .eq("id_distribuidor", dist_id)
+                    .or_(_SUPERVISION_PADRON_VISIBLE_OR)
+                    .range(offset, offset + PAGE - 1)
+                    .execute()
+                )
+                batch = page_res.data or []
+                all_clients.extend(batch)
+                if len(batch) < PAGE:
+                    break
+                offset += PAGE
+
+            exhibidos_30d: set[int] = set()
+            primera_exhibicion_7d: set[int] = set()
             exh_since = (datetime.now() - timedelta(days=30)).isoformat()
             all_exh: list[dict] = []
             exh_offset = 0
@@ -945,77 +972,77 @@ def supervision_vendedores(
                 cid for cid, ts in primera_exhibicion.items() if ts >= threshold_7d_iso
             }
 
-        # Contar PDVs igual que el mapa: deduplicar por id_cliente_erp y
-        # usar regla de 30 días sin compra para clasificar activo/inactivo.
-        threshold_30d = (datetime.now() - timedelta(days=30)).isoformat()[:10]
-        threshold_7d = (datetime.now() - timedelta(days=7)).isoformat()[:10]
-        pdv_activos: dict[int, int] = {}
-        pdv_inactivos: dict[int, int] = {}
-        pdv_nuevos_7d_dict: dict[int, int] = {}
-        pdv_activados_7d_dict: dict[int, int] = {}
-        pdv_ids_per_vend: dict[int, set[int]] = {}
-        seen_per_vend: dict[int, set] = {}
-        for c in all_clients:
-            rid = c.get("id_ruta")
-            if rid is None:
-                continue
-            try:
-                vid = vend_por_ruta.get(int(rid))
-            except Exception:
-                vid = None
-            if not vid:
-                continue
-            # Deduplicar por ERP ID (igual que _dedupe_pdvs_latest_by_erp en el mapa)
-            erp = str(c.get("id_cliente_erp") or "").strip()
-            dedup_key = f"erp:{erp}" if erp else f"pk:{c.get('id_cliente')}"
-            if dedup_key in seen_per_vend.setdefault(vid, set()):
-                continue
-            seen_per_vend[vid].add(dedup_key)
-            pk = c.get("id_cliente")
-            if pk is not None:
-                pdv_ids_per_vend.setdefault(vid, set()).add(int(pk))
-            # Activo = compra en los últimos 30 días (misma regla que isInactivo30 en el frontend)
-            fecha_uc = (c.get("fecha_ultima_compra") or "")[:10]
-            if fecha_uc and fecha_uc >= threshold_30d:
-                pdv_activos[vid] = pdv_activos.get(vid, 0) + 1
-            else:
-                pdv_inactivos[vid] = pdv_inactivos.get(vid, 0) + 1
-            # PDVs activados en los últimos 7 días (subset de activos)
-            if fecha_uc and fecha_uc >= threshold_7d:
-                pdv_activados_7d_dict[vid] = pdv_activados_7d_dict.get(vid, 0) + 1
-            # PDVs nuevos en los últimos 7 días (por fecha_alta)
-            fecha_alta = (c.get("fecha_alta") or "")[:10]
-            if fecha_alta and fecha_alta >= threshold_7d:
-                pdv_nuevos_7d_dict[vid] = pdv_nuevos_7d_dict.get(vid, 0) + 1
+            # Contar PDVs igual que el mapa: deduplicar por id_cliente_erp y
+            # usar regla de 30 días sin compra para clasificar activo/inactivo.
+            threshold_30d = (datetime.now() - timedelta(days=30)).isoformat()[:10]
+            threshold_7d = (datetime.now() - timedelta(days=7)).isoformat()[:10]
+            pdv_activos: dict[int, int] = {}
+            pdv_inactivos: dict[int, int] = {}
+            pdv_nuevos_7d_dict: dict[int, int] = {}
+            pdv_activados_7d_dict: dict[int, int] = {}
+            pdv_ids_per_vend: dict[int, set[int]] = {}
+            seen_per_vend: dict[int, set] = {}
+            for c in all_clients:
+                rid = c.get("id_ruta")
+                if rid is None:
+                    continue
+                try:
+                    vid = vend_por_ruta.get(int(rid))
+                except Exception:
+                    vid = None
+                if not vid:
+                    continue
+                # Deduplicar por ERP ID (igual que _dedupe_pdvs_latest_by_erp en el mapa)
+                erp = str(c.get("id_cliente_erp") or "").strip()
+                dedup_key = f"erp:{erp}" if erp else f"pk:{c.get('id_cliente')}"
+                if dedup_key in seen_per_vend.setdefault(vid, set()):
+                    continue
+                seen_per_vend[vid].add(dedup_key)
+                pk = c.get("id_cliente")
+                if pk is not None:
+                    pdv_ids_per_vend.setdefault(vid, set()).add(int(pk))
+                # Activo = compra en los últimos 30 días (misma regla que isInactivo30 en el frontend)
+                fecha_uc = (c.get("fecha_ultima_compra") or "")[:10]
+                if fecha_uc and fecha_uc >= threshold_30d:
+                    pdv_activos[vid] = pdv_activos.get(vid, 0) + 1
+                else:
+                    pdv_inactivos[vid] = pdv_inactivos.get(vid, 0) + 1
+                # PDVs activados en los últimos 7 días (subset de activos)
+                if fecha_uc and fecha_uc >= threshold_7d:
+                    pdv_activados_7d_dict[vid] = pdv_activados_7d_dict.get(vid, 0) + 1
+                # PDVs nuevos en los últimos 7 días (por fecha_alta)
+                fecha_alta = (c.get("fecha_alta") or "")[:10]
+                if fecha_alta and fecha_alta >= threshold_7d:
+                    pdv_nuevos_7d_dict[vid] = pdv_nuevos_7d_dict.get(vid, 0) + 1
 
-        rows = []
-        for v in (vend_res.data or []):
-            try:
-                vid = int(v["id_vendedor"])
-            except Exception:
-                continue
-            sid = v.get("id_sucursal")
-            sid_int = int(sid) if sid is not None else None
-            rutas_ids = rutas_por_vend.get(vid, [])
-            total_act = pdv_activos.get(vid, 0)
-            total_inact = pdv_inactivos.get(vid, 0)
-            vend_pdv_ids = pdv_ids_per_vend.get(vid, set())
-            rows.append(
-                {
-                    "id_vendedor": vid,
-                    "id_vendedor_erp": v.get("id_vendedor_erp"),
-                    "nombre_vendedor": v.get("nombre_erp") or "Sin vendedor",
-                    "sucursal_nombre": suc_map.get(sid_int, "Sin sucursal"),
-                    "total_rutas": len(rutas_ids),
-                    "total_pdv": total_act + total_inact,
-                    "pdv_activos": total_act,
-                    "pdv_inactivos": total_inact,
-                    "pdv_nuevos_7d": pdv_nuevos_7d_dict.get(vid, 0),
-                    "pdv_activados_7d": pdv_activados_7d_dict.get(vid, 0),
-                    "pdv_exhibidos": len(vend_pdv_ids & exhibidos_30d),
-                    "pdv_exhibidos_nuevos_7d": len(vend_pdv_ids & primera_exhibicion_7d),
-                }
-            )
+            rows = []
+            for v in (vend_res.data or []):
+                try:
+                    vid = int(v["id_vendedor"])
+                except Exception:
+                    continue
+                sid = v.get("id_sucursal")
+                sid_int = int(sid) if sid is not None else None
+                rutas_ids = rutas_por_vend.get(vid, [])
+                total_act = pdv_activos.get(vid, 0)
+                total_inact = pdv_inactivos.get(vid, 0)
+                vend_pdv_ids = pdv_ids_per_vend.get(vid, set())
+                rows.append(
+                    {
+                        "id_vendedor": vid,
+                        "id_vendedor_erp": v.get("id_vendedor_erp"),
+                        "nombre_vendedor": v.get("nombre_erp") or "Sin vendedor",
+                        "sucursal_nombre": suc_map.get(sid_int, "Sin sucursal"),
+                        "total_rutas": len(rutas_ids),
+                        "total_pdv": total_act + total_inact,
+                        "pdv_activos": total_act,
+                        "pdv_inactivos": total_inact,
+                        "pdv_nuevos_7d": pdv_nuevos_7d_dict.get(vid, 0),
+                        "pdv_activados_7d": pdv_activados_7d_dict.get(vid, 0),
+                        "pdv_exhibidos": len(vend_pdv_ids & exhibidos_30d),
+                        "pdv_exhibidos_nuevos_7d": len(vend_pdv_ids & primera_exhibicion_7d),
+                    }
+                )
 
         erp_name_map = _get_erp_name_map(dist_id)
         active_ids = load_active_vendedor_ids(dist_id)
@@ -1029,7 +1056,7 @@ def supervision_vendedores(
             # Padrón ingest no elimina rutas/vendedores huérfanos: si no hay ningún PDV
             # visible (misma consulta que KPIs/mapa), ocultar — evita bajas CHESS con rutas
             # fantasma en rutas_v2.
-            if int(r.get("total_pdv") or 0) == 0:
+            if not lite and int(r.get("total_pdv") or 0) == 0:
                 continue
             tg_name = (r.get("nombre_vendedor") or "").strip()
             if is_vendedor_excluido_objetivos(tg_name):

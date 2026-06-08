@@ -16,8 +16,10 @@ import {
   fetchVendedoresSupervision,
   fetchSupervisionBundle,
   type CcKpisResponse,
+  type CuentasSupervision,
   type DeudorDetalle,
   type SyncStatus,
+  type VendedorCuentas,
   type VendedorSupervision,
   type SupervisionBundle,
 } from "@/lib/api";
@@ -31,6 +33,31 @@ export const SUPERVISION_CC_KPIS_STALE = 5 * 60_000;
 export const SUPERVISION_DEUDOR_STALE = 3 * 60_000;
 export const SUPERVISION_GC_MS = 30 * 60_000;
 export const SUPERVISION_CUENTAS_GC_MS = 15 * 60_000;
+
+/** Bootstrap del selector de vendedor desde snapshot CC (prefetch portal). */
+export function vendedoresFromBundleCuentas(
+  cuentas: CuentasSupervision | undefined,
+): VendedorSupervision[] {
+  const rows = cuentas?.vendedores;
+  if (!rows?.length) return [];
+  const seen = new Set<number>();
+  const out: VendedorSupervision[] = [];
+  for (const vc of rows as VendedorCuentas[]) {
+    const id = vc.id_vendedor;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id_vendedor: id,
+      nombre_vendedor: vc.vendedor || "Sin vendedor",
+      sucursal_nombre: vc.sucursal || "Sin sucursal",
+      total_rutas: 0,
+      total_pdv: 0,
+      pdv_activos: 0,
+      pdv_inactivos: 0,
+    });
+  }
+  return out;
+}
 
 export function vendedoresLiteQueryOptions(distId: number) {
   return {
@@ -172,9 +199,27 @@ export function useSupervisionPanelQueries(
   const qc = useQueryClient();
   const prevCcSyncRef = useRef<string | null>(null);
 
+  const bundleQuery = useQuery<SupervisionBundle>({
+    ...supervisionBundleQueryOptions(distId, sucursalParam ?? null, null),
+    enabled: !!distId,
+    placeholderData: keepPreviousData,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data?.meta?.revalidating) return false;
+      if ((data.cuentas?.vendedores?.length ?? 0) > 0) return false;
+      return 5_000;
+    },
+  });
+
+  const bundleVendedores = useMemo(
+    () => vendedoresFromBundleCuentas(bundleQuery.data?.cuentas),
+    [bundleQuery.data?.cuentas],
+  );
+
   const vendedoresLiteQuery = useQuery<VendedorSupervision[]>({
     ...vendedoresLiteQueryOptions(distId),
     enabled: !!distId,
+    placeholderData: bundleVendedores.length > 0 ? bundleVendedores : undefined,
   });
 
   const vendedoresFullQuery = useQuery<VendedorSupervision[]>({
@@ -183,7 +228,8 @@ export function useSupervisionPanelQueries(
     placeholderData: keepPreviousData,
   });
 
-  const vendedores = vendedoresFullQuery.data ?? vendedoresLiteQuery.data ?? [];
+  const vendedores =
+    vendedoresFullQuery.data ?? vendedoresLiteQuery.data ?? bundleVendedores;
 
   const selectedVendedorObj = useMemo(
     () => vendedores.find((v) => v.nombre_vendedor === selectedVendedorNombre) ?? null,
@@ -198,18 +244,6 @@ export function useSupervisionPanelQueries(
     refetchInterval: 60_000,
   });
 
-  // Bundle: carga snapshot sucursal-wide al entrar (prefetch global vía PortalCacheOrchestrator)
-  const bundleQuery = useQuery<SupervisionBundle>({
-    ...supervisionBundleQueryOptions(distId, sucursalParam ?? null, null),
-    enabled: !!distId,
-    placeholderData: keepPreviousData,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (!data?.meta?.revalidating) return false;
-      if ((data.cuentas?.vendedores?.length ?? 0) > 0) return false;
-      return 5_000;
-    },
-  });
   const cuentasData = bundleQuery.data?.cuentas ?? undefined;
   const waitingSnapshot =
     !!bundleQuery.data?.meta?.revalidating &&
@@ -252,7 +286,10 @@ export function useSupervisionPanelQueries(
 
   return {
     vendedores,
-    vendedoresLoading: vendedoresLiteQuery.isLoading && !vendedoresLiteQuery.data?.length,
+    vendedoresLoading:
+      vendedores.length === 0 &&
+      ((vendedoresLiteQuery.isLoading && !bundleVendedores.length) ||
+        (bundleQuery.isLoading && !bundleQuery.data)),
     vendedoresFetching: vendedoresLiteQuery.isFetching || vendedoresFullQuery.isFetching,
     vendedoresStatsPending: !vendedoresFullQuery.data && vendedoresLiteQuery.isSuccess,
     selectedVendedorObj,

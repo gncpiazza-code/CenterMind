@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 7 de Junio, 2026 (v13)  
+**Ultima actualizacion:** 8 de Junio, 2026 (v14)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -21,9 +21,12 @@
 - 🟢 RPA: padron y cuentas corrientes en scheduler operativo.
 - 🟢 Padrón RPA (2026-05-28): scheduler con **1 job por tenant** (escalonado 8 min), lock Consolido, catch-up por `motor_runs`; orden chicos→tabaco/aloma. Ver `ShelfMind-RPA/lib/padron_schedule.py`.
 - 🟢 Galería: mapa Apple Photos (MapLibre), viewer IG unificado, rol `compania` (ex `directorio`).
-- 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase; SQL `20260605_objetivo_jobs.sql` en Supabase; SQL `20260605_objetivos_flags_liquidacion.sql` en Supabase; runbook post-deploy objetivos compradores.
+- 🟢 SHELFYAPP (2026-06-08): paridad completa Telegram — stats/ranking/ventas/CC/galería/objetivos/push. 7 tabs Flutter, 10 endpoints nuevos, push FCM configurable, portal App Settings.
+- 🟡 Pendiente: tenant `extra`; SQL `20260601_rol_compania.sql` en Supabase; SQL `20260605_objetivo_jobs.sql` en Supabase; SQL `20260605_objetivos_flags_liquidacion.sql` en Supabase; **SQL `20260607_vendedor_app_settings_push.sql` en Supabase**; runbook post-deploy objetivos compradores.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+36. SHELFYAPP paridad Telegram → app móvil (2026-06-08): **Backend:** 7 nuevos services (`vendedor_galeria`, `vendedor_ventas`, `vendedor_cc`, `vendedor_post_upload`, `vendedor_bundle`, `vendedor_ranking`, `vendedor_push`); `/stats/full` con delta_posicion; `/cartera/ruta-hoy` conteos vitalidad; `/objetivos/{id}` desglose + items PDV; 10 endpoints nuevos (galería, ventas, CC, PDFs, post-upload, bundle, device-token). Push FCM configurable por dist; scheduler 08:00 AR. **Portal:** `/admin/app-settings` (superadmin); AppSettings CRUD en api.ts; Topbar acceso. **Flutter 7 tabs:** Captura (multi-foto 6, rich confirmation sheet) · Cartera (RutaHoyCard) · Ventas (MTD+PDF) · Cuentas (hoy/general+PDF) · Stats (chips estado+delta ranking) · Objetivos (detalle sheet+PDV desglose) · Galería (grid+timeline swipeable). Todos los invariantes Shelfy respetados: `aggregate_exhibicion_counts_vendor_scope`, `aggregate_ranking_by_vendor`, paginación 1000 filas. **SQL PENDIENTE:** `CenterMind/migrations/20260607_vendedor_app_settings_push.sql`. Commit: `2b5145c`.
 
 35. Hardening seguridad plataforma + Snyk + infra (2026-06-07): Supabase prod — RLS ~90 tablas, REVOKE RPC anon/authenticated, search_path (`20260607_platform_security_hardening.sql` aplicada). Deps parcheadas (axios/next/jspdf/xlsx FE; supabase-py 2.31 Python). PyJWT reemplaza python-jose. API: WS exhibiciones JWT+tenant; CORS sin wildcard subdominios. FE: cookie Secure, vercel.json headers, CI Snyk. www en Vercel; DNS A `76.76.21.21` pendiente CF.
 

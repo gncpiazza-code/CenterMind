@@ -288,6 +288,52 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Export oficial para auditoria/extraccion: `GET /api/portal-feedback/messages/export` (JSON con `meta` + `items`).
 - Pre-resolucion automatica: endpoint `POST /api/portal-feedback/messages/{id}/pre-resolucion` con Gemini opcional y fallback por reglas locales.
 
+## 9.6) SHELFYAPP — App móvil Flutter (implementado 2026-06-08)
+
+### Stack y estructura
+- Flutter SDK, Provider (ChangeNotifier), ApiClient HTTP, DraggableScrollableSheet.
+- Directorio: `shelfy-mobile/lib/features/`.
+- 7 tabs: Captura(0) · Cartera(1) · Ventas(2) · Cuentas(3) · Stats(4) · Objetivos(5) · Galería(6).
+
+### Invariantes de datos (IGUAL que bot/portal)
+- Stats y ranking: SIEMPRE via `aggregate_exhibicion_counts_vendor_scope` + `aggregate_ranking_by_vendor`.
+- Paginación 1000 filas en todos los services móvil.
+- Aislamiento tenant: todos los services aseguran `session["vendor"] == vendor_in_path`.
+
+### Endpoints móvil (prefix `/api/vendedor/{dist_id}`)
+| Endpoint | Service | Descripción |
+|----------|---------|-------------|
+| GET /stats/full | vendedor_stats_service | Stats mes actual+anterior + delta ranking |
+| GET /ranking | vendedor_ranking_service | Top 50 + posición propia |
+| GET /cartera | vendedor_cartera_service | JSON cartera general/hoy |
+| GET /cartera/ruta-hoy | vendedor_cartera_service | Conteos vitalidad del día |
+| GET /objetivos | vendedor_objetivos_service | Lista objetivos activos |
+| GET /objetivos/{id} | vendedor_objetivos_service | Detalle con desglose y items PDV |
+| GET /galeria/clientes | vendedor_galeria_service | Clientes con conteo exhibiciones |
+| GET /galeria/cliente/{id}/timeline | vendedor_galeria_service | Publicaciones por PDV |
+| GET /galeria/mapa | vendedor_galeria_service | Pins con coordenadas |
+| GET /ventas | vendedor_ventas_service | MTD por PDV |
+| GET /ventas/pdf | vendedor_ventas_service | PDF ventas |
+| GET /cc | vendedor_cc_service | CC general/hoy |
+| GET /cc/pdf | vendedor_cc_service | PDF CC |
+| GET /post-upload/{nro_cliente} | vendedor_post_upload_service | Historial PDV post-carga |
+| GET /bundle | vendedor_bundle_service | Paquete offline (cartera+objetivos+stats) |
+| POST /device-token | vendedor_push_service | Registro token FCM |
+
+### Push notifications
+- `vendedor_app_settings` (tabla): config push por dist (enabled, hora, dias, template).
+- `vendedor_app_device_tokens`: tokens FCM; UNIQUE (dist_id, id_vendedor_v2, device_id).
+- Scheduler APScheduler: 11:00 UTC (08:00 AR) → `dispatch_scheduled_pushes()`.
+- Portal: `/admin/app-settings` (superadmin only).
+- **SQL PENDIENTE ejecutar en Supabase:** `CenterMind/migrations/20260607_vendedor_app_settings_push.sql`.
+
+### Flutter — convenciones
+- Cada feature: `models/`, `*_provider.dart`, `*_screen.dart`, `widgets/`.
+- PDF download: `ApiClient.getBytes(path)` → `open_filex`.
+- Offline bundle: `GET /bundle` al iniciar + React Query staleTime en provider.
+- Multi-foto: `kMaxPhotosPerExhibicion = 6`; `PostUploadSummary` tras confirmar.
+- Confirmación captura: `_RichConfirmationSheet` DraggableScrollableSheet.
+
 ## 10) Protocolo Shelfy (obligatorio)
 
 Antes de implementar:

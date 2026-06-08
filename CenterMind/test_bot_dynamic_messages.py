@@ -89,6 +89,37 @@ def test_build_ranking_result_message_rows():
     assert "Luis" in msg
     assert "🥇" in msg
     assert "🥈" in msg
+    assert "⭐ Puntos: 40" in msg
+    assert "794." not in msg
+    assert "⭐ Puntos: 30" in msg
+
+
+def test_build_ranking_result_message_no_row_concat_bug():
+    """Sin saltos entre filas, el emoji '4.' se pegaba al puntaje '79' → '794.'."""
+    from core.bot_settings import get_settings_cache
+
+    get_settings_cache().invalidate()
+    sb = MagicMock()
+    sb.table.return_value.select.return_value.execute.return_value.data = []
+
+    msg = build_ranking_result_message(
+        sb,
+        nombre_dist="Real",
+        mes_nombre="Junio",
+        year=2026,
+        entries=[
+            {"vendedor": "A", "puntos": 160, "aprobadas": 118, "destacadas": 21, "delta": 0},
+            {"vendedor": "B", "puntos": 103, "aprobadas": 97, "destacadas": 3, "delta": 0},
+            {"vendedor": "C", "puntos": 79, "aprobadas": 73, "destacadas": 3, "delta": 0},
+            {"vendedor": "D", "puntos": 77, "aprobadas": 77, "destacadas": 0, "delta": 0},
+        ],
+        limit=10,
+    )
+    assert "⭐ Puntos: 79" in msg
+    assert "794." not in msg
+    assert "⭐ Puntos: 77" in msg
+    assert "775." not in msg
+    assert msg.index("⭐ Puntos: 79") < msg.index("4.")
 
 
 def test_build_objetivos_message_with_overflow():

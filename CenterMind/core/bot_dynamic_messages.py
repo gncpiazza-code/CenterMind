@@ -149,8 +149,9 @@ def build_ranking_result_message(
             )
         )
     footer = _r(sb, "ranking_result_footer", fallback="")
-    body = "".join(rows)
-    return f"{header}{body}{footer}".strip()
+    body = "\n".join(rows)
+    parts = [header, body, footer]
+    return "\n".join(p for p in parts if p).rstrip(" \t")
 
 
 def build_objetivos_item_line(

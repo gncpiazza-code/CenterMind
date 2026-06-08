@@ -19,7 +19,15 @@ from core.tenant_tables import tenant_table_name
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 # Mapeo día semana Python (0=lunes) → label cartera
-DIA_MAP = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado"}
+DIA_MAP = {
+    0: "Lunes",
+    1: "Martes",
+    2: "Miércoles",
+    3: "Jueves",
+    4: "Viernes",
+    5: "Sábado",
+    6: "Domingo",
+}
 
 DIA_SORT_ORDER = {
     "lunes": 0,
@@ -28,6 +36,7 @@ DIA_SORT_ORDER = {
     "jueves": 3,
     "viernes": 4,
     "sabado": 5,
+    "domingo": 6,
 }
 
 # Inactivo comercial = más de DIAS_ACTIVO_COMERCIAL sin compra (día 31+).

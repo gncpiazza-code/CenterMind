@@ -1738,10 +1738,15 @@ class BotWorker:
         await q.answer("⏳ Generando PDF...")
         data = q.data or ""
         try:
-            # Formato: CARTERA_HOY_<chat_id>_<vid> o CARTERA_GENERAL_<chat_id>_<vid>
-            parts = data.split("_", 3)
-            mode = "hoy" if parts[1] == "HOY" else "general"
-            vid = int(parts[3])
+            if data.startswith("CARTERA_HOY_"):
+                mode = "hoy"
+                tail = data[len("CARTERA_HOY_") :]
+            elif data.startswith("CARTERA_GENERAL_"):
+                mode = "general"
+                tail = data[len("CARTERA_GENERAL_") :]
+            else:
+                return
+            vid = int(tail.rsplit("_", 1)[-1])
         except (IndexError, ValueError):
             return
         await self._send_cartera_pdf(update, context, vid, mode, callback_query=q)
@@ -1827,9 +1832,15 @@ class BotWorker:
         await q.answer("⏳ Generando PDF...")
         data = q.data or ""
         try:
-            parts = data.split("_", 3)
-            modo = "hoy" if parts[1] == "HOY" else "general"
-            vid = int(parts[3])
+            if data.startswith("CUENTAS_HOY_"):
+                modo = "hoy"
+                tail = data[len("CUENTAS_HOY_") :]
+            elif data.startswith("CUENTAS_GENERAL_"):
+                modo = "general"
+                tail = data[len("CUENTAS_GENERAL_") :]
+            else:
+                return
+            vid = int(tail.rsplit("_", 1)[-1])
         except (IndexError, ValueError):
             return
         chat_id = update.effective_chat.id

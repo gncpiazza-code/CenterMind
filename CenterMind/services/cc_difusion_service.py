@@ -251,10 +251,10 @@ def _fetch_erp_dia_semana_map(dist_id: int, id_vendedor: int) -> dict[str, str]:
     """Mapa claves ERP → día de ruta (rutas_v2.dia_semana vía clientes_pdv_v2)."""
     try:
         rutas_table = tenant_table_name("rutas_v2", dist_id)
+        # rutas_v2_d* no tiene id_distribuidor (tenant = sufijo _dN)
         rutas = (
             sb.table(rutas_table)
             .select("id_ruta,dia_semana")
-            .eq("id_distribuidor", dist_id)
             .eq("id_vendedor", id_vendedor)
             .execute()
             .data
@@ -1252,6 +1252,7 @@ _DIA_SEMANA_MAP = {
     3: "Jueves",
     4: "Viernes",
     5: "Sábado",
+    6: "Domingo",
 }
 
 
@@ -1270,27 +1271,30 @@ def _filter_cc_rows_por_hoy(
 
     AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
     hoy_nombre = _DIA_SEMANA_MAP.get(datetime.now(AR_TZ).weekday(), "")
-    if not hoy_nombre:
-        return all_rows  # domingo u otro → sin filtro
+    hoy_norm = _norm_dia_cc(hoy_nombre)
+    if not hoy_norm:
+        return []
 
     if id_vendedor is None:
-        # Sin vendedor específico no podemos filtrar por ruta
         return all_rows
 
     try:
         rutas_table = tenant_table_name("rutas_v2", dist_id)
-        rutas_hoy = (
+        # rutas_v2_d* no tiene id_distribuidor; comparar día normalizado (acentos/case)
+        rutas_rows = (
             sb.table(rutas_table)
-            .select("id_ruta")
-            .eq("id_distribuidor", dist_id)
+            .select("id_ruta,dia_semana")
             .eq("id_vendedor", id_vendedor)
-            .eq("dia_semana", hoy_nombre)
             .execute().data or []
         )
-        if not rutas_hoy:
+        ruta_ids_hoy = {
+            r["id_ruta"]
+            for r in rutas_rows
+            if r.get("id_ruta") is not None
+            and _norm_dia_cc(r.get("dia_semana") or "") == hoy_norm
+        }
+        if not ruta_ids_hoy:
             return []
-
-        ruta_ids_hoy = {r["id_ruta"] for r in rutas_hoy}
 
         pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
         PAGE = 1000
@@ -1326,7 +1330,7 @@ def _filter_cc_rows_por_hoy(
 
     except Exception as e:
         logger.warning(f"[cc_hoy_filter] dist={dist_id} vend={id_vendedor}: {e}")
-        return all_rows
+        return []
 
 
 def export_cc_pdf_supervision(

@@ -16,11 +16,9 @@ from supabase import Client
 from core.helpers import tenant_table_name
 from core.padron_cliente_vitalidad import activo_comercial_por_fecha, DIAS_ACTIVO_COMERCIAL
 from core.bot_snapshot_meta import resolve_snapshot_label
+from services.bot_cartera_pdf_service import DIA_MAP, _norm_dia
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
-
-# Mapeo día semana Python (0=lunes) → label cartera
-DIA_MAP = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado"}
 
 # Días umbral para "próximo a caer"
 DIAS_PROXIMO_CAER_MIN = 23
@@ -53,8 +51,8 @@ def build_cartera_json(
 
     # 2. Filtrar por hoy si mode='hoy'
     if mode == "hoy":
-        hoy_nombre = DIA_MAP.get(datetime.now(AR_TZ).weekday(), "")
-        rutas = [r for r in rutas if r.get("dia_semana") == hoy_nombre]
+        hoy_norm = _norm_dia(DIA_MAP.get(datetime.now(AR_TZ).weekday(), ""))
+        rutas = [r for r in rutas if _norm_dia(r.get("dia_semana") or "") == hoy_norm]
 
     # 3. Para cada ruta, obtener PDVs con campos extendidos
     pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
@@ -71,7 +69,7 @@ def build_cartera_json(
                 .select(
                     "id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,"
                     "domicilio,localidad,telefono,canal,"
-                    "latitud,longitud,fecha_ultima_compra,activo,id_ruta"
+                    "latitud,longitud,fecha_ultima_compra"
                 )
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)

@@ -72,6 +72,29 @@ class GaleriaProvider extends ChangeNotifier {
     }
   }
 
+  /// Refresca la lista y opcionalmente precarga el timeline de un PDV.
+  Future<void> refreshAfterUpload(String idClienteErp) async {
+    await fetchClientes();
+    final normalized = idClienteErp.trim();
+    if (normalized.isEmpty) return;
+    final match = clientes.where((c) => c.idClienteErp == normalized);
+    if (match.isEmpty) {
+      // Reintento: backend puede devolver ERP con/sin ceros a la izquierda.
+      final stripped = normalized.replaceFirst(RegExp(r'^0+'), '');
+      if (stripped.isNotEmpty) {
+        final alt = clientes.where((c) =>
+            c.idClienteErp == stripped ||
+            c.idClienteErp.replaceFirst(RegExp(r'^0+'), '') == stripped);
+        if (alt.isNotEmpty) {
+          await fetchTimeline(alt.first.idClienteErp);
+          return;
+        }
+      }
+      return;
+    }
+    await fetchTimeline(normalized);
+  }
+
   /// Limpia el timeline al cerrar el sheet.
   void clearTimeline() {
     timelineActual = null;

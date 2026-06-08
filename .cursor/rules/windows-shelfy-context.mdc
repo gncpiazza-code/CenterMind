@@ -1,0 +1,17 @@
+---
+description: Contexto Windows Shelfy — worker local, LM Studio, Flutter Android. Leer docs/runbooks/CURSOR-WINDOWS-CONTEXT.md al inicio.
+alwaysApply: true
+---
+
+# Windows Shelfy Agent Context
+
+Al iniciar sesión en esta PC Windows (`C:\dev\CenterMind`, 16 GB RAM):
+
+1. Leé **`docs/runbooks/CURSOR-WINDOWS-CONTEXT.md`** completo.
+2. Leé **`docs/coordination/ACTIVE.md`** y **`CLAUDE.md`** antes de tocar código.
+3. **Análisis** (logs, P0, diff review) → LM Studio local (`google/gemma-4-e4b-qat`, `:1234`, `invoke-local.ps1`). No re-analizar en Composer.
+4. **Builds** (APK tabaco, pytest, lint masivo) → terminal/worker, mínimo LLM.
+5. **Fixes código** → Composer solo tras informe LM Studio o si el usuario lo pide explícitamente.
+6. Worker: `shelfy-win-worker`. Ramas Windows: `win/*`. No tocar favicon.
+
+APK MVP: `scripts/lmstudio-worker/build-android-mvp.ps1` → `app-tabaco-release.apk`.

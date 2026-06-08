@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../home/home_tab_controller.dart';
 import 'capture_provider.dart';
 import 'models/post_upload_summary.dart';
 import 'widgets/camera_capture_widget.dart';
@@ -488,6 +489,14 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 ),
               ],
               const SizedBox(height: 32),
+              if (!isOffline) ...[
+                OutlinedButton.icon(
+                  onPressed: () => _openGaleria(context, provider),
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Ver en galería'),
+                ),
+                const SizedBox(height: 12),
+              ],
               FilledButton.icon(
                 onPressed: () {
                   _manualNroController.clear();
@@ -527,16 +536,26 @@ class _CaptureScreenState extends State<CaptureScreen> {
         },
         onVerStats: () {
           Navigator.of(context).pop();
-          // Navegar a la pestaña de estadísticas (index 2 en el BottomNav)
-          // Se usa un simple pop ya que el scaffold de la app maneja el router.
           _manualNroController.clear();
           provider.reset();
-          // La navegación a /stats la gestiona el BottomNavigationBar del home.
-          // Aquí se emite el reset para que el home vuelva al estado limpio y
-          // el usuario pueda tocar el tab de stats manualmente.
+        },
+        onVerGaleria: () {
+          Navigator.of(context).pop();
+          _openGaleria(context, provider);
+          _manualNroController.clear();
+          provider.reset();
+          _startBackgroundGps();
         },
       ),
     );
+  }
+
+  void _openGaleria(BuildContext context, CaptureProvider provider) {
+    final nro = provider.nroCliente;
+    context.read<HomeTabController>().goToTab(
+          6,
+          openGaleriaClienteErp: nro.isNotEmpty ? nro : null,
+        );
   }
 }
 
@@ -550,6 +569,7 @@ class _RichConfirmationSheet extends StatelessWidget {
   final String nroCliente;
   final VoidCallback onCapturarOtro;
   final VoidCallback onVerStats;
+  final VoidCallback onVerGaleria;
 
   const _RichConfirmationSheet({
     required this.summary,
@@ -557,6 +577,7 @@ class _RichConfirmationSheet extends StatelessWidget {
     required this.nroCliente,
     required this.onCapturarOtro,
     required this.onVerStats,
+    required this.onVerGaleria,
   });
 
   @override
@@ -661,6 +682,12 @@ class _RichConfirmationSheet extends StatelessWidget {
                       onPressed: onCapturarOtro,
                       icon: const Icon(Icons.add_a_photo_outlined),
                       label: const Text('Capturar otro PDV'),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: onVerGaleria,
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Ver en galería'),
                     ),
                     const SizedBox(height: 10),
                     OutlinedButton.icon(

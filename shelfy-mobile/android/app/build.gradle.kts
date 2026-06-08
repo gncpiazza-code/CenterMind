@@ -32,28 +32,24 @@ android {
             dimension = "tenant"
             applicationIdSuffix = ".tabaco"
             versionNameSuffix = "-tabaco"
-            resValue("string", "app_name", "ShelfyApp Tabaco")
             buildConfigField("String", "FLAVOR", "\"tabaco\"")
         }
         create("aloma") {
             dimension = "tenant"
             applicationIdSuffix = ".aloma"
             versionNameSuffix = "-aloma"
-            resValue("string", "app_name", "ShelfyApp Aloma")
             buildConfigField("String", "FLAVOR", "\"aloma\"")
         }
         create("liver") {
             dimension = "tenant"
             applicationIdSuffix = ".liver"
             versionNameSuffix = "-liver"
-            resValue("string", "app_name", "ShelfyApp Liver")
             buildConfigField("String", "FLAVOR", "\"liver\"")
         }
         create("real") {
             dimension = "tenant"
             applicationIdSuffix = ".real"
             versionNameSuffix = "-real"
-            resValue("string", "app_name", "ShelfyApp Real")
             buildConfigField("String", "FLAVOR", "\"real\"")
         }
     }

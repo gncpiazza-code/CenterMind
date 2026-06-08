@@ -48,6 +48,9 @@ class CaptureProvider extends ChangeNotifier {
   double? _currentLat;
   double? _currentLng;
 
+  /// Notifica al shell (ej. refrescar galería) tras upload online exitoso.
+  void Function(String nroCliente)? onUploadSuccess;
+
   CaptureProvider({required ApiClient apiClient, required ShelfyDatabase db})
       : _api = apiClient,
         _db = db;
@@ -78,7 +81,10 @@ class CaptureProvider extends ChangeNotifier {
   double? get currentLat => _currentLat;
   double? get currentLng => _currentLng;
 
-  String get nroCliente => _selectedPdv?.idClienteErp ?? _manualNro ?? '';
+  String get nroCliente {
+    final raw = _selectedPdv?.idClienteErp ?? _manualNro ?? '';
+    return raw.trim();
+  }
 
   String get pdvDisplayName =>
       _selectedPdv?.nombreDisplay ??
@@ -243,10 +249,19 @@ class CaptureProvider extends ChangeNotifier {
 
     _lastResult = BatchUploadResult.fromJson(responseJson);
 
+    if (_lastResult!.exhibicionIds.isEmpty) {
+      throw const ApiException(
+        statusCode: 500,
+        message:
+            'El servidor no registró las fotos. Verificá la conexión e intentá de nuevo.',
+      );
+    }
+
     // Carga el resumen post-upload enriquecido en background (no bloquea).
     _fetchPostUploadSummary(nroCliente);
 
     _currentStep = CaptureStep.success;
+    onUploadSuccess?.call(nroCliente);
   }
 
   /// Llama al endpoint de resumen post-upload y actualiza el estado.

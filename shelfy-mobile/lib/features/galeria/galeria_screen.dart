@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../home/home_tab_controller.dart';
 import 'galeria_provider.dart';
+import 'models/galeria_models.dart';
 import 'widgets/galeria_grid.dart';
 import 'widgets/galeria_mapa_view.dart';
+import 'widgets/galeria_timeline_sheet.dart';
 
 /// Pantalla principal de galería — muestra exhibiciones por cliente.
 ///
@@ -17,14 +20,71 @@ class GaleriaScreen extends StatefulWidget {
 }
 
 class _GaleriaScreenState extends State<GaleriaScreen> {
+  late HomeTabController _shell;
+
   @override
   void initState() {
     super.initState();
+    _shell = context.read<HomeTabController>();
+    _shell.addListener(_onTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<GaleriaProvider>().fetchClientes();
-      }
+      if (!mounted) return;
+      context.read<GaleriaProvider>().fetchClientes();
+      _maybeOpenPendingCliente();
     });
+  }
+
+  @override
+  void dispose() {
+    _shell.removeListener(_onTabChanged);
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (!mounted) return;
+    if (context.read<HomeTabController>().selectedIndex == 6) {
+      _maybeOpenPendingCliente();
+    }
+  }
+
+  Future<void> _maybeOpenPendingCliente() async {
+    if (_shell.selectedIndex != 6) return;
+    final pending = _shell.takePendingGaleriaCliente();
+    if (pending == null || pending.isEmpty) return;
+
+    final galeria = context.read<GaleriaProvider>();
+    await galeria.refreshAfterUpload(pending);
+    if (!mounted) return;
+
+    GaleriaCliente? cliente;
+    for (final c in galeria.clientes) {
+      if (c.idClienteErp == pending) {
+        cliente = c;
+        break;
+      }
+    }
+    if (cliente == null) {
+      final stripped = pending.replaceFirst(RegExp(r'^0+'), '');
+      for (final c in galeria.clientes) {
+        if (c.idClienteErp.replaceFirst(RegExp(r'^0+'), '') == stripped) {
+          cliente = c;
+          break;
+        }
+      }
+    }
+
+    if (cliente == null || !mounted) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => ChangeNotifierProvider.value(
+        value: galeria,
+        child: GaleriaTimelineSheet(cliente: cliente!),
+      ),
+    );
   }
 
   @override

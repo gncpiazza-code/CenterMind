@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
 import 'models/cartera_models.dart';
+import 'models/ruta_hoy_model.dart';
 
 /// ChangeNotifier que gestiona el estado de la cartera (modo hoy y general).
 class CarteraProvider extends ChangeNotifier {
@@ -18,6 +19,11 @@ class CarteraProvider extends ChangeNotifier {
 
   String? errorHoy;
   String? errorGeneral;
+
+  // Resumen de ruta de hoy
+  RutaHoyResponse? rutaHoy;
+  bool loadingRutaHoy = false;
+  String? errorRutaHoy;
 
   /// Carga la cartera para el [mode] indicado ('hoy' o 'general').
   Future<void> fetchCartera(String mode) async {
@@ -58,6 +64,25 @@ class CarteraProvider extends ChangeNotifier {
       } else {
         loadingGeneral = false;
       }
+      notifyListeners();
+    }
+  }
+
+  /// Carga el resumen de ruta del día desde GET /api/vendedor-app/cartera/ruta-hoy.
+  Future<void> fetchRutaHoy() async {
+    loadingRutaHoy = true;
+    errorRutaHoy = null;
+    notifyListeners();
+
+    try {
+      final data = await _api.get('/api/vendedor-app/cartera/ruta-hoy');
+      rutaHoy = RutaHoyResponse.fromJson(data);
+    } on ApiException catch (e) {
+      errorRutaHoy = e.message;
+    } catch (_) {
+      errorRutaHoy = 'Error al cargar resumen de ruta';
+    } finally {
+      loadingRutaHoy = false;
       notifyListeners();
     }
   }

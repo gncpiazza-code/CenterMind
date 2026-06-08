@@ -242,3 +242,61 @@ def get_stats_vendedor_app(
         },
         "ranking": ranking_out,
     }
+
+
+def get_stats_full_vendedor_app(
+    sb: Client,
+    dist_id: int,
+    id_vendedor_v2: int,
+) -> dict:
+    """
+    Stats full con delta de ranking vs. mes anterior.
+    Wrapper de get_stats_vendedor_app + delta calculado.
+    Delta: posicion_actual - posicion_anterior (negativo = subió en ranking)
+    """
+    base = get_stats_vendedor_app(sb, dist_id, id_vendedor_v2)
+
+    now_ar = datetime.now(AR_TZ)
+    if now_ar.month == 1:
+        y_prev, m_prev = now_ar.year - 1, 12
+    else:
+        y_prev, m_prev = now_ar.year, now_ar.month - 1
+
+    inicio_prev, fin_prev = _mes_bounds_ar(y_prev, m_prev)
+    delta_posicion: int | None = None
+
+    try:
+        all_rows_prev = _fetch_all_exhibiciones_for_dist(sb, dist_id, inicio_prev, fin_prev)
+        iid_to_erp = _build_iid_to_erp_map(sb, dist_id)
+        ranking_prev = aggregate_ranking_by_vendor(all_rows_prev, iid_to_erp)
+        ranking_prev_sorted = sorted(ranking_prev.items(), key=lambda x: x[1].get("puntos", 0), reverse=True)
+
+        integrantes_res = (
+            sb.table("integrantes_grupo")
+            .select("nombre_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor_v2)
+            .limit(1)
+            .execute()
+        )
+        vendor_nombre = None
+        if integrantes_res.data:
+            vendor_nombre = str(integrantes_res.data[0].get("nombre_integrante") or "").strip()
+
+        if vendor_nombre:
+            pos_prev = None
+            for pos, (vname, _) in enumerate(ranking_prev_sorted, start=1):
+                if vname == vendor_nombre:
+                    pos_prev = pos
+                    break
+
+            pos_actual = base["ranking"].get("posicion")
+            if pos_prev is not None and pos_actual is not None:
+                delta_posicion = pos_prev - pos_actual  # positivo = subió
+    except Exception as e:
+        logger.warning(f"get_stats_full delta dist={dist_id} vendor={id_vendedor_v2}: {e}")
+
+    result = dict(base)
+    result["ranking"] = dict(base["ranking"])
+    result["ranking"]["delta_posicion"] = delta_posicion
+    return result

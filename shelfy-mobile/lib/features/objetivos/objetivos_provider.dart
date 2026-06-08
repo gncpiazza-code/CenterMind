@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
 import 'models/objetivo_app.dart';
+import 'models/objetivo_detalle.dart';
 
 /// ChangeNotifier que gestiona los objetivos activos del vendedor.
 class ObjetivosProvider extends ChangeNotifier {
@@ -33,5 +34,12 @@ class ObjetivosProvider extends ChangeNotifier {
       loading = false;
       notifyListeners();
     }
+  }
+
+  /// Obtiene el detalle de un objetivo por ID desde GET /api/vendedor-app/objetivos/{id}.
+  /// Lanza [ApiException] si el servidor responde con error.
+  Future<ObjetivoDetalle> fetchDetalle(String id) async {
+    final data = await _api.get('/api/vendedor-app/objetivos/$id');
+    return ObjetivoDetalle.fromJson(data);
   }
 }

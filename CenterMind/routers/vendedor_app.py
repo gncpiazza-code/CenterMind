@@ -543,3 +543,231 @@ def post_revoke_device(
 
     revoke_device(sb, key_id=key_id, device_id=device_id)
     return {"ok": True, "key_id": key_id, "device_id": device_id}
+
+
+# ─── Endpoints core extendidos (A3) ──────────────────────────────────────────
+
+from services.vendedor_stats_service import get_stats_full_vendedor_app
+from services.vendedor_ranking_service import get_ranking_vendedor_app
+from services.vendedor_cartera_service import get_ruta_hoy_summary
+from services.vendedor_objetivos_service import get_objetivo_detalle
+
+
+@router.get("/stats/full", summary="Stats full con delta de ranking")
+def get_stats_full(session: dict = Depends(vendedor_session_dep)):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return get_stats_full_vendedor_app(sb, dist_id, vendor_id)
+    except Exception as e:
+        logger.error(f"get_stats_full dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error obteniendo stats full")
+
+
+@router.get("/ranking", summary="Ranking completo del mes")
+def get_ranking(
+    year: int = Query(None, description="Año (default: mes actual)"),
+    month: int = Query(None, description="Mes 1-12 (default: mes actual)"),
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    from datetime import datetime, timezone, timedelta
+    AR_TZ = timezone(timedelta(hours=-3))
+    now = datetime.now(AR_TZ)
+    y = year or now.year
+    m = month or now.month
+    if not (1 <= m <= 12):
+        raise HTTPException(status_code=400, detail="Mes inválido (1-12)")
+    try:
+        return get_ranking_vendedor_app(sb, dist_id, vendor_id, y, m)
+    except Exception as e:
+        logger.error(f"get_ranking dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error obteniendo ranking")
+
+
+@router.get("/cartera/ruta-hoy", summary="Resumen de la ruta del día actual")
+def get_ruta_hoy(session: dict = Depends(vendedor_session_dep)):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return get_ruta_hoy_summary(sb, dist_id, vendor_id)
+    except Exception as e:
+        logger.error(f"get_ruta_hoy dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error obteniendo ruta hoy")
+
+
+@router.get("/objetivos/{objetivo_id}", summary="Detalle de un objetivo específico")
+def get_objetivo_by_id(
+    objetivo_id: int,
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        detalle = get_objetivo_detalle(sb, dist_id, vendor_id, objetivo_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"get_objetivo_by_id dist={dist_id} vendor={vendor_id} obj={objetivo_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error obteniendo objetivo")
+    if detalle is None:
+        raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+    return detalle
+
+# --- FCM Device Token ------------------------------------------------------
+
+class DeviceTokenIn(BaseModel):
+    fcm_token: str
+    platform: str = "unknown"
+
+
+@router.post("/device-token", summary="Registrar token FCM/APNs del dispositivo")
+def register_device_token_endpoint(
+    body: DeviceTokenIn,
+    session: dict = Depends(vendedor_session_dep),
+):
+    from services.vendedor_push_service import register_device_token as _reg_token
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    device_id = str(session.get("device") or "unknown")
+    _reg_token(sb, dist_id, vendor_id, device_id, body.fcm_token, body.platform)
+    return {"ok": True}
+
+
+# ─── Endpoints extendidos: galería, ventas, CC, bundle, post-upload (A4) ─────
+
+from fastapi.responses import Response as _Response
+from services.vendedor_galeria_service import (
+    get_galeria_clientes_vendedor,
+    get_galeria_cliente_timeline,
+    get_galeria_mapa_pins,
+)
+from services.vendedor_ventas_service import get_ventas_vendedor, get_ventas_pdf_bytes
+from services.vendedor_cc_service import get_cc_vendedor, get_cc_pdf_bytes
+from services.vendedor_post_upload_service import build_post_upload_summary
+from services.vendedor_bundle_service import get_offline_bundle
+
+
+@router.get("/galeria/clientes", summary="Galería: PDVs con exhibiciones del vendedor")
+def get_galeria_clientes(session: dict = Depends(vendedor_session_dep)):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return {"clientes": get_galeria_clientes_vendedor(sb, dist_id, vendor_id)}
+    except Exception as e:
+        logger.error(f"get_galeria_clientes dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error galería clientes")
+
+
+@router.get("/galeria/cliente/{id_cliente_erp}/timeline", summary="Timeline de exhibiciones de un PDV")
+def get_galeria_timeline(
+    id_cliente_erp: str,
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return get_galeria_cliente_timeline(sb, dist_id, vendor_id, id_cliente_erp)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        logger.error(f"get_galeria_timeline dist={dist_id} vendor={vendor_id} pdv={id_cliente_erp}: {e}")
+        raise HTTPException(status_code=500, detail="Error timeline galería")
+
+
+@router.get("/galeria/mapa", summary="Pins del mapa de galería del vendedor")
+def get_galeria_mapa(
+    min_lat: float = Query(None),
+    max_lat: float = Query(None),
+    min_lng: float = Query(None),
+    max_lng: float = Query(None),
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    bbox = None
+    if all(x is not None for x in [min_lat, max_lat, min_lng, max_lng]):
+        bbox = {"min_lat": min_lat, "max_lat": max_lat, "min_lng": min_lng, "max_lng": max_lng}
+    try:
+        return {"pins": get_galeria_mapa_pins(sb, dist_id, vendor_id, bbox)}
+    except Exception as e:
+        logger.error(f"get_galeria_mapa dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error mapa galería")
+
+
+@router.get("/ventas", summary="Ventas MTD del vendedor")
+def get_ventas(
+    modo: str = Query("mtd"),
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return get_ventas_vendedor(sb, dist_id, vendor_id, modo)
+    except Exception as e:
+        logger.error(f"get_ventas dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error obteniendo ventas")
+
+
+@router.get("/ventas/pdf", summary="PDF de ventas MTD del vendedor")
+def get_ventas_pdf(session: dict = Depends(vendedor_session_dep)):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        pdf_bytes = get_ventas_pdf_bytes(sb, dist_id, vendor_id)
+    except Exception as e:
+        logger.error(f"get_ventas_pdf dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error generando PDF ventas")
+    return _Response(content=pdf_bytes, media_type="application/pdf")
+
+
+@router.get("/cc", summary="Cuentas corrientes del vendedor")
+def get_cc(
+    modo: str = Query("general", description="'hoy' para vencimientos hoy | 'general' para todo"),
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return get_cc_vendedor(sb, dist_id, vendor_id, modo)
+    except Exception as e:
+        logger.error(f"get_cc dist={dist_id} vendor={vendor_id} modo={modo}: {e}")
+        raise HTTPException(status_code=500, detail="Error obteniendo CC")
+
+
+@router.get("/cc/pdf", summary="PDF de cuentas corrientes del vendedor")
+def get_cc_pdf(session: dict = Depends(vendedor_session_dep)):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        pdf_bytes = get_cc_pdf_bytes(sb, dist_id, vendor_id)
+    except Exception as e:
+        logger.error(f"get_cc_pdf dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error generando PDF CC")
+    return _Response(content=pdf_bytes, media_type="application/pdf")
+
+
+@router.get("/post-upload/{nro_cliente}", summary="Confirmación rica post-subida de exhibición")
+def get_post_upload_summary_endpoint(
+    nro_cliente: str,
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return build_post_upload_summary(sb, dist_id, vendor_id, nro_cliente)
+    except Exception as e:
+        logger.error(f"get_post_upload dist={dist_id} vendor={vendor_id} pdv={nro_cliente}: {e}")
+        raise HTTPException(status_code=500, detail="Error post-upload summary")
+
+
+@router.get("/bundle", summary="Bundle offline completo para la app")
+def get_bundle(session: dict = Depends(vendedor_session_dep)):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        return get_offline_bundle(sb, dist_id, vendor_id)
+    except Exception as e:
+        logger.error(f"get_bundle dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error generando bundle offline")

@@ -99,6 +99,15 @@ def erp_automatic_sync():
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
+def _push_objetivos_job():
+    try:
+        from services.vendedor_push_service import dispatch_scheduled_pushes
+        result = dispatch_scheduled_pushes()
+        logger.info("[push_objetivos] %s", result)
+    except Exception as e:
+        logger.warning("[push_objetivos] error: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _main_loop
@@ -286,6 +295,14 @@ async def lifespan(app: FastAPI):
             logger.info("📅 Repaso Comercial cron activo (15 y fin de mes 23:59 AR)")
         else:
             logger.info("📅 Repaso Comercial cron desactivado (RECAP_CRON_ENABLED!=1)")
+
+    scheduler.add_job(
+        _push_objetivos_job,
+        "cron",
+        hour=11, minute=0,
+        id="push_objetivos_daily",
+        timezone="UTC",
+    )
 
     scheduler.start()
     if skip_bots:

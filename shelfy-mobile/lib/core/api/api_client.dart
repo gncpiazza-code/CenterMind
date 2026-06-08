@@ -187,6 +187,26 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  /// GET a un path que retorna bytes crudos (ej. PDF).
+  Future<List<int>> getBytes(String path) async {
+    final response = await _send(
+      () => http.get(_uri(path), headers: _headers()),
+    );
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.bodyBytes;
+    }
+    Map<String, dynamic>? errorBody;
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) errorBody = decoded;
+    } catch (_) {}
+    throw ApiException(
+      statusCode: response.statusCode,
+      message: _errorMessage(errorBody, response.statusCode),
+      body: errorBody,
+    );
+  }
+
   /// POST multipart (foto + campos). Todas las fotos usan el field `photos`.
   Future<Map<String, dynamic>> postMultipart(
     String path, {

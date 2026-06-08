@@ -95,3 +95,104 @@ def list_objetivos_vendedor(
         })
 
     return result
+
+
+# Columnas extendidas para detalle individual
+_OBJETIVO_DETALLE_COLS = (
+    "id, tipo, descripcion, fecha_objetivo, fecha_inicio, "
+    "valor_actual, valor_objetivo, cumplido, lanzado_at, "
+    "id_vendedor, nombre_vendedor, origen, mes_referencia, "
+    "created_at, id_target_pdv, desglose_cache, tasa_pendientes, "
+    "progreso_diario_updated_at, min_pdvs_distintos"
+)
+
+
+def _fetch_pdv_nombre(sb, dist_id: int, id_pdv: int) -> str | None:
+    """Busca nombre_fantasia o nombre_razon_social en clientes_pdv_v2."""
+    from core.helpers import tenant_table_name
+    pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+    try:
+        res = (
+            sb.table(pdv_table)
+            .select("nombre_fantasia,nombre_razon_social")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_cliente_erp", str(id_pdv))
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            row = res.data[0]
+            return (
+                (row.get("nombre_fantasia") or "").strip()
+                or (row.get("nombre_razon_social") or "").strip()
+                or None
+            )
+    except Exception:
+        pass
+    return None
+
+
+def get_objetivo_detalle(
+    sb,
+    dist_id: int,
+    id_vendedor_v2: int,
+    objetivo_id: int,
+) -> dict | None:
+    """
+    Objetivo específico con campos extendidos para la pantalla de detalle.
+    Retorna None si no existe; lanza HTTPException(403) si no pertenece al vendedor.
+    """
+    from fastapi import HTTPException
+
+    try:
+        res = (
+            sb.table("objetivos")
+            .select(_OBJETIVO_DETALLE_COLS)
+            .eq("id_distribuidor", dist_id)
+            .eq("id", objetivo_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        logger.error(f"get_objetivo_detalle dist={dist_id} obj={objetivo_id}: {e}")
+        return None
+
+    if not res.data:
+        return None
+
+    o = res.data[0]
+
+    if o.get("id_vendedor") != id_vendedor_v2:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    valor_objetivo = o.get("valor_objetivo") or 0
+    valor_actual = o.get("valor_actual") or 0
+    progreso_pct = round((valor_actual / valor_objetivo) * 100, 1) if valor_objetivo > 0 else 0.0
+
+    # Enriquecer con nombre del PDV target si existe
+    id_target_pdv = o.get("id_target_pdv")
+    items_pdv = None
+    if id_target_pdv is not None:
+        nombre_pdv = _fetch_pdv_nombre(sb, dist_id, id_target_pdv)
+        items_pdv = [{"id": id_target_pdv, "nombre": nombre_pdv}]
+
+    return {
+        "id": o.get("id"),
+        "tipo": (o.get("tipo") or "").strip(),
+        "descripcion": (o.get("descripcion") or "").strip() or None,
+        "fecha_objetivo": (o.get("fecha_objetivo") or "")[:10] or None,
+        "fecha_inicio": (o.get("fecha_inicio") or "")[:10] or None,
+        "valor_objetivo": valor_objetivo,
+        "valor_actual": valor_actual,
+        "progreso_pct": progreso_pct,
+        "cumplido": bool(o.get("cumplido", False)),
+        "lanzado_at": o.get("lanzado_at"),
+        "origen": (o.get("origen") or "").strip() or None,
+        "mes_referencia": (o.get("mes_referencia") or "")[:7] or None,
+        "nombre_vendedor": (o.get("nombre_vendedor") or "").strip() or None,
+        "tasa_pendientes": o.get("tasa_pendientes"),
+        "progreso_diario_updated_at": o.get("progreso_diario_updated_at"),
+        "min_pdvs_distintos": o.get("min_pdvs_distintos"),
+        "desglose": o.get("desglose_cache"),
+        "items_pdv": items_pdv,
+    }

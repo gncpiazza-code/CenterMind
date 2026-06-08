@@ -10,6 +10,10 @@ import '../../core/api/api_client.dart';
 import '../../core/offline/upload_queue.dart';
 import 'models/batch_upload_result.dart';
 import 'models/pdv_candidate.dart';
+import 'models/post_upload_summary.dart';
+
+/// Máximo de fotos permitidas por exhibición.
+const int kMaxPhotosPerExhibicion = 6;
 
 /// Pasos del flujo de captura (cámara primero, PDV después de la foto).
 enum CaptureStep {
@@ -30,11 +34,15 @@ class CaptureProvider extends ChangeNotifier {
   PdvCandidate? _selectedPdv;
   PdvCandidate? _detectedPdv;
   String? _manualNro;
+
+  /// Lista de fotos capturadas en la sesión actual (máximo [kMaxPhotosPerExhibicion]).
   List<File> _photos = [];
+
   String? _selectedTipo;
   bool _isUploading = false;
   bool _nearbyLoading = false;
   BatchUploadResult? _lastResult;
+  PostUploadSummary? _postUploadSummary;
   String? _errorMessage;
 
   double? _currentLat;
@@ -48,11 +56,24 @@ class CaptureProvider extends ChangeNotifier {
   PdvCandidate? get selectedPdv => _selectedPdv;
   PdvCandidate? get detectedPdv => _detectedPdv;
   String? get manualNro => _manualNro;
+
+  /// Lista inmutable de fotos capturadas.
   List<File> get photos => List.unmodifiable(_photos);
+
+  /// Número de fotos actualmente capturadas.
+  int get photoCount => _photos.length;
+
+  /// Si se puede agregar otra foto (no se ha llegado al límite).
+  bool get canAddMorePhotos => _photos.length < kMaxPhotosPerExhibicion;
+
+  /// Si hay al menos 1 foto (requisito mínimo para subir).
+  bool get hasPhotos => _photos.isNotEmpty;
+
   String? get selectedTipo => _selectedTipo;
   bool get isUploading => _isUploading;
   bool get nearbyLoading => _nearbyLoading;
   BatchUploadResult? get lastResult => _lastResult;
+  PostUploadSummary? get postUploadSummary => _postUploadSummary;
   String? get errorMessage => _errorMessage;
   double? get currentLat => _currentLat;
   double? get currentLng => _currentLng;
@@ -93,7 +114,8 @@ class CaptureProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Foto tomada: pasar a confirmación de PDV.
+  /// Primera foto tomada: inicia el flujo hacia confirmación de PDV.
+  /// Las fotos adicionales se agregan con [addPhoto].
   void onPhotoTaken(File file) {
     _photos = [file];
     _selectedPdv = null;
@@ -105,6 +127,27 @@ class CaptureProvider extends ChangeNotifier {
       _currentStep = CaptureStep.pdvConfirm;
     } else {
       _currentStep = CaptureStep.manualInput;
+    }
+    notifyListeners();
+  }
+
+  /// Agrega una foto adicional a la exhibición actual (máx. [kMaxPhotosPerExhibicion]).
+  /// Solo disponible en los pasos pdvConfirm, manualInput e ingresoChoice.
+  void addPhoto(File file) {
+    if (_photos.length >= kMaxPhotosPerExhibicion) return;
+    _photos = [..._photos, file];
+    notifyListeners();
+  }
+
+  /// Elimina la foto en la posición [index] de la lista.
+  void removePhoto(int index) {
+    if (index < 0 || index >= _photos.length) return;
+    final updated = List<File>.from(_photos);
+    updated.removeAt(index);
+    _photos = updated;
+    // Si se eliminaron todas las fotos, volver a cámara.
+    if (_photos.isEmpty) {
+      _currentStep = CaptureStep.camera;
     }
     notifyListeners();
   }
@@ -168,6 +211,7 @@ class CaptureProvider extends ChangeNotifier {
       } else {
         await _enqueueOffline();
         _lastResult = null;
+        _postUploadSummary = null;
         _currentStep = CaptureStep.success;
       }
     } catch (e) {
@@ -190,6 +234,7 @@ class CaptureProvider extends ChangeNotifier {
       if (_currentLng != null) 'capture_lng': _currentLng!.toString(),
     };
 
+    // Envía todas las fotos como multipart photos[] (backend ya lo soporta).
     final responseJson = await _api.postMultipart(
       '/api/vendedor-app/exhibiciones/batch-multipart',
       fields: fields,
@@ -197,7 +242,27 @@ class CaptureProvider extends ChangeNotifier {
     );
 
     _lastResult = BatchUploadResult.fromJson(responseJson);
+
+    // Carga el resumen post-upload enriquecido en background (no bloquea).
+    _fetchPostUploadSummary(nroCliente);
+
     _currentStep = CaptureStep.success;
+  }
+
+  /// Llama al endpoint de resumen post-upload y actualiza el estado.
+  /// Se ejecuta en background tras el upload exitoso; silencia errores.
+  Future<void> _fetchPostUploadSummary(String nroCliente) async {
+    try {
+      final json = await _api.get(
+        '/api/vendedor-app/post-upload/$nroCliente',
+      );
+      _postUploadSummary = PostUploadSummary.fromJson(json);
+      notifyListeners();
+    } catch (_) {
+      // Silenciar errores: la pantalla de éxito se muestra igualmente
+      // con los datos básicos del BatchUploadResult.
+      _postUploadSummary = null;
+    }
   }
 
   Future<void> _enqueueOffline() async {
@@ -228,6 +293,7 @@ class CaptureProvider extends ChangeNotifier {
     _selectedTipo = null;
     _isUploading = false;
     _lastResult = null;
+    _postUploadSummary = null;
     _errorMessage = null;
     notifyListeners();
   }

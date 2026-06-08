@@ -151,3 +151,32 @@ def build_cartera_json(
         "snapshot_label": snapshot_label,
         "rutas": rutas_out,
     }
+
+
+def get_ruta_hoy_summary(
+    sb: Client,
+    dist_id: int,
+    id_vendedor: int,
+) -> dict:
+    """
+    Resumen rápido de la ruta del día: conteos por vitalidad.
+    Retorna: {"total": N, "activos": N, "por_caer": N, "inactivos": N, "dia_semana": "Lunes"}
+    """
+    cartera = build_cartera_json(sb, dist_id, id_vendedor, mode="hoy")
+    all_pdvs = [pdv for ruta in cartera["rutas"] for pdv in ruta["pdvs"]]
+
+    activos = sum(1 for p in all_pdvs if p.get("vitalidad") == "activo")
+    por_caer = sum(1 for p in all_pdvs if p.get("vitalidad") == "por_caer")
+    inactivos = sum(1 for p in all_pdvs if p.get("vitalidad") == "inactivo")
+
+    from datetime import datetime
+    dia_semana = DIA_MAP.get(datetime.now(AR_TZ).weekday(), "")
+
+    return {
+        "total": len(all_pdvs),
+        "activos": activos,
+        "por_caer": por_caer,
+        "inactivos": inactivos,
+        "dia_semana": dia_semana,
+        "snapshot_label": cartera.get("snapshot_label"),
+    }

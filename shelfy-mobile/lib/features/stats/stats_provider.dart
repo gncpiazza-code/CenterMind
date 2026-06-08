@@ -14,14 +14,14 @@ class StatsProvider extends ChangeNotifier {
   bool loading = false;
   String? error;
 
-  /// Obtiene las estadísticas desde GET /api/vendedor-app/stats.
+  /// Obtiene las estadísticas desde GET /api/vendedor-app/stats/full.
   Future<void> fetch() async {
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      final data = await _api.get('/api/vendedor-app/stats');
+      final data = await _api.get('/api/vendedor-app/stats/full');
       statsData = StatsData.fromJson(data);
     } on ApiException catch (e) {
       error = e.message;

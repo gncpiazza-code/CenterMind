@@ -4536,3 +4536,46 @@ export async function revokeVendedorAppDevice(
     { method: "POST" },
   );
 }
+
+// ── App Settings ─────────────────────────────────────────────────────────────
+
+export interface AppSettings {
+  id: number;
+  id_distribuidor: number;
+  push_objetivos_enabled: boolean;
+  push_objetivos_time_ar: string;
+  push_objetivos_dow: number[];
+  push_template: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AppSettingsUpdate {
+  push_objetivos_enabled?: boolean;
+  push_objetivos_time_ar?: string;
+  push_objetivos_dow?: number[];
+  push_template?: string | null;
+}
+
+export async function fetchAppSettings(distId: number): Promise<AppSettings> {
+  return apiFetch<AppSettings>(`/api/app-settings/${distId}`);
+}
+
+export async function updateAppSettings(
+  distId: number,
+  data: Partial<AppSettingsUpdate>,
+): Promise<AppSettings> {
+  return apiFetch<AppSettings>(`/api/app-settings/${distId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function sendTestPush(
+  distId: number,
+): Promise<{ ok: boolean; message: string }> {
+  return apiFetch<{ ok: boolean; message: string }>(
+    `/api/app-settings/${distId}/test-push`,
+    { method: "POST" },
+  );
+}

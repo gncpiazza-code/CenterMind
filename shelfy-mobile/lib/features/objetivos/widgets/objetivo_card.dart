@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../models/objetivo_app.dart';
 
 /// Tarjeta que muestra un objetivo activo del vendedor.
+/// [onTap] se invoca cuando el usuario presiona la card (para mostrar el detalle).
 class ObjetivoCard extends StatelessWidget {
   final ObjetivoApp objetivo;
+  final VoidCallback? onTap;
 
-  const ObjetivoCard({super.key, required this.objetivo});
+  const ObjetivoCard({super.key, required this.objetivo, this.onTap});
 
   Color _tipoColor() {
     switch (objetivo.tipo) {
@@ -68,10 +70,13 @@ class ObjetivoCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header: badge tipo + vence
             Row(
@@ -144,8 +149,9 @@ class ObjetivoCard extends StatelessWidget {
               ],
             ),
           ],
-        ),
-      ),
+          ),
+        ), // Padding
+      ), // InkWell
     );
   }
 }

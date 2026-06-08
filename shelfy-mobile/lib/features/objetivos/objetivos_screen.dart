@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'objetivos_provider.dart';
 import 'widgets/objetivo_card.dart';
+import 'widgets/objetivo_detalle_sheet.dart';
 
 /// Pantalla de objetivos activos del vendedor.
 class ObjetivosScreen extends StatefulWidget {
@@ -19,6 +20,26 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ObjetivosProvider>().fetch();
     });
+  }
+
+  Future<void> _abrirDetalle(
+    BuildContext context,
+    ObjetivosProvider provider,
+    String id,
+  ) async {
+    try {
+      final detalle = await provider.fetchDetalle(id);
+      if (!context.mounted) return;
+      await ObjetivoDetalleSheet.show(context, detalle);
+    } on Exception catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo cargar el detalle: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -73,7 +94,11 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: provider.objetivos.length,
             itemBuilder: (context, index) {
-              return ObjetivoCard(objetivo: provider.objetivos[index]);
+              final objetivo = provider.objetivos[index];
+              return ObjetivoCard(
+                objetivo: objetivo,
+                onTap: () => _abrirDetalle(context, provider, objetivo.id),
+              );
             },
           ),
         );

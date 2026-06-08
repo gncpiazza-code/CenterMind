@@ -61,7 +61,7 @@ export function SupervisionMapToolbar({
         Ocultar todos
       </Button>
 
-      {mapToolMode !== "explorar" && (
+            {mapToolMode !== "explorar" && (
         <div className="flex items-center gap-2 ml-auto text-xs text-violet-400">
           <Layers className="w-3.5 h-3.5" />
           {vertexCount >= 3 ? (
@@ -73,7 +73,10 @@ export function SupervisionMapToolbar({
               Cerrar polígono ({vertexCount} pts)
             </button>
           ) : (
-            <span>Clic = vértice · doble clic o botón cerrar · ESC cancelar</span>
+            <span>
+              Clic = vértice · clic punto 1 / Enter = cerrar · Backspace deshacer
+              {vertexCount > 0 ? ` · ${vertexCount} pts` : ""}
+            </span>
           )}
         </div>
       )}

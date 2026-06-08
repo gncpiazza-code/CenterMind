@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from "@tanstack/react-query";
-import dynamic from "next/dynamic";
 import {
   ChevronRight,
   MapPin,
@@ -52,11 +51,12 @@ import {
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente, VendedorKpis } from "./MapaRutas";
 import { isInactivo30, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
+import { hasValidCoords } from "@/lib/supervisionMapPinesBuilder";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useSupervisionMapPreload } from "@/hooks/useSupervisionMapPreload";
 import { SupervisionMapToolbar } from "./map/SupervisionMapToolbar";
-import { CrearRutasPanel, useMapaCapasQuery } from "./map/CrearRutasPanel";
+import { SupervisionMapView } from "./map/SupervisionMapView";
 import { ObjetivoPorZonaPanel } from "./map/ObjetivoPorZonaPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -93,16 +93,6 @@ import { useInView } from "@/hooks/useInView";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import { useSupervisionBundle } from "@/hooks/useSupervisionQueries";
 import { bundleKeys } from "@/lib/query-keys";
-
-// ── Map: SSR off ──────────────────────────────────────────────────────────────
-const MapaRutas = dynamic(() => import("./MapaRutas"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-[var(--shelfy-panel)]">
-      <Loader2 className="w-5 h-5 animate-spin text-[var(--shelfy-muted)]" />
-    </div>
-  ),
-});
 
 // ── Vendor color palette ──────────────────────────────────────────────────────
 // 20 colors that avoid Red, Blue, Orange, and Green (used for PDV statuses).
@@ -196,64 +186,10 @@ function isInactivo(fecha: string | null): boolean {
   return Date.now() - new Date(fecha).getTime() > 90 * 86_400_000;
 }
 
-/** Mismo ERP puede existir en varias rutas (filas viejas); el mapa debe mostrar un solo pin. */
-interface PinDedupeRow {
-  pin: PinCliente;
-  estadoPdv: string | null | undefined;
-  fechaUc: string | null;
-  idCliente: number;
-}
-
-function pickBetterPinRow(a: PinDedupeRow, b: PinDedupeRow): PinDedupeRow {
-  const aAct = a.estadoPdv === "activo";
-  const bAct = b.estadoPdv === "activo";
-  if (aAct !== bAct) return aAct ? a : b;
-
-  const fa = normalizeFechaPadrón(a.fechaUc) ?? "";
-  const fb = normalizeFechaPadrón(b.fechaUc) ?? "";
-  if (fa && !fb) return a;
-  if (fb && !fa) return b;
-  if (fa && fb && fa !== fb) return fa > fb ? a : b;
-
-  const aRecent = !isInactivo30(a.fechaUc);
-  const bRecent = !isInactivo30(b.fechaUc);
-  if (aRecent !== bRecent) return aRecent ? a : b;
-
-  const fra = a.fechaUc ?? "";
-  const frb = b.fechaUc ?? "";
-  if (fra !== frb) return fra > frb ? a : b;
-
-  return a.idCliente > b.idCliente ? a : b;
-}
-
-function dedupePinsByClienteErp(rows: PinDedupeRow[]): PinCliente[] {
-  const m = new Map<string, PinDedupeRow>();
-  for (const row of rows) {
-    const erp = row.pin.idClienteErp?.trim();
-    const key = erp || `__pk_${row.idCliente}`;
-    const prev = m.get(key);
-    if (!prev) {
-      m.set(key, row);
-      continue;
-    }
-    m.set(key, pickBetterPinRow(prev, row));
-  }
-  return Array.from(m.values()).map((r) => r.pin);
-}
-
 /** Returns true if fecha is within `days` days from today */
 function isRecentDate(fecha: string | null | undefined, days: number): boolean {
   if (!fecha) return false;
   return Date.now() - new Date(fecha).getTime() <= days * 86_400_000;
-}
-/**
- * Returns true only if the coords are non-null, non-zero, and within
- * Argentina's bounding box (lat -55..−21, lng -74..−53).
- * Filters null-island (0,0), missing data, and stray out-of-country values.
- */
-function hasValidCoords(lat: number | null, lng: number | null): boolean {
-  if (!lat || !lng) return false;
-  return lat >= -55 && lat <= -21 && lng >= -74 && lng <= -53;
 }
 
 /** Keep active + inactive PDVs visible in Supervisión toggles/map. */
@@ -263,7 +199,7 @@ function isClientePadronActivo(c: ClienteSupervision): boolean {
 }
 
 interface VendorMapEligibleStats {
-  /** PDV únicos con coords válidas (misma regla que pines del mapa) */
+  /** PDV únicos con coords válidas (misma regla que mapPins del mapa) */
   totalMap: number;
   /** Subconjunto con compra en últimos 30 días (alineado a `isInactivo30` / leyenda del mapa) */
   activosMap: number;
@@ -929,15 +865,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
   useSupervisionMapPreload(selectedDist, vendedoresFiltrados, !!selectedSucursal && vendedoresFiltrados.length > 0);
 
-  const { data: capasData } = useMapaCapasQuery(selectedDist);
-  const mapCapas = capasData?.items ?? [];
+  const mapPins = useSupervisionStore((s) => s.mapPins);
   const finishPolygonRef = useRef<(() => void) | null>(null);
-
-  const vendorNamesMap = useMemo(() => {
-    const m: Record<number, string> = {};
-    for (const v of vendedores) m[v.id_vendedor] = v.nombre_vendedor;
-    return m;
-  }, [vendedores]);
+  const vendorPanelRef = useRef<React.ReactNode>(null);
+  const getFullscreenPanel = useCallback(() => vendorPanelRef.current, []);
 
   const handleShowAllVendors = useCallback(async () => {
     const ids = new Set(vendedoresFiltrados.map(v => v.id_vendedor));
@@ -970,22 +901,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     setVisibleClientes(new Set());
     setVisibleCapaIds(new Set());
   }, [setVisibleVends, setVisibleRutas, setVisibleClientes, setVisibleCapaIds]);
-
-  const handlePolygonSelectionChange = useCallback((pdvIds: number[], geoJson: import("@/store/useSupervisionStore").DrawnPolygon["geoJson"]) => {
-    setActivePolygon(pdvIds, geoJson);
-    clearSelectedPDVs();
-    pdvIds.forEach(id => togglePDVForObjective(id));
-    if (pdvIds.length > 0) {
-      toast.success(`${pdvIds.length} PDVs seleccionados por polígono`);
-      if (mapToolMode === 'objetivo_zona') setObjMenuOpen(true);
-    }
-  }, [setActivePolygon, clearSelectedPDVs, togglePDVForObjective, mapToolMode, setObjMenuOpen]);
-
-  const handleToggleVendorCapas = useCallback((ids: number[], visible: boolean) => {
-    const next = new Set(visibleCapaIds);
-    ids.forEach(id => (visible ? next.add(id) : next.delete(id)));
-    setVisibleCapaIds(next);
-  }, [visibleCapaIds, setVisibleCapaIds]);
 
   const handleMapToolModeChange = useCallback((mode: typeof mapToolMode) => {
     setMapToolMode(mode);
@@ -1222,143 +1137,22 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     toggleClienteStore(clienteId);
   }
 
-  // ── Map pins — 3-level visibility check (uses query cache + server flag) ─
-  const pines = useMemo<PinCliente[]>(() => {
-    // Normaliza IDs ERP: elimina sufijo .0 (float→string de Excel), ceros a la izquierda y mayúsculas
-    const normErpId = (id: string | null | undefined): string | null => {
-      if (!id) return null;
-      let s = String(id).trim();
-      if (s.endsWith('.0')) s = s.slice(0, -2);
-      s = s.replace(/^0+/, '') || '0';
-      return s.toLowerCase();
-    };
-
-    // Normaliza nombres: quita acentos, puntuación y colapsa espacios.
-    // Tolera diferencias entre CHESS ERP (CC) y Consolido (padrón).
-    const normName = (s: string | null | undefined): string => {
-      if (!s) return '';
-      let n = s.trim().toUpperCase();
-      n = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      n = n.replace(/[^A-Z0-9 ]/g, '');
-      n = n.replace(/\s+/g, ' ').trim();
-      return n;
-    };
-
-    // Build deuda lookup from cuentas corrientes
-    const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
-    const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
-    const deudaById = new Map<number, { deuda: number; antiguedad: number }>();
-    // Vendor-scoped name lookup: `${id_vendedor}:${normName}` → deuda
-    // Más confiable que nombre global porque CHESS y Consolido tienen ERP IDs distintos
-    const deudaByVendorClient = new Map<string, { deuda: number; antiguedad: number }>();
-    if (cuentasData) {
-      cuentasData.vendedores.forEach((v: any) => {
-        const vId: number | null = v.id_vendedor ?? null;
-        v.clientes.forEach((c: any) => {
-          const entry = { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 };
-          const normErp = normErpId(c.id_cliente_erp);
-          if (normErp) {
-            deudaByErpId.set(normErp, entry);
-          }
-          if (c.id_cliente) {
-            deudaById.set(Number(c.id_cliente), entry);
-          }
-          if (c.cliente) {
-            // Index both raw-lowercase AND normalized (accent+punct stripped) to match more names
-            deudaByNombre.set(c.cliente.toLowerCase().trim(), entry);
-            const nn = normName(c.cliente);
-            if (nn) deudaByNombre.set(nn, entry);
-            // Vendor-scoped: más fiable porque id_vendedor es mismo PK en ambos ERPs
-            if (vId && nn) deudaByVendorClient.set(`${vId}:${nn}`, entry);
-          }
-        });
-      });
-    }
-
-    const result: PinDedupeRow[] = [];
-    vendedores.forEach((v, idx) => {
-      if (!visibleVends.has(v.id_vendedor)) return;
-      const color = getVendorColor(v.id_vendedor, idx);
-      
-      // Get rutas from query cache
-      const vendRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
-      
-      vendRutas.forEach(r => {
-        if (!visibleRutas.has(r.id_ruta)) return;
-        
-        // Get clientes from query cache
-        const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
-        
-        rutaClientes.forEach(c => {
-          if (!visibleClientes.has(c.id_cliente)) return;
-          if (!hasValidCoords(c.latitud, c.longitud)) return;
-          
-          // Cross-reference deuda: PK > vendor-scoped nombre > ERP ID > nombre global
-          const erpId = normErpId(c.id_cliente_erp);
-          const nombreFantasia = (c.nombre_fantasia || "").toLowerCase().trim();
-          const nombreRazon = (c.nombre_razon_social || "").toLowerCase().trim();
-          const normFantasia = normName(c.nombre_fantasia);
-          const normRazon = normName(c.nombre_razon_social);
-          const deudaInfo = deudaById.get(c.id_cliente)
-            // Vendor-scoped: id_vendedor es el mismo PK en ambos sistemas (resuelto en ingesta)
-            ?? (v.id_vendedor && normFantasia ? deudaByVendorClient.get(`${v.id_vendedor}:${normFantasia}`) : null)
-            ?? (v.id_vendedor && normRazon ? deudaByVendorClient.get(`${v.id_vendedor}:${normRazon}`) : null)
-            ?? (erpId ? deudaByErpId.get(erpId) : null)
-            ?? (nombreFantasia ? deudaByNombre.get(nombreFantasia) : null)
-            ?? (normFantasia ? deudaByNombre.get(normFantasia) : null)
-            ?? (nombreRazon ? deudaByNombre.get(nombreRazon) : null)
-            ?? (normRazon ? deudaByNombre.get(normRazon) : null)
-            ?? null;
-
-          const fucCanon = normalizeFechaPadrón(c.fecha_ultima_compra);
-
-          result.push({
-            pin: {
-              id:                    c.id_cliente,
-              lat:                   c.latitud!,
-              lng:                   c.longitud!,
-              nombre:                c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
-              razonSocial:           c.nombre_razon_social ?? null,
-              color,
-              activo:                !isInactivo30(c.fecha_ultima_compra),
-              vendedor:              v.nombre_vendedor,
-              ultimaCompra:          fucCanon ? fmt(fucCanon) : fmt(c.fecha_ultima_compra),
-              conExhibicion:         c.tiene_exhibicion_reciente === true,
-              idClienteErp:          c.id_cliente_erp ?? null,
-              nroRuta:               r.dia_semana ?? null,
-              fechaUltimaCompra:     fucCanon ?? c.fecha_ultima_compra ?? null,
-              fechaUltimaExhibicion: c.fecha_ultima_exhibicion ?? null,
-              urlExhibicion:         c.url_ultima_exhibicion ?? null,
-              deuda:                 deudaInfo?.deuda ?? null,
-              antiguedadDias:        deudaInfo?.antiguedad ?? null,
-              totalExhibiciones:     c.total_exhibiciones ?? 0,
-              id_vendedor:           v.id_vendedor,
-            },
-            estadoPdv: c.estado,
-            fechaUc:   c.fecha_ultima_compra ?? null,
-            idCliente: c.id_cliente,
-          });
-        });
-      });
-    });
-
-    return dedupePinsByClienteErp(result);
-  }, [vendedores, visibleVends, visibleRutas, visibleClientes, cuentasData, queryClient, mapStatsTick]);
+  // Map pins: derivados en Zustand vía SupervisionMapView + useSupervisionMapPinsEngine
 
   const selectedVendorIdsKey = useMemo(() => {
     const ids = [
       ...new Set(
         selectedPDVsForObjective
-          .map((id) => pines.find((p) => p.id === id)?.id_vendedor)
+          .map((id) => mapPins.find((p) => p.id === id)?.id_vendedor)
           .filter((v): v is number => v != null),
       ),
     ].sort((a, b) => a - b);
     return ids.join(",");
-  }, [selectedPDVsForObjective, pines]);
+  }, [selectedPDVsForObjective, mapPins]);
 
   // ── Floating Objetivos: contextual data loader ───────────────────────────
   useEffect(() => {
-    const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
+    const firstPin = mapPins.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
     if (!firstPin?.id_vendedor) {
       setObjVendedorRoutes([]);
       setObjDebtList([]);
@@ -1384,7 +1178,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       setObjLoadingContext(true);
       {
         // Match by vendor name since VendedorCuentas doesn't expose id_vendedor
-        const firstPin = pines.find(p => p.id === selectedPDVsForObjective[0] && p.id_vendedor);
+        const firstPin = mapPins.find(p => p.id === selectedPDVsForObjective[0] && p.id_vendedor);
         const vendorName = firstPin?.vendedor ?? "";
         const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
         const bundleData = queryClient.getQueryData<SupervisionBundle>(
@@ -1453,7 +1247,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "conversion_estado" || objTipo === "exhibicion") {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-      const vendorPins = pines.filter(p => p.id_vendedor === vendedorId);
+      const vendorPins = mapPins.filter(p => p.id_vendedor === vendedorId);
       const inactive = vendorPins.filter(p =>
         !p.fechaUltimaCompra || p.fechaUltimaCompra < thirtyDaysAgo
       );
@@ -1532,12 +1326,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     if (objTipo === "ruteo") return;
 
     const primaryPin = selectedPDVsForObjective
-      .map((id) => pines.find((p) => p.id === id))
+      .map((id) => mapPins.find((p) => p.id === id))
       .find((p) => p?.id_vendedor);
     if (!primaryPin?.id_vendedor) return;
 
     const pdvItems = selectedPDVsForObjective
-      .map((id) => pines.find((p) => p.id === id))
+      .map((id) => mapPins.find((p) => p.id === id))
       .filter((p): p is PinCliente => !!p)
       .map((pin) => ({
         nombre_pdv: pin.nombre,
@@ -1603,7 +1397,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   }, [
     selectedDist,
     selectedPdvsKey,
-    pines,
+    mapPins,
     objTipo,
     objFecha,
     objOrigen,
@@ -1649,7 +1443,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
         const byVendedor = new Map<number, { vendedor: string; pdvIds: number[] }>();
         for (const pdvId of selectedPDVsForObjective) {
-          const pin = pines.find((p) => p.id === pdvId);
+          const pin = mapPins.find((p) => p.id === pdvId);
           if (!pin?.id_vendedor) continue;
           if (!byVendedor.has(pin.id_vendedor)) {
             byVendedor.set(pin.id_vendedor, { vendedor: pin.vendedor, pdvIds: [] });
@@ -1671,7 +1465,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
         const buildRuteoPdvItems = (pdvIds: number[]) =>
           pdvIds.map((pdvId, idx) => {
-            const pin = pines.find((p) => p.id === pdvId);
+            const pin = mapPins.find((p) => p.id === pdvId);
             if (objRuteoConfigMode === "global") {
               const acc = objRuteoAccionGlobal;
               const globalDestinoRuta =
@@ -1812,9 +1606,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         );
       } else {
         // Agrupar PDVs por vendedor → un solo objetivo por vendedor con pdv_items
-        const byVendedor = new Map<number, { vendedor: string; pdvs: typeof pines }>();
+        const byVendedor = new Map<number, { vendedor: string; pdvs: typeof mapPins }>();
         for (const pdvId of selectedPDVsForObjective) {
-          const pin = pines.find(p => p.id === pdvId);
+          const pin = mapPins.find(p => p.id === pdvId);
           if (!pin || !pin.id_vendedor) continue;
           if (!byVendedor.has(pin.id_vendedor)) {
             byVendedor.set(pin.id_vendedor, { vendedor: pin.vendedor, pdvs: [] });
@@ -1898,6 +1692,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
   // ── Map layer controls (My Maps toolbar) ───────────────────────────────────
   function MapLayerControls() {
+    const drawVertexCount = useSupervisionStore((s) => s.drawVertexCount);
     return (
       <SupervisionMapToolbar
         mapToolMode={mapToolMode}
@@ -1905,6 +1700,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         onShowAllVendors={() => void handleShowAllVendors()}
         onHideAllVendors={handleHideAllVendors}
         canEdit={hasPermiso("action_edit_objetivos")}
+        vertexCount={drawVertexCount}
         onFinishPolygon={() => finishPolygonRef.current?.()}
       />
     );
@@ -2117,15 +1913,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       </div>
     </div>
   );
-
-  const handleToggleRouteBuild = () => {
-    toggleRouteBuild();
-    if (routeBuildEnabled) {
-      clearRouteBuildState();
-    } else {
-      toast.info('Dibujá un polígono en el mapa para seleccionar PDVs');
-    }
-  };
+  vendorPanelRef.current = vendorPanelContent;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -2232,12 +2020,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         <div className={`${mapOnly ? "flex flex-1 min-h-0 lg:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
-            {loading && pines.length === 0 ? (
+            {loading && mapPins.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
                 <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
                 <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
               </div>
-            ) : pines.length === 0 ? (
+            ) : mapPins.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
                 <MapIcon className="w-12 h-12 opacity-15" />
                 <p className="text-sm font-medium text-center px-8 leading-relaxed">
@@ -2248,36 +2036,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 </p>
               </div>
             ) : (
-              <MapaRutas
-                pines={pines}
-                fullscreenPanel={vendorPanelContent}
-                selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
-                onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
-                vendedorKpis={vendedorKpis}
-                mapToolMode={mapToolMode}
-                routeBuildEnabled={routeBuildEnabled}
-                onToggleRouteBuild={hasPermiso("action_edit_objetivos") ? handleToggleRouteBuild : undefined}
+              <SupervisionMapView
                 distId={selectedDist}
                 isSuperadmin={isSuperadmin}
-                capas={mapCapas}
-                visibleCapaIds={visibleCapaIds}
-                vendorNames={vendorNamesMap}
-                onToggleCapa={toggleCapaVisibility}
-                onToggleVendorCapas={handleToggleVendorCapas}
+                canEditObjetivos={hasPermiso("action_edit_objetivos")}
+                vendedores={vendedores}
+                cuentasData={cuentasData}
+                getVendorColor={getVendorColor}
+                vendedorKpis={vendedorKpis}
+                getFullscreenPanel={getFullscreenPanel}
                 onFinishPolygonRef={finishPolygonRef}
-                layerPanelSlot={
-                  mapToolMode === 'crear_rutas' && activePolygonPdvIds.length > 0 && visibleVends.size === 1 ? (
-                    <CrearRutasPanel
-                      distId={selectedDist}
-                      idVendedor={[...visibleVends][0]}
-                      vendedorNombre={vendorNamesMap[[...visibleVends][0]] ?? ''}
-                      pdvIds={activePolygonPdvIds}
-                      geoJson={activePolygonGeoJson}
-                      onClearPolygon={clearRouteBuildState}
-                    />
-                  ) : undefined
-                }
-                onPolygonSelectionChange={handlePolygonSelectionChange}
               />
             )}
           </div>
@@ -3334,7 +3102,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">PDVs</p>
                 <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                   {selectedPDVsForObjective.map(id => {
-                    const pin = pines.find(p => p.id === id);
+                    const pin = mapPins.find(p => p.id === id);
                     if (!pin) return null;
                     return (
                       <span key={id}
@@ -3681,7 +3449,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     {objRuteoConfigMode === "per_pdv" && selectedPDVsForObjective.length > 0 && (
                       <div className="max-h-44 overflow-y-auto space-y-1.5 rounded-lg border border-[var(--shelfy-border)] p-2 bg-[var(--shelfy-bg)]">
                         {selectedPDVsForObjective.map(pdvId => {
-                          const pin = pines.find(p => p.id === pdvId);
+                          const pin = mapPins.find(p => p.id === pdvId);
                           if (!pin) return null;
                           const item = objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal };
                           return (

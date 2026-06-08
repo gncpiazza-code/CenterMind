@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { PinCliente } from '@/components/admin/MapaRutas';
 
 export type MapMode = 'activos';
 export type MapToolMode = 'explorar' | 'objetivo_zona' | 'crear_rutas';
@@ -57,6 +58,14 @@ interface SupervisionStore {
   preloadComplete: boolean;
   setPreloadComplete: (v: boolean) => void;
 
+  /** Vértices del polígono en curso (modo dibujo) */
+  drawVertexCount: number;
+  setDrawVertexCount: (n: number) => void;
+
+  /** Pines del mapa (cache derivada; no persistir) */
+  mapPins: PinCliente[];
+  setMapPins: (pins: PinCliente[]) => void;
+
   // ── Polygon draw (objetivo_zona | crear_rutas) ─────────────────────────────
   /** @deprecated use mapToolMode !== 'explorar' */
   routeBuildEnabled: boolean;
@@ -84,6 +93,8 @@ export const useSupervisionStore = create<SupervisionStore>()(
       mapToolMode: 'explorar',
       visibleCapaIds: new Set<number>(),
       preloadComplete: false,
+      drawVertexCount: 0,
+      mapPins: [],
 
       // Armar Ruta initial state (legacy alias)
       routeBuildEnabled: false,
@@ -136,7 +147,8 @@ export const useSupervisionStore = create<SupervisionStore>()(
           visibleVends: new Set(),
           visibleRutas: new Set(),
           visibleClientes: new Set(),
-          selectedSucursal: null, // resetear al cambiar de tenant para que el auto-select funcione correctamente
+          selectedSucursal: null,
+          mapPins: [],
         }),
 
       setVendorColorOverride: (distId, vendorId, color) =>
@@ -174,6 +186,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
         set({
           mapToolMode: mode,
           routeBuildEnabled: mode !== 'explorar',
+          drawVertexCount: 0,
           ...(mode === 'explorar'
             ? { activePolygonPdvIds: [], activePolygonGeoJson: null }
             : {}),
@@ -189,6 +202,8 @@ export const useSupervisionStore = create<SupervisionStore>()(
 
       setVisibleCapaIds: (ids) => set({ visibleCapaIds: new Set(ids) }),
       setPreloadComplete: (v) => set({ preloadComplete: v }),
+      setDrawVertexCount: (n) => set({ drawVertexCount: n }),
+      setMapPins: (pins) => set({ mapPins: pins }),
 
       // ── Polygon draw actions ────────────────────────────────────────────────
       toggleRouteBuild: () =>
@@ -222,6 +237,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
           drawnPolygons: [],
           activePolygonPdvIds: [],
           activePolygonGeoJson: null,
+          drawVertexCount: 0,
         }),
     }),
     {

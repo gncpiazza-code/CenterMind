@@ -5,24 +5,45 @@ import type { DrawnPolygon } from "@/store/useSupervisionStore";
 
 const ROUTE_POLYGON_STYLE: google.maps.PolygonOptions = {
   fillColor: "#8b5cf6",
-  fillOpacity: 0.18,
+  fillOpacity: 0.22,
   strokeColor: "#8b5cf6",
-  strokeWeight: 2,
+  strokeWeight: 2.5,
   editable: false,
   clickable: false,
+  zIndex: 2800,
 };
+
+const SNAP_CLOSE_METERS = 35;
+const VERTEX_HIT_METERS = 20;
 
 export interface VertexDrawOptions {
   enabled: boolean;
   mapRef: RefObject<google.maps.Map | null>;
+  /** @deprecated ya no se usa overlay DOM */
+  containerRef?: RefObject<HTMLDivElement | null>;
   mapLoaded: boolean;
   strokeColor?: string;
   onPolygonClosed: (pdvIds: number[], geoJson: DrawnPolygon["geoJson"]) => void;
   resolvePdvIdsInPolygon: (polygon: google.maps.Polygon) => number[];
   onCancel?: () => void;
+  onVertexCountChange?: (count: number) => void;
 }
 
-/** Dibujo click-vértices sin setState en mousemove (evita re-render del árbol React). */
+function emptyGeoJson(): DrawnPolygon["geoJson"] {
+  return {
+    type: "Feature",
+    geometry: { type: "Polygon", coordinates: [] },
+    properties: {},
+  };
+}
+
+function distanceMeters(a: google.maps.LatLng, b: google.maps.LatLng): number {
+  const spherical = window.google?.maps?.geometry?.spherical;
+  if (!spherical) return Infinity;
+  return spherical.computeDistanceBetween(a, b);
+}
+
+/** Dibujo click-vértices: pins ocultos en MapaRutas + listeners directos al mapa. */
 export function useVertexPolygonDraw({
   enabled,
   mapRef,
@@ -31,13 +52,12 @@ export function useVertexPolygonDraw({
   onPolygonClosed,
   resolvePdvIdsInPolygon,
   onCancel,
+  onVertexCountChange,
 }: VertexDrawOptions) {
   const pathRef = useRef<google.maps.LatLng[]>([]);
   const previewLineRef = useRef<google.maps.Polyline | null>(null);
   const previewPolyRef = useRef<google.maps.Polygon | null>(null);
-  const finishedRef = useRef<google.maps.Polygon[]>([]);
   const vertexMarkersRef = useRef<google.maps.Marker[]>([]);
-  const listenersAttachedRef = useRef(false);
   const moveRafRef = useRef(0);
 
   const enabledRef = useRef(enabled);
@@ -45,14 +65,20 @@ export function useVertexPolygonDraw({
   const onPolygonClosedRef = useRef(onPolygonClosed);
   const resolveRef = useRef(resolvePdvIdsInPolygon);
   const onCancelRef = useRef(onCancel);
+  const onVertexCountChangeRef = useRef(onVertexCountChange);
 
   enabledRef.current = enabled;
   strokeColorRef.current = strokeColor;
   onPolygonClosedRef.current = onPolygonClosed;
   resolveRef.current = resolvePdvIdsInPolygon;
   onCancelRef.current = onCancel;
+  onVertexCountChangeRef.current = onVertexCountChange;
 
-  const clearPreviewGraphics = () => {
+  const notifyVertexCount = (count: number) => {
+    onVertexCountChangeRef.current?.(count);
+  };
+
+  const clearPreviewGraphics = useCallback(() => {
     previewLineRef.current?.setMap(null);
     previewPolyRef.current?.setMap(null);
     previewLineRef.current = null;
@@ -60,9 +86,10 @@ export function useVertexPolygonDraw({
     vertexMarkersRef.current.forEach((m) => m.setMap(null));
     vertexMarkersRef.current = [];
     pathRef.current = [];
-  };
+    notifyVertexCount(0);
+  }, []);
 
-  const updatePreview = (cursor?: google.maps.LatLng) => {
+  const updatePreview = useCallback((cursor?: google.maps.LatLng) => {
     const map = mapRef.current;
     if (!map || !window.google) return;
     const path = pathRef.current;
@@ -71,7 +98,7 @@ export function useVertexPolygonDraw({
     const color = strokeColorRef.current;
     const style = { ...ROUTE_POLYGON_STYLE, strokeColor: color, fillColor: color };
 
-    if (path.length >= 3) {
+    if (path.length >= 2) {
       previewLineRef.current?.setMap(null);
       previewLineRef.current = null;
       const paths = cursor ? [...path, cursor] : path;
@@ -89,34 +116,38 @@ export function useVertexPolygonDraw({
           path: linePath,
           map,
           strokeColor: color,
-          strokeWeight: 2,
-          strokeOpacity: 0.9,
+          strokeWeight: 3,
+          strokeOpacity: 0.95,
           clickable: false,
-          zIndex: 2500,
+          zIndex: 2700,
         });
       } else {
         previewLineRef.current.setPath(linePath);
       }
     }
-  };
+  }, [mapRef]);
 
-  const addVertexMarker = (latLng: google.maps.LatLng) => {
+  const addVertexMarker = (latLng: google.maps.LatLng, index: number) => {
     const map = mapRef.current;
     if (!map || !window.google) return;
     const color = strokeColorRef.current;
+    const isFirst = index === 0;
     const marker = new window.google.maps.Marker({
       position: latLng,
       map,
       clickable: false,
-      optimized: true,
-      zIndex: 2600,
+      optimized: false,
+      zIndex: 2900,
+      label: isFirst
+        ? { text: "1", color: color, fontSize: "10px", fontWeight: "800" }
+        : undefined,
       icon: {
         path: window.google.maps.SymbolPath.CIRCLE,
-        scale: 7,
-        fillColor: color,
+        scale: isFirst ? 10 : 8,
+        fillColor: isFirst ? "#ffffff" : color,
         fillOpacity: 1,
-        strokeColor: "#ffffff",
-        strokeWeight: 2,
+        strokeColor: color,
+        strokeWeight: isFirst ? 3 : 2,
       },
     });
     vertexMarkersRef.current.push(marker);
@@ -133,16 +164,7 @@ export function useVertexPolygonDraw({
     previewLineRef.current = null;
     previewPolyRef.current = null;
 
-    const polygon = new window.google.maps.Polygon({
-      paths: path,
-      map,
-      ...ROUTE_POLYGON_STYLE,
-      strokeColor: strokeColorRef.current,
-      fillColor: strokeColorRef.current,
-      clickable: false,
-    });
-    finishedRef.current.push(polygon);
-
+    const polygon = new window.google.maps.Polygon({ paths: path });
     const coords: number[][] = path.map((ll) => [ll.lng(), ll.lat()]);
     if (coords.length > 0) coords.push(coords[0]);
     const geoJson: DrawnPolygon["geoJson"] = {
@@ -156,36 +178,65 @@ export function useVertexPolygonDraw({
     vertexMarkersRef.current.forEach((m) => m.setMap(null));
     vertexMarkersRef.current = [];
     pathRef.current = [];
+    notifyVertexCount(0);
   }, [mapRef]);
+
+  const undoLastVertex = useCallback(() => {
+    if (pathRef.current.length === 0) return;
+    pathRef.current = pathRef.current.slice(0, -1);
+    const last = vertexMarkersRef.current.pop();
+    last?.setMap(null);
+    updatePreview();
+    notifyVertexCount(pathRef.current.length);
+  }, [updatePreview]);
+
+  const addVertex = useCallback(
+    (latLng: google.maps.LatLng) => {
+      const path = pathRef.current;
+      if (path.length >= 3) {
+        const first = path[0];
+        if (distanceMeters(latLng, first) <= SNAP_CLOSE_METERS) {
+          finishPolygon();
+          return;
+        }
+      }
+      for (let i = 0; i < path.length; i++) {
+        if (distanceMeters(latLng, path[i]) <= VERTEX_HIT_METERS) return;
+      }
+
+      pathRef.current = [...path, latLng];
+      addVertexMarker(latLng, pathRef.current.length - 1);
+      updatePreview();
+      notifyVertexCount(pathRef.current.length);
+    },
+    [finishPolygon, updatePreview],
+  );
 
   const clearAll = useCallback(
     (notify = true) => {
-      finishedRef.current.forEach((p) => p.setMap(null));
-      finishedRef.current = [];
       clearPreviewGraphics();
-      if (notify) {
-        onPolygonClosedRef.current([], {
-          type: "Feature",
-          geometry: { type: "Polygon", coordinates: [] },
-          properties: {},
-        });
-      }
+      if (notify) onPolygonClosedRef.current([], emptyGeoJson());
     },
-    [],
+    [clearPreviewGraphics],
   );
 
-  // Listeners Google Maps: una sola vez por instancia de mapa
+  const addVertexRef = useRef(addVertex);
+  const finishPolygonRef = useRef(finishPolygon);
+  const undoLastVertexRef = useRef(undoLastVertex);
+  addVertexRef.current = addVertex;
+  finishPolygonRef.current = finishPolygon;
+  undoLastVertexRef.current = undoLastVertex;
+
+  // Listeners solo activos en modo dibujo (pins ocultos en MapaRutas)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded || !window.google?.maps || listenersAttachedRef.current) return;
+    if (!enabled || !mapLoaded || !map || !window.google?.maps) return;
 
     const clickL = map.addListener("click", (e: google.maps.MapMouseEvent) => {
       if (!enabledRef.current) return;
       const latLng = e.latLng;
       if (!latLng) return;
-      pathRef.current = [...pathRef.current, latLng];
-      addVertexMarker(latLng);
-      updatePreview();
+      addVertexRef.current(latLng);
     });
 
     const moveL = map.addListener("mousemove", (e: google.maps.MapMouseEvent) => {
@@ -200,34 +251,32 @@ export function useVertexPolygonDraw({
 
     const dblL = map.addListener("dblclick", (e: google.maps.MapMouseEvent) => {
       if (!enabledRef.current) return;
-      e.stop?.();
-      if (pathRef.current.length >= 3) finishPolygon();
+      e.stop();
+      if (pathRef.current.length >= 3) finishPolygonRef.current();
     });
 
-    listenersAttachedRef.current = true;
+    map.setOptions({
+      draggableCursor: "crosshair",
+      draggingCursor: "crosshair",
+      disableDoubleClickZoom: true,
+    });
 
     return () => {
       clickL.remove();
       moveL.remove();
       dblL.remove();
-      listenersAttachedRef.current = false;
+      map.setOptions({
+        draggableCursor: null,
+        draggingCursor: null,
+        disableDoubleClickZoom: false,
+      });
     };
-  }, [mapLoaded, mapRef, finishPolygon]);
+  }, [enabled, mapLoaded, mapRef, updatePreview]);
 
-  // Cursor + limpieza al salir del modo dibujo (sin notificar al padre)
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded) return;
-    map.setOptions({
-      draggableCursor: enabled ? "crosshair" : null,
-      disableDoubleClickZoom: enabled,
-    });
-    if (!enabled) {
-      finishedRef.current.forEach((p) => p.setMap(null));
-      finishedRef.current = [];
-      clearPreviewGraphics();
-    }
-  }, [enabled, mapLoaded, mapRef]);
+    if (enabled || !mapLoaded) return;
+    clearPreviewGraphics();
+  }, [enabled, mapLoaded, clearPreviewGraphics]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -235,11 +284,17 @@ export function useVertexPolygonDraw({
       if (e.key === "Escape") {
         clearPreviewGraphics();
         onCancelRef.current?.();
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        undoLastVertexRef.current();
+      } else if (e.key === "Enter" && pathRef.current.length >= 3) {
+        e.preventDefault();
+        finishPolygonRef.current();
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [enabled]);
+  }, [enabled, clearPreviewGraphics]);
 
-  return { finishPolygon, clearAll };
+  return { finishPolygon, clearAll, undoLastVertex };
 }

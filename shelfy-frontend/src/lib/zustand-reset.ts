@@ -32,6 +32,8 @@ export function resetTenantScopedStores(previousDistId?: number): void {
   useSupervisionStore.getState().clearAll();
   useSupervisionStore.getState().clearSelectedPDVs();
   useSupervisionStore.getState().clearRouteBuildState();
+  useSupervisionStore.getState().setDrawVertexCount(0);
+  useSupervisionStore.getState().setMapPins([]);
 
   // Panel supervisión: filtros de UI por vendedor/sucursal
   useSupervisionPanelStore.setState({

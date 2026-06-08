@@ -1,9 +1,12 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { MarkerClusterer } from "@googlemaps/markerclusterer";
 import { Settings } from "lucide-react";
 import { loadGoogleMapsFull, getGoogleMapsApiKey, ensureGoogleMapsConfigured, subscribeGoogleMapsAuthFailure, googleMapsReferrerWhitelistHint } from "@/lib/googleMapsLoader";
 import type { DrawnPolygon, MapToolMode } from "@/store/useSupervisionStore";
+import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { diasCalendarioDesdeFechaCompra, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
+import { supervisionMapPinsSyncKey } from "@/lib/supervisionMapPinesBuilder";
 import { MapLegendTooltip } from "./MapLegendTooltip";
 import { useVertexPolygonDraw } from "./map/SupervisionPolygonDrawTool";
 import type { MapaCapaPlanificacion } from "@/lib/api";
@@ -248,7 +251,9 @@ export interface VendedorKpis {
 
 interface MapaRutasProps {
   pines: PinCliente[];
+  /** @deprecated use getFullscreenPanel */
   fullscreenPanel?: React.ReactNode;
+  getFullscreenPanel?: () => React.ReactNode;
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
   vendedorKpis?: VendedorKpis;
@@ -257,6 +262,8 @@ interface MapaRutasProps {
   routeBuildEnabled?: boolean;
   onToggleRouteBuild?: () => void;
   onPolygonSelectionChange?: (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => void;
+  /** Polígono activo cerrado — persiste en mapa aunque se oculten vértices de preview */
+  activePolygonGeoJson?: DrawnPolygon['geoJson'] | null;
   distId?: number;
   isSuperadmin?: boolean;
   capas?: MapaCapaPlanificacion[];
@@ -349,9 +356,12 @@ function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onCl
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+const MARKER_CLUSTER_THRESHOLD = 60;
+
 function MapaRutas({
   pines,
   fullscreenPanel,
+  getFullscreenPanel,
   selectedPDVs,
   onTogglePDV,
   vendedorKpis,
@@ -359,6 +369,7 @@ function MapaRutas({
   routeBuildEnabled: routeBuildEnabledProp,
   onToggleRouteBuild,
   onPolygonSelectionChange,
+  activePolygonGeoJson,
   distId,
   isSuperadmin,
   capas = [],
@@ -371,11 +382,15 @@ function MapaRutas({
 }: MapaRutasProps) {
   const routeBuildEnabled = routeBuildEnabledProp ?? mapToolMode !== 'explorar';
   const drawStrokeColor = mapToolMode === 'crear_rutas' ? '#0ea5e9' : '#8b5cf6';
+  const drawVertexCount = useSupervisionStore((s) => s.drawVertexCount);
+  const setDrawVertexCount = useSupervisionStore((s) => s.setDrawVertexCount);
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
+  const clustererRef = useRef<MarkerClusterer | null>(null);
+  const clusterModeRef = useRef(false);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
-  const drawnPolyRef  = useRef<google.maps.Polygon[]>([]);
+  const drawnPolyRef  = useRef<google.maps.Polygon | null>(null);
   const capaDataRef   = useRef<Map<number, google.maps.Data>>(new Map());
   const fittedRef     = useRef(false);
   const onPolygonChangeRef = useRef(onPolygonSelectionChange);
@@ -396,6 +411,7 @@ function MapaRutas({
   const [polygonCount, setPolygonCount] = useState(0);
   const [pinConfig, setPinConfig] = useState({ pin_size_activo: 35, pin_size_inactivo: 24 });
   const [configOpen, setConfigOpen] = useState(false);
+  const [resolvedFullscreenPanel, setResolvedFullscreenPanel] = useState<React.ReactNode>(null);
 
   useEffect(() => {
     (window as Window & { __shelfySV?: (lat: number, lng: number) => void }).__shelfySV = (lat, lng) => {
@@ -424,9 +440,14 @@ function MapaRutas({
     activo_exhibicion: true, activo: true, inactivo_exhibicion: true, inactivo: true,
   });
 
+  const pineIdsKey = useMemo(
+    () => pines.map(p => p.id).sort((a, b) => a - b).join(','),
+    [pines],
+  );
+
   useEffect(() => {
     setFilterEnabled({ activo_exhibicion: true, activo: true, inactivo_exhibicion: true, inactivo: true });
-  }, [pines]);
+  }, [pineIdsKey]);
 
   const toggleFilter = (status: PinStatus) =>
     setFilterEnabled(prev => ({ ...prev, [status]: !prev[status] }));
@@ -442,15 +463,19 @@ function MapaRutas({
     [pines, filterEnabled]
   );
 
+  const pinDataSyncKey = useMemo(
+    () => supervisionMapPinsSyncKey(filteredPines),
+    [filteredPines],
+  );
+
   // Keep ref updated so polygon closure always has current filtered pins
   const filteredPinesRef = useRef(filteredPines);
   useEffect(() => { filteredPinesRef.current = filteredPines; }, [filteredPines]);
 
   // Resetear fitBounds cuando cambia el set de pines
   const prevPineIdsRef = useRef<string>('');
-  const currentPineIds = pines.map(p => p.id).sort().join(',');
-  if (currentPineIds !== prevPineIdsRef.current) {
-    prevPineIdsRef.current = currentPineIds;
+  if (pineIdsKey !== prevPineIdsRef.current) {
+    prevPineIdsRef.current = pineIdsKey;
     fittedRef.current = false;
   }
 
@@ -535,30 +560,65 @@ function MapaRutas({
     if (!isFullscreen) setShowSidePanel(true);
   }, [isFullscreen]);
 
-  // ── Markers (sync incremental — no recrear todos en cada cambio) ───────────
+  // ── Markers (sync incremental + cluster cuando hay muchos PDVs) ────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
 
-    const selSet = new Set(selectedPDVs ?? []);
+    // Modo dibujo: ocultar pins para que no intercepten clicks del mapa
+    if (routeBuildEnabledRef.current) {
+      clustererRef.current?.clearMarkers();
+      clustererRef.current = null;
+      markersMapRef.current.forEach((marker) => marker.setMap(null));
+      return;
+    }
+
     const nextIds = new Set<number>();
-    const conCoords = filteredPines.filter(p => p.lat && p.lng);
+    const conCoords = filteredPinesRef.current.filter(p => p.lat && p.lng);
+    const useCluster =
+      conCoords.length >= MARKER_CLUSTER_THRESHOLD && !routeBuildEnabledRef.current;
+
+    if (useCluster !== clusterModeRef.current) {
+      clustererRef.current?.clearMarkers();
+      clustererRef.current = null;
+      markersMapRef.current.forEach((marker) => {
+        marker.setMap(null);
+        window.google.maps.event.clearInstanceListeners(marker);
+      });
+      markersMapRef.current.clear();
+      clusterModeRef.current = useCluster;
+    }
+
+    const attachMarker = (marker: google.maps.Marker) => {
+      if (useCluster) {
+        if (!clustererRef.current) clustererRef.current = new MarkerClusterer({ map });
+        clustererRef.current.addMarker(marker);
+      } else {
+        marker.setMap(map);
+      }
+    };
+
+    const detachMarker = (marker: google.maps.Marker) => {
+      if (useCluster && clustererRef.current) {
+        clustererRef.current.removeMarker(marker);
+      } else {
+        marker.setMap(null);
+      }
+    };
 
     for (const p of conCoords) {
       nextIds.add(p.id);
-      const isSelected = selSet.has(p.id);
-      const icon = buildMarkerIconForPin(p, isSelected, pinConfig);
+      const icon = buildMarkerIconForPin(p, false, pinConfig);
       let marker = markersMapRef.current.get(p.id);
 
       if (!marker) {
         marker = new window.google.maps.Marker({
           position: { lat: p.lat, lng: p.lng },
-          map,
           clickable: !routeBuildEnabledRef.current,
           icon,
           title: `#${p.idClienteErp ?? p.id} - ${p.nombre}`,
           optimized: true,
-          zIndex: isSelected ? 20 : (p.activo ? 10 : 5),
+          zIndex: p.activo ? 10 : 5,
         });
 
         let clickTimer: ReturnType<typeof setTimeout> | null = null;
@@ -581,6 +641,7 @@ function MapaRutas({
         });
 
         markersMapRef.current.set(p.id, marker);
+        attachMarker(marker);
       } else {
         const pos = marker.getPosition();
         if (!pos || pos.lat() !== p.lat || pos.lng() !== p.lng) {
@@ -588,14 +649,14 @@ function MapaRutas({
         }
         marker.setIcon(icon);
         marker.setTitle(`#${p.idClienteErp ?? p.id} - ${p.nombre}`);
-        marker.setZIndex(isSelected ? 20 : (p.activo ? 10 : 5));
-        if (!marker.getMap()) marker.setMap(map);
+        marker.setZIndex(p.activo ? 10 : 5);
+        if (!useCluster && !marker.getMap()) marker.setMap(map);
       }
     }
 
     markersMapRef.current.forEach((marker, id) => {
       if (!nextIds.has(id)) {
-        marker.setMap(null);
+        detachMarker(marker);
         window.google.maps.event.clearInstanceListeners(marker);
         markersMapRef.current.delete(id);
       }
@@ -608,7 +669,20 @@ function MapaRutas({
       map.fitBounds(bounds, 60);
       if (conCoords.length === 1) map.setZoom(14);
     }
-  }, [filteredPines, mapLoaded, pinConfig, selectedPDVs]);
+  }, [pinDataSyncKey, mapLoaded, pinConfig, routeBuildEnabled]);
+
+  // ── Selection ring (solo iconos; no recrea markers) ───────────────────────
+  useEffect(() => {
+    if (!mapLoaded || !window.google) return;
+    const selSet = new Set(selectedPDVs ?? []);
+    markersMapRef.current.forEach((marker, id) => {
+      const pin = filteredPinesRef.current.find(p => p.id === id);
+      if (!pin) return;
+      const isSelected = selSet.has(id);
+      marker.setIcon(buildMarkerIconForPin(pin, isSelected, pinConfig));
+      marker.setZIndex(isSelected ? 20 : (pin.activo ? 10 : 5));
+    });
+  }, [selectedPDVs, pinDataSyncKey, mapLoaded, pinConfig]);
 
   const resolvePdvIdsInPolygon = useCallback((polygon: google.maps.Polygon) => {
     const pdvIds: number[] = [];
@@ -625,9 +699,7 @@ function MapaRutas({
   const handlePolygonClosed = useCallback(
     (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => {
       const ring = geoJson.geometry?.coordinates?.[0];
-      if (ring && ring.length >= 3) {
-        setPolygonCount(c => c + 1);
-      }
+      setPolygonCount(ring && ring.length >= 4 ? 1 : 0);
       onPolygonChangeRef.current?.(pdvIds, geoJson);
     },
     [],
@@ -641,15 +713,17 @@ function MapaRutas({
     });
   }, []);
 
-  const { finishPolygon, clearAll: clearDrawPolygons } =
+  const { finishPolygon, clearAll: clearDrawPolygons, undoLastVertex } =
     useVertexPolygonDraw({
       enabled: routeBuildEnabled && mapLoaded,
       mapRef,
+      containerRef,
       mapLoaded,
       strokeColor: drawStrokeColor,
       onPolygonClosed: handlePolygonClosed,
       resolvePdvIdsInPolygon,
       onCancel: handleDrawCancel,
+      onVertexCountChange: setDrawVertexCount,
     });
 
   useEffect(() => {
@@ -697,6 +771,30 @@ function MapaRutas({
     });
   }, [capas, visibleCapaIds, mapLoaded]);
 
+  // Polígono cerrado persistido (store) — visible aunque salga el preview de dibujo
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !window.google) return;
+
+    drawnPolyRef.current?.setMap(null);
+    drawnPolyRef.current = null;
+
+    const ring = activePolygonGeoJson?.geometry?.coordinates?.[0];
+    if (!ring || ring.length < 3) return;
+
+    const paths = ring.map(([lng, lat]) => ({ lat, lng }));
+    const color = mapToolMode === 'crear_rutas' ? '#0ea5e9' : '#8b5cf6';
+    const polygon = new window.google.maps.Polygon({
+      paths,
+      map,
+      ...ROUTE_POLYGON_STYLE,
+      strokeColor: color,
+      fillColor: color,
+      clickable: false,
+    });
+    drawnPolyRef.current = polygon;
+  }, [activePolygonGeoJson, mapLoaded, mapToolMode]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
@@ -717,8 +815,8 @@ function MapaRutas({
 
   // ── Clear drawn polygons handler ──────────────────────────────────────────
   const clearPolygons = useCallback(() => {
-    drawnPolyRef.current.forEach(p => p.setMap(null));
-    drawnPolyRef.current = [];
+    drawnPolyRef.current?.setMap(null);
+    drawnPolyRef.current = null;
     clearDrawPolygons();
     setPolygonCount(0);
   }, [clearDrawPolygons]);
@@ -757,7 +855,8 @@ function MapaRutas({
   };
 
   const STATUS_ORDER: PinStatus[] = ['activo_exhibicion', 'activo', 'inactivo_exhibicion', 'inactivo'];
-  const panelOffset = isFullscreen && fullscreenPanel && showSidePanel ? 300 : 0;
+  const activeFullscreenPanel = resolvedFullscreenPanel ?? fullscreenPanel ?? null;
+  const panelOffset = isFullscreen && activeFullscreenPanel && showSidePanel ? 300 : 0;
 
   // ── Filter Legend ─────────────────────────────────────────────────────────
   const FilterLegend = () => (
@@ -862,7 +961,7 @@ function MapaRutas({
       className="shelfy-print-mapa"
     >
       {/* Vendor panel overlay (fullscreen only) */}
-      {isFullscreen && fullscreenPanel && showSidePanel && (
+      {isFullscreen && activeFullscreenPanel && showSidePanel && (
         <div style={{
           position: 'absolute', left: 0, top: 0, bottom: 0, width: 300,
           zIndex: 20, display: 'flex', flexDirection: 'column',
@@ -870,13 +969,13 @@ function MapaRutas({
           borderRight: '1px solid rgba(255,255,255,0.07)',
           overflowY: 'auto', boxShadow: '4px 0 24px rgba(0,0,0,0.4)',
         }}>
-          {fullscreenPanel}
+          {activeFullscreenPanel}
         </div>
       )}
 
       {/* Map canvas */}
       <div style={{ flex: 1, position: 'relative', marginLeft: panelOffset }}>
-        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
 
         {/* Street View panel */}
         {svPos && (
@@ -891,21 +990,41 @@ function MapaRutas({
         {routeBuildEnabled && (
           <div style={{
             position: 'absolute', top: isFullscreen ? 56 : 10, left: '50%', transform: 'translateX(-50%)',
-            zIndex: 30, display: 'flex', alignItems: 'center', gap: 8,
-            background: 'rgba(139,92,246,0.92)', backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(255,255,255,0.20)',
+            zIndex: 30, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center',
+            background: drawStrokeColor === '#0ea5e9' ? 'rgba(14,165,233,0.94)' : 'rgba(139,92,246,0.94)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.22)',
             borderRadius: 10, padding: '7px 14px',
-            boxShadow: '0 4px 20px rgba(139,92,246,0.4)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+            maxWidth: '92%',
           }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-              ✏️ Clic = vértice (punto visible) · doble clic o Cerrar · ESC cancelar
+              Clic = vértice · clic en punto 1 o Enter = cerrar · Backspace deshacer · ESC cancelar
+              {drawVertexCount > 0 ? ` (${drawVertexCount} pts)` : ''}
             </span>
+            {drawVertexCount > 0 && (
+              <button
+                type="button"
+                onClick={undoLastVertex}
+                style={{
+                  background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.35)',
+                  borderRadius: 6, color: 'white', fontSize: 10, fontWeight: 700,
+                  padding: '3px 8px', cursor: 'pointer',
+                }}
+              >
+                ↩ Deshacer
+              </button>
+            )}
             <button
+              type="button"
               onClick={finishPolygon}
+              disabled={drawVertexCount < 3}
               style={{
-                background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.35)',
+                background: drawVertexCount >= 3 ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.35)',
                 borderRadius: 6, color: 'white', fontSize: 10, fontWeight: 700,
-                padding: '3px 8px', cursor: 'pointer',
+                padding: '3px 8px', cursor: drawVertexCount >= 3 ? 'pointer' : 'not-allowed',
+                opacity: drawVertexCount >= 3 ? 1 : 0.65,
               }}
             >
               Cerrar polígono
@@ -927,7 +1046,7 @@ function MapaRutas({
       </div>
 
       {/* Left hamburger (fullscreen side panel toggle) */}
-      {isFullscreen && fullscreenPanel && (
+      {isFullscreen && activeFullscreenPanel && (
         <div style={{
           position: 'absolute', top: 10, left: showSidePanel ? 308 : 10, zIndex: 31,
           transition: 'left 0.2s ease',
@@ -1003,7 +1122,15 @@ function MapaRutas({
         display: 'flex', gap: 5, zIndex: 30,
       }}>
         <button
-          onClick={() => setIsFullscreen(f => !f)}
+          onClick={() => {
+            setIsFullscreen((f) => {
+              const next = !f;
+              if (next) {
+                setResolvedFullscreenPanel(getFullscreenPanel?.() ?? fullscreenPanel ?? null);
+              }
+              return next;
+            });
+          }}
           title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
           style={{
             background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
@@ -1095,7 +1222,7 @@ function MapaRutas({
       {/* PDV count badge */}
       <div style={{
         position: 'absolute', top: 10,
-        left: (isFullscreen && fullscreenPanel)
+        left: (isFullscreen && activeFullscreenPanel)
           ? (showSidePanel ? 403 : 105)
           : (panelOffset + 10),
         zIndex: 30,
@@ -1113,7 +1240,7 @@ function MapaRutas({
       {vendedorKpis && ((vendedorKpis.pdv_compradores_mes ?? 0) > 0 || (vendedorKpis.pdv_altas_mes ?? 0) > 0) && (
         <div style={{
           position: 'absolute', top: 42,
-          left: (isFullscreen && fullscreenPanel)
+          left: (isFullscreen && activeFullscreenPanel)
             ? (showSidePanel ? 403 : 105)
             : (panelOffset + 10),
           zIndex: 30,
@@ -1149,4 +1276,48 @@ function MapaRutas({
   );
 }
 
-export default React.memo(MapaRutas);
+export default React.memo(MapaRutas, (prev, next) => {
+  if (supervisionMapPinsSyncKey(prev.pines) !== supervisionMapPinsSyncKey(next.pines)) {
+    return false;
+  }
+  if (prev.activePolygonGeoJson !== next.activePolygonGeoJson) return false;
+  const keys: (keyof MapaRutasProps)[] = [
+    "distId",
+    "isSuperadmin",
+    "mapToolMode",
+    "routeBuildEnabled",
+    "vendedorKpis",
+    "layerPanelSlot",
+    "onTogglePDV",
+    "onToggleRouteBuild",
+    "onPolygonSelectionChange",
+    "onToggleCapa",
+    "onToggleVendorCapas",
+    "onFinishPolygonRef",
+    "getFullscreenPanel",
+    "fullscreenPanel",
+  ];
+  for (const k of keys) {
+    if (prev[k] !== next[k]) return false;
+  }
+  if (prev.selectedPDVs !== next.selectedPDVs) {
+    const a = prev.selectedPDVs ?? [];
+    const b = next.selectedPDVs ?? [];
+    if (a.length !== b.length || a.some((id, i) => id !== b[i])) return false;
+  }
+  if (prev.visibleCapaIds !== next.visibleCapaIds) {
+    const a = prev.visibleCapaIds ?? new Set<number>();
+    const b = next.visibleCapaIds ?? new Set<number>();
+    if (a.size !== b.size) return false;
+    for (const id of a) if (!b.has(id)) return false;
+  }
+  if (prev.capas !== next.capas) {
+    if ((prev.capas?.length ?? 0) !== (next.capas?.length ?? 0)) return false;
+  }
+  if (prev.vendorNames !== next.vendorNames) {
+    const pk = Object.keys(prev.vendorNames ?? {});
+    const nk = Object.keys(next.vendorNames ?? {});
+    if (pk.length !== nk.length) return false;
+  }
+  return true;
+});

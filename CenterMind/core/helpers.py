@@ -712,9 +712,10 @@ def cc_kpi_delta(actual: dict, anterior: dict | None, campo: str) -> dict | None
 
 
 # ─── Exhibiciones de prueba (Tabaco & Hnos): ranking + evaluación ───────────
-# id_vendedor_v2 en vendedores_v2: 157 = NACHO PIAZZA, 76 = JESUS GRIMALDI (supervisor / QA).
+# id_vendedor_v2 en vendedores_v2: 157 = NACHO PIAZZA (cuenta test Center).
+# JESUS GRIMALDI (76) es vendedor operativo — no filtrar como QA.
 _EXH_QA_VENDEDOR_V2_BY_DIST: dict[int, frozenset[int]] = {
-    3: frozenset({157, 76}),
+    3: frozenset({157}),
 }
 
 # Cuentas Center / test: ocultar exhibiciones en todos los distribuidores.
@@ -731,7 +732,6 @@ _EXH_QA_TELEGRAM_USER_IDS: frozenset[int] = frozenset({
 _EXH_QA_INTEGRANTE_NAMES: frozenset[str] = frozenset({
     "nacho piazza",
     "test nacho",
-    "jesus grimaldi",
 })
 
 _EXH_QA_DISPLAY_NAMES: frozenset[str] = _EXH_QA_INTEGRANTE_NAMES
@@ -757,26 +757,18 @@ def is_exhibicion_qa_integrante_name(nombre_integrante: str | None) -> bool:
     n = _norm_exhib_vendor_label(nombre_integrante)
     if not n:
         return False
-    if n in _EXH_QA_INTEGRANTE_NAMES:
-        return True
-    if "grimaldi" in n:
-        return True
-    return False
+    return n in _EXH_QA_INTEGRANTE_NAMES
 
 
 def is_exhibicion_qa_display_for_dist(dist_id: int, display_label: str | None) -> bool:
     """
-    Etiqueta ERP o nombre completo de cuenta QA (NACHO PIAZZA, JESUS GRIMALDI).
-    No oculta alias ambiguos tipo "Nacho" ni vendedores activos (p. ej. IGNACIO LERF).
+    Etiqueta ERP o nombre completo de cuenta QA (p. ej. NACHO PIAZZA).
+    No oculta alias ambiguos tipo "Nacho" ni vendedores operativos (p. ej. JESUS GRIMALDI).
     """
     n = _norm_exhib_vendor_label(display_label)
     if not n:
         return False
-    if n in _EXH_QA_DISPLAY_NAMES:
-        return True
-    if "grimaldi" in n:
-        return True
-    return False
+    return n in _EXH_QA_DISPLAY_NAMES
 
 
 def build_qa_exhibicion_integrante_ids(dist_id: int) -> frozenset[int]:

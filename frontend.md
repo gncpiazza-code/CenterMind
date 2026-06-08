@@ -1,259 +1,56 @@
-# Frontend Design System — Shelfy (Lean)
+# Frontend Shelfy (Lean)
 
-Guia compacta para implementaciones UI en el portal Shelfy.
+Detalle por pantalla: `docs/context/modules/`
 
 ## Stack UI
 
-- Next.js 16 App Router + React 19 + TypeScript 5.9
-- Tailwind CSS 4 + shadcn/ui
-- TanStack Query v5 + Zustand
-- Recharts + Google Maps JS API
+Next.js App Router · React 19 · Tailwind 4 · shadcn/ui · TanStack Query · Zustand · Recharts · Google Maps (supervisión) · MapLibre (galería)
 
-## Tema Visual (Light-Violet)
+## Tema Light-Violet
 
-Principios:
+Tokens: `--shelfy-bg`, `--shelfy-panel`, `--shelfy-primary`, `--shelfy-text`, `--shelfy-success|warning|error` — evitar hex sueltos.
 
-- Tema claro por defecto.
-- Violeta como acento principal.
-- Contraste alto para lectura operativa.
-- Evitar hex hardcodeado en componentes.
+## Reglas no negociables
 
-Tokens clave:
+- Fetch/tipos: `src/lib/api.ts`
+- Permisos: `hasPermiso()`
+- Server state: TanStack Query (no fetch crudo en componentes)
+- Fechas: `DatePicker`
+- Rutas operativas: **Día → Ruta**
+- PDV en UI: `#id_cliente_erp + nombre`
+- Mapas: no `transform: scale()` en pins
 
-- `--shelfy-bg`: fondo principal
-- `--shelfy-panel`: panel glass claro
-- `--shelfy-primary`: acciones primarias
-- `--shelfy-text`: texto principal
-- `--shelfy-success|warning|error`: estados semanticos
+## shadcn
 
-## Reglas UI No Negociables
+Usar primitives existentes; `cn()`; `Dialog`/`Sheet` con `Title`; feedback `sonner`.
 
-- Fetch solo via `src/lib/api.ts`.
-- Permisos solo via `hasPermiso(...)`.
-- Estados de servidor con TanStack Query, no fetch directo en componentes.
-- Usar `DatePicker` (no `input type="date"`).
-- En rutas operativas: **Dia -> Ruta** (nunca al reves).
-- En objetivos: mostrar PDV como `#id_cliente_erp + nombre` y razon social secundaria.
-- En mapas: no usar `transform: scale()` para animar marcadores.
+## Navegación
 
-## Componentes Criticos
+Topbar + TopModeTabs + BottomNav (sidebar desactivado en operación normal).
 
-### Dashboard rediseño v2 (2026-05-27)
+## Pantallas — punteros
 
-Componentes en `components/dashboard/`:
+| Pantalla | Doc / archivos |
+|----------|----------------|
+| Dashboard | `modules/dashboard.md` · `components/dashboard/*` |
+| Supervisión mapa | `modules/supervision-mapa.md` · `TabSupervision`, `MapaRutas`, `map/*` · modos `explorar` / `objetivo_zona` / `crear_rutas` |
+| Objetivos | `modules/objetivos.md` · `app/objetivos/page.tsx` |
+| Galería | `modules/galeria-mapa.md` · `app/galeria-exhibiciones/` |
+| Visor | `modules/visor-glass.md` · `app/visor/` |
+| Estadísticas | bundle sin sucursal en key · `lib/estadisticas-filter.ts` |
 
-- `DashboardKpiCarousel.tsx` — 3 slides: [0] Estados (Pend/Apro/Dest/Rec), [1] Gráficos rotativos (evolución | top vendedores), [2] Rendimiento (PDVs exhibidos, Tasa aprob, Vend activos, Exhib/vendedor). Props: `kpis`, `ranking`, `evolucion`, `loading`.
-- `DashboardToolbar.tsx` — Sucursal (izquierda) + PeriodPills + hint fechas (derecha). Solo muestra sucursal si `sucursales.length > 1`.
-- `DashboardPeriodPills.tsx` — ToggleGroup `Hoy|Semana|Mes` + Popover `Mes ▾` con año/mes selector.
-- `DashboardFullscreenButton.tsx` — Fullscreen via `requestFullscreen` + toggle `isImmersive` en page. Escape cierra.
+## Objetivos FE (resumen)
 
-Util: `lib/dashboard-period.ts` — `PeriodPreset`, `resolvePeriodBounds()`, `formatDateRangeAR()`. Argentina UTC-3 hardcoded.
+- Kanban 4 cols · `ObjetivoDetalleModal` al click card
+- `resolveObjetivoMes()` filtro mes · Switch FDV · fecha límite obligatoria dist
+- Utils: `lib/objetivo-utils.ts`
 
-Util: `lib/dashboard-ultimas.ts` — `filterUltimasCoherentes()` / `isUltimaCoherenteConVendedor()` descartan cards con `pdv_asignado_vendedor=false` o ciudad PDV distinta a `ciudad_dominante` del ranking.
+## Contratos
 
-Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
+- Query keys incluyen `distId`
+- WS superadmin para tickets
+- Fechas AR: `lib/fecha-ar.ts`
 
-`KpiCard.tsx` extendido: props `tooltip`, `suffix`, `isDecimal`.
+## Calidad
 
-`HeroCarousel.tsx`: filtra rechazadas antes de mostrar (`/rechaz/i`); 3 badges estado (Pendiente/Aprobado/Destacado); PDV info con iconos Hash/Building2/MapPin.
-- Nombre de vendedor en card: `line-clamp-2` (sin truncado duro en una sola línea).
-
-`RankingTable.tsx`: sin footer de informe; autoscroll suave (`requestAnimationFrame`); pausa al hover (400ms resume); botones Pause/Play + Fullscreen en header; título centrado `RANKING {empresa}`.
-- Loop de autoscroll: duplicación de filas para cualquier ranking con más de 1 vendedor (evita pausas/interrupciones intermitentes).
-- Safari: pausa autoscroll ~2.8s ante wheel/touch/scroll manual + `-webkit-overflow-scrolling: touch`; sin `layout` en filas (menos jank).
-- Iconos estado (✓/✗/fuego) 16px en header y 14px en celdas; filas alternadas violet/indigo; card con gradiente violeta.
-
-`KpiCard` compact: borde lateral de color semántico, gradientes más saturados en carousel.
-
-`DashboardKpiCarousel.tsx`: slide 0 mantiene dots de navegación pero sin etiqueta visible "Estados" en la esquina superior izquierda.
-
-`page.tsx`: layout 25% hero / 75% ranking (`md:w-1/4` + `md:w-3/4`); sin FiltrosBar ni chartsExpanded; WS invalida: kpis, ranking, ultimas, evolucion, sucursales; `refetchInterval` = 300_000.
-
-### Estadísticas bundle — filtro sucursal client-side (2026-06-05)
-
-- `bundleKeys.estadisticas(distId, meses)` — 4 elementos, **sin sucursal** en la key.
-- `cartasBundleQueryOptions(distId, meses)` — siempre llama `fetchEstadisticasBundle(distId, meses, null)`; `staleTime: ESTADISTICAS_BUNDLE_STALE_MS` (15 min).
-- `refetchInterval`: solo si `cartas.length === 0 && meta.revalidating` → 8 s; nunca mientras hay datos visibles.
-- `page.tsx`: warm condicional (gate por `queryClient.getQueryState` + age); overlay solo en `waitingSnapshot = meta.revalidating && cartas.length === 0`.
-- Filtro sucursal: `filterCartasBySucursal(cartas, sucursal)` en `lib/estadisticas-filter.ts`; aplicado en `page.tsx` antes de pasar vendors a `VendorCollection`.
-- `VendorCollection` no filtra internamente; recibe vendors ya filtrados desde page.
-- `portal-cache-persist.ts` buster bump a `"shelfy-portal-v2"` para invalidar caches con key vieja.
-- Tests: `lib/estadisticas-filter.test.ts` (5 casos) + `hooks/useEstadisticasQueries.test.ts` (3 casos).
-
-### `TabSupervision.tsx`
-
-- Tabs: mapa, ventas, cuentas.
-- Query keys con `distId`.
-- Modo mobile con switch `Mapa / Vendedores`.
-- Matching de deudas prioriza `id_cliente` y `id_cliente_erp`.
-
-### `MapaRutas.tsx`
-
-- Google Maps API + `InfoWindow`.
-- `fitBounds({ animate: false })`.
-- `ResizeObserver` para evitar drift visual al cambiar layout.
-
-### `objetivos/page.tsx`
-
-- Modos por tipo con dualidad general vs universo explicito.
-- Kanban 4 columnas: `planificado | pendiente | en_progreso | terminado`.
-- `planificado` = `lanzado_at IS NULL && !cumplido`; color slate, icono `CalendarDays`.
-- Timeline + stats + print.
-- En el modal de alta, `fecha limite` es obligatoria para origen distribuidora.
-- `fecha_inicio` (DATE): si > hoy, objetivo queda planificado sin notificación Telegram al crearlo.
-- `descripcion` es obligatoria ≥5 chars; `buildPhrase()` eliminado del flujo.
-- `Tasa de pendientes` se muestra debajo del bloque contextual del tipo y antes del selector de fecha.
-- Filtros de fecha: `filterFechaDesde` / `filterFechaHasta` en Zustand store, aplicados sobre `fecha_inicio ?? fecha_objetivo`.
-
-**KanbanCard (2026-05-22):** minimalista — solo badges tipo/origen, dias restantes, nombre vendedor, barra progreso, fechas inicio/fin. Sin `descripcion`, sin accordion, sin prorrateo inline. Click → `ObjetivoDetalleModal`.
-
-### `componentes/objetivos/ObjetivoDetalleModal.tsx` (nuevo 2026-05-22)
-
-- Dialog shadcn centrado, overlay oscuro, ESC/click-fuera cierra.
-- Contiene: `ObjetivoResumen` + barra progreso + `ObjetivoProrrateoCalendario` + lista PDVs + acciones (Lanzar/PDF/reagendar).
-- Recibe `onLanzar`, `onReagendar`, `onDownloadCertificado`, `onOpenRuteoPdf` como props.
-
-### `componentes/objetivos/ObjetivoResumen.tsx` (nuevo 2026-05-22)
-
-- Muestra tipo, origen, meta, fechas, instrucción por tipo.
-- Si `descripcion` es payload Telegram crudo (`isTelegramObjectiveMessage`), no la renderiza.
-
-### `componentes/objetivos/ObjetivoProrrateoCalendario.tsx` (nuevo 2026-05-22)
-
-- Grilla lun-sáb por semana. Celda: pasado=avance/meta con color, futuro=meta esperada, pre-inicio=N/A.
-- **Compañía:** mes_referencia; alteo/activación sin retro (startEffective desde created_at).
-- **Distribuidora:** rango max(fecha_inicio, lanzado_at, created_at) → fecha_objetivo; sin retroactividad.
-- Fuente de datos: `desglose_cache.progreso_diario` si existe; fallback promedio uniforme.
-
-### `lib/objetivo-utils.ts` (nuevo 2026-05-22)
-
-- `isTelegramObjectiveMessage(desc)`: detecta payload Telegram crudo.
-- `periodoProrrateo(obj)`: calcula `DiaHabil[]` para compañía y distribuidora.
-- No tiene efectos secundarios; reutilizable en cualquier componente.
-
-### `objetivos/LanzarObjetivoDialog.tsx`
-
-- `Dialog` (no AlertDialog) con props: `objetivo, open, loading, onConfirm, onCancel`.
-- Muestra: vendedor, tipo, fecha_inicio programada, aviso Telegram.
-- Botones: Cancelar (autoFocus) / Confirmar y enviar (violet, `Rocket` icon).
-- Aviso ámbar: "Se enviará un mensaje al grupo de Telegram del vendedor de forma inmediata."
-
-### `visor/page.tsx`
-
-- Layout de 3 paneles en desktop.
-- Atajos de teclado para evaluar/navegar.
-- Filtro por sucursal y foco en imagen.
-- Animaciones foto: **solo `opacity`** — sin `x`/`transform` (rompe backdrop-filter sampling).
-
-### Visor — Liquid Glass Clear material (`components/visor/`)
-
-- `VisorGlassMaterial` — `forwardRef`; 6 capas: **A** refract / **B** tint / **C** LensLayer / **D** rim / **E** specular / **F** content; `glyphMode`+`getImg` props; `data-glyph-mode` en root.
-- **Invariante H1/H6:** `filter` **NUNCA** en la capa A (backdrop-filter); el SVG lens va solo en el canvas de capa C.
-- `VisorGlassLensLayer` — capa C separada: Chromium usa canvas 2D + `filter:url(#lens)` en el canvas; Firefox usa `VisorGlassWebGLLens` (fragment shader fbm); Safari sin lens.
-- `useVisorGlassGlyphMode(getImg, pillRef)` — hook que muestrea luminancia real c/200ms → retorna `{glyphMode, luma}`.
-- `GlassIcon`/`GlassLabel` — vibrancy adaptativa: iconos oscuros en fondo claro, claros en fondo oscuro.
-- `WATER_GLASS_BTN_BASE` — clase base estructural sin color/filter; usar con `<GlassIcon>` para vibrancy adaptativa.
-- `WATER_GLASS_ICON_BTN` — retrocompat: base + blanco hardcodeado (dark backdrop). Usar cuando no hay hook.
-- `resolveGlassAnchor(imgRect, shellRect)` — sube píldora cuando cae >40% bajo la imagen.
-- `FotoViewer` — `crossOrigin="anonymous"` en img remota (CORS fix para canvas luma); `data-foto-shell` en shell.
-- `VisorWaterGlass` — `forwardRef`; props `glyphMode`+`getImg`; exporta `WATER_GLASS_BTN_BASE`.
-- Bench dev: `/visor/glass-bench` — HUD luma/mode/strategy; toggle vibrancy.
-- **Nunca** `filter` en ancestro del material ni `transform` en wrapper de controles.
-- `pickLensStrategy()` — Chromium→`"canvas"`, Firefox+WebGL→`"webgl"`, Safari→`"none"`.
-- Fechas compra/padrón (`YYYY-MM-DD`): usar `lib/fecha-ar.ts` (`parseFechaShelf`, `formatFechaDiaAR`, `daysSinceFechaAR`) — **no** `new Date("2026-05-29")` (UTC −1 día en AR).
-
-### Galería Mapa Apple Viewer (2026-06-01)
-
-#### Componentes en `components/galeria/`
-
-- `GaleriaMapView.tsx` — mapa MapLibre GL fullscreen con estilo Carto Positron. Gestiona lifecycle de bbox (debounce 300ms), clustering, y apertura del viewer al hacer click en pin. Parámetro `viewMode` desde Zustand.
-- `GaleriaMapPhotoPin.tsx` — pin HTML individual estilo Apple Photos: thumbnail cover cuadrado, badge conteo de exhibiciones, tail triangular. Solo montado en zoom >= 12 (cap 250 DOM).
-- `GaleriaMapClusterPin.tsx` — cluster de puntos WebGL con conteo y escala por densidad. Usado en zoom < 12.
-- `GaleriaSinCoordsPanel.tsx` — panel lateral colapsable que lista PDVs del vendedor sin coordenadas. Fetch lazy al expandir.
-- `GaleriaToolbar.tsx` — barra de filtros: dropdown de vendedor, filtro de estado (Pendiente/Aprobado/Destacado/Rechazado/Todos), checkbox ocultar sin exhibición, toggle Mapa/Grid.
-- `GaleriaExhibicionViewer.tsx` — Dialog fullscreen unificado estilo Instagram viewer. Muestra publicaciones (1 pub = 1 PDV + día AR), navega entre fotos del mismo PDV/día, y navega al PDV geográficamente más cercano. Reemplaza a `ExhibicionesTimelineDialog` como implementación activa.
-- `GaleriaPublicationCarousel.tsx` — carousel de fotos dentro del viewer: dots de navegación, blur peek de publicaciones adyacentes (animado con framer-motion), indicador de fecha AR.
-
-#### Hooks en `hooks/`
-
-- `useGaleriaMapaQuery.ts` — `useQuery` para `GET /api/galeria/mapa/vendedor/{id}?bbox=...`. React Query cache staleTime 2 min. Parámetros: `vendedorId`, `bbox` (N/S/E/W), `filtroEstado`, habilitado solo cuando hay bbox.
-- `useGaleriaMapClustering.ts` — supercluster para agrupar pins client-side. Devuelve lista renderizable cap 250 DOM. Recalcula al cambiar zoom o bbox.
-
-#### Libs en `lib/`
-
-- `galeria-publicaciones.ts` — `groupTimelinePublicaciones(items)`: agrupa ítems de timeline por `(pdv_key, dia_ar)` formando publicaciones con array de fotos. Fuente FE equivalente al módulo BE `galeria_publicaciones.py`.
-- `galeria-url.ts` — `parseGaleriaSearchParams(params)`: restaura viewMode/vendedorId/filtros desde URL. `buildGaleriaUrl(state)`: serializa estado a searchParams para persistencia en navegación.
-
-#### Store extendido
-
-- `useGaleriaStore` (Zustand persist) extendido con: `viewMode: "mapa" | "grid"`, `filtroEstado`, `hideSinExhib: boolean`, `vendedorId: string | null`. Persistido en localStorage bajo clave `galeria-store`.
-
-#### Reglas y restricciones
-
-- En el mapa, **nunca usar `transform: scale()` para animar pins** (regla global de mapas, `CLAUDE.md §6`).
-- La animación de blur-peek del viewer usa `framer-motion` solo en `opacity`/`x` — no aplicar `transform` que rompa `backdrop-filter`.
-- `GaleriaExhibicionViewer` es el único punto de entrada al viewer; no crear variantes paralelas.
-- La navegación por vecino haversine requiere que el PDV tenga coords (`lat`/`lng` no nulos).
-
-### `galeria/ReevaluarCompaniaSheet.tsx` + `SlideToConfirm.tsx`
-
-- Solo visible si `canReevaluarCompania` (superadmin / directorio).
-- `SlideToConfirm`: control drag-to-confirm con pointer events y fill track animado.
-- `ReevaluarCompaniaSheet`: Sheet bottom, selector de estado (3 opciones), textarea motivo mín 20 chars, slide-to-confirm, invalidate query `galeria-timeline` y `ranking-compania`.
-- `ExhibicionesTimelineDialog` recibe prop `canReevaluarCompania` y renderiza historial + botón por card.
-
-### `dashboard/RankingCompaniaCompare.tsx`
-
-- Tabla dual: puntos compañía vs oficial, delta con `TrendingUp`/`TrendingDown`.
-- Solo se monta en `dashboard/page.tsx` si `isCompania` (superadmin / directorio).
-- Query key: `["ranking-compania", distId, periodo, sucursalId]`.
-
-### `admin/tickets/page.tsx`
-
-- Centro de tickets superadmin estilo tabla (usuario, asunto, dist, categoría, criticidad automática, estado, fecha).
-- Filtros: categoría, estado, distribuidora, criticidad (`baja`–`critica`), búsqueda texto.
-- Export JSON con los mismos filtros.
-- Fila clickable abre Sheet de detalle: mensaje completo + análisis IA (Gemini) automático al abrir (`pre-resolucion`) + responder.
-- Críticos heurísticos en listado; IA refina etiqueta corta + criticidad + pasos sobre el repo Shelfy embebidos en prompt.
-
-## shadcn/ui
-
-Uso obligatorio de primitives existentes:
-
-- `Button`, `Card`, `Input`, `Label`, `Select`, `Dialog`, `Sheet`, `Alert`
-- `Tabs`, `Progress`, `Tooltip`, `Popover`, `DropdownMenu`, `Sonner`
-- `Table`, `Checkbox`, `Skeleton`, `ScrollArea`, `Avatar`, `Badge`
-
-Reglas:
-
-- `cn()` para combinacion de clases.
-- `Avatar` con `AvatarFallback`.
-- `Dialog`/`Sheet` siempre con `Title`.
-- `toast()` de `sonner` para feedback.
-
-## Navegacion
-
-- Sidebar desactivado para operacion normal.
-- Herramientas superadmin expuestas en `Topbar`.
-- `TopModeTabs` + `BottomNav` como navegacion principal de modulos.
-
-## Calidad y Performance
-
-- Evitar estado derivado duplicado.
-- Limitar animaciones pesadas en tablas de alto volumen.
-- Limpiar timers/subscripciones en `useEffect`.
-- Usar `Skeleton` en cargas y `Alert` en errores.
-
-## Contratos Frontend que no romper
-
-- `api.ts` como fuente unica de tipos y funciones.
-- Query keys de supervision y objetivos incluyen `distId`.
-- Compatibilidad con `/api/ws/superadmin` para notificaciones operativas.
-
-## Objetivos — Convenciones del Modal
-
-- Switch (no checkbox) para "Objetivo general para la FDV" (`@/components/ui/switch`).
-- El resumen "Objetivo generado" va **al final** del formulario, encima de los botones Crear/Cancelar.
-- `buildPhrase(overrideVendorName?)`: el argumento es requerido en bulk FDV para generar frases individuales por vendedor.
-- `tasa_pendientes` visible solo con PDVs explícitos (`showTasaPendientes`); se limpia automaticamente al ocultarse.
-- `vendedoresFiltrados` excluye buckets (sin vendedor, supervisor) antes de mostrar en modal.
+Skeleton en load · limpiar timers en useEffect · limitar animaciones en tablas grandes

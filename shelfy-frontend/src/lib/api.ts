@@ -3458,6 +3458,88 @@ export async function fetchPdvsMovimiento(
   );
 }
 
+// ── Mapa supervisión — capas planificación (My Maps) ─────────────────────────
+export interface MapaCapaPlanificacion {
+  id: number;
+  id_distribuidor: number;
+  id_vendedor: number;
+  id_ruta_anclada: number | null;
+  nombre: string;
+  geojson: Record<string, unknown>;
+  pdv_ids: number[];
+  color: string;
+  orden: number;
+  estado: "activo" | "archivado";
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MapaCapasListResponse {
+  items: MapaCapaPlanificacion[];
+  total: number;
+}
+
+export async function fetchMapaCapas(
+  distId: number,
+  opts?: { id_vendedor?: number; estado?: string; offset?: number; limit?: number },
+): Promise<MapaCapasListResponse> {
+  const params = new URLSearchParams();
+  if (opts?.id_vendedor != null) params.set("id_vendedor", String(opts.id_vendedor));
+  if (opts?.estado) params.set("estado", opts.estado);
+  if (opts?.offset != null) params.set("offset", String(opts.offset));
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return apiFetch<MapaCapasListResponse>(
+    `/api/supervision/mapa/capas/${distId}${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function createMapaCapa(body: {
+  id_distribuidor: number;
+  id_vendedor: number;
+  nombre: string;
+  geojson: Record<string, unknown>;
+  pdv_ids?: number[];
+  color?: string;
+  id_ruta_anclada?: number | null;
+}): Promise<MapaCapaPlanificacion> {
+  return apiFetch<MapaCapaPlanificacion>("/api/supervision/mapa/capas", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateMapaCapa(
+  capaId: number,
+  distId: number,
+  body: Partial<Pick<MapaCapaPlanificacion, "nombre" | "geojson" | "pdv_ids" | "color" | "orden">>,
+): Promise<MapaCapaPlanificacion> {
+  return apiFetch<MapaCapaPlanificacion>(
+    `/api/supervision/mapa/capas/${capaId}?dist_id=${distId}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+}
+
+export async function anclarMapaCapa(
+  capaId: number,
+  distId: number,
+  id_ruta_anclada: number,
+): Promise<MapaCapaPlanificacion> {
+  return apiFetch<MapaCapaPlanificacion>(
+    `/api/supervision/mapa/capas/${capaId}/anclar?dist_id=${distId}`,
+    { method: "PATCH", body: JSON.stringify({ id_ruta_anclada }) },
+  );
+}
+
+export async function archiveMapaCapa(capaId: number, distId: number): Promise<MapaCapaPlanificacion> {
+  return apiFetch<MapaCapaPlanificacion>(
+    `/api/supervision/mapa/capas/${capaId}?dist_id=${distId}`,
+    { method: "DELETE" },
+  );
+}
+
 // ── Difusión: Plantillas de usuario ─────────────────────────────────────────
 export interface DifusionPlantilla {
   id: number;

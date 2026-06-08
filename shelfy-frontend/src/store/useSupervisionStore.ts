@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type MapMode = 'activos';
+export type MapToolMode = 'explorar' | 'objetivo_zona' | 'crear_rutas';
 
 export interface DrawnPolygon {
   id: string;
@@ -47,7 +48,17 @@ interface SupervisionStore {
   togglePDVForObjective: (id: number) => void;
   clearSelectedPDVs: () => void;
 
-  // ── "Armar Ruta" polygon draw mode ─────────────────────────────────────────
+  // Map tool (My Maps)
+  mapToolMode: MapToolMode;
+  setMapToolMode: (mode: MapToolMode) => void;
+  visibleCapaIds: Set<number>;
+  toggleCapaVisibility: (capaId: number) => void;
+  setVisibleCapaIds: (ids: Set<number>) => void;
+  preloadComplete: boolean;
+  setPreloadComplete: (v: boolean) => void;
+
+  // ── Polygon draw (objetivo_zona | crear_rutas) ─────────────────────────────
+  /** @deprecated use mapToolMode !== 'explorar' */
   routeBuildEnabled: boolean;
   toggleRouteBuild: () => void;
   drawnPolygons: DrawnPolygon[];
@@ -70,7 +81,11 @@ export const useSupervisionStore = create<SupervisionStore>()(
       vendorColorOverrides: {},
       selectedPDVsForObjective: [],
 
-      // Armar Ruta initial state
+      mapToolMode: 'explorar',
+      visibleCapaIds: new Set<number>(),
+      preloadComplete: false,
+
+      // Armar Ruta initial state (legacy alias)
       routeBuildEnabled: false,
       drawnPolygons: [],
       activePolygonPdvIds: [],
@@ -155,16 +170,37 @@ export const useSupervisionStore = create<SupervisionStore>()(
 
       clearSelectedPDVs: () => set({ selectedPDVsForObjective: [] }),
 
-      // ── Armar Ruta actions ──────────────────────────────────────────────────
+      setMapToolMode: (mode) =>
+        set({
+          mapToolMode: mode,
+          routeBuildEnabled: mode !== 'explorar',
+          ...(mode === 'explorar'
+            ? { activePolygonPdvIds: [], activePolygonGeoJson: null }
+            : {}),
+        }),
+
+      toggleCapaVisibility: (capaId) =>
+        set((state) => {
+          const next = new Set(state.visibleCapaIds);
+          if (next.has(capaId)) next.delete(capaId);
+          else next.add(capaId);
+          return { visibleCapaIds: next };
+        }),
+
+      setVisibleCapaIds: (ids) => set({ visibleCapaIds: new Set(ids) }),
+      setPreloadComplete: (v) => set({ preloadComplete: v }),
+
+      // ── Polygon draw actions ────────────────────────────────────────────────
       toggleRouteBuild: () =>
-        set((state) => ({
-          routeBuildEnabled: !state.routeBuildEnabled,
-          // Al desactivar, limpiar estado de polígonos activos
-          ...(!state.routeBuildEnabled ? {} : {
-            activePolygonPdvIds: [],
-            activePolygonGeoJson: null,
-          }),
-        })),
+        set((state) => {
+          const nextEnabled = !state.routeBuildEnabled;
+          const nextMode: MapToolMode = nextEnabled ? 'objetivo_zona' : 'explorar';
+          return {
+            mapToolMode: nextMode,
+            routeBuildEnabled: nextEnabled,
+            ...(nextEnabled ? {} : { activePolygonPdvIds: [], activePolygonGeoJson: null }),
+          };
+        }),
 
       setActivePolygon: (pdvIds, geoJson) =>
         set({ activePolygonPdvIds: pdvIds, activePolygonGeoJson: geoJson }),
@@ -181,6 +217,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
 
       clearRouteBuildState: () =>
         set({
+          mapToolMode: 'explorar',
           routeBuildEnabled: false,
           drawnPolygons: [],
           activePolygonPdvIds: [],
@@ -208,6 +245,10 @@ export const useSupervisionStore = create<SupervisionStore>()(
           visibleVends: new Set(),
           visibleRutas: new Set(),
           visibleClientes: new Set(),
+          visibleCapaIds: new Set(),
+          mapToolMode: 'explorar' as MapToolMode,
+          routeBuildEnabled: false,
+          preloadComplete: false,
         };
       },
     }

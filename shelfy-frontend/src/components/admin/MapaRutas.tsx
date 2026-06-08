@@ -2,9 +2,12 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Settings } from "lucide-react";
 import { loadGoogleMapsFull, getGoogleMapsApiKey, ensureGoogleMapsConfigured, subscribeGoogleMapsAuthFailure, googleMapsReferrerWhitelistHint } from "@/lib/googleMapsLoader";
-import type { DrawnPolygon } from "@/store/useSupervisionStore";
+import type { DrawnPolygon, MapToolMode } from "@/store/useSupervisionStore";
 import { diasCalendarioDesdeFechaCompra, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
 import { MapLegendTooltip } from "./MapLegendTooltip";
+import { useVertexPolygonDraw } from "./map/SupervisionPolygonDrawTool";
+import type { MapaCapaPlanificacion } from "@/lib/api";
+import { SupervisionMapLayerPanel } from "./map/SupervisionMapLayerPanel";
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 export interface PinCliente {
@@ -171,12 +174,20 @@ interface MapaRutasProps {
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
   vendedorKpis?: VendedorKpis;
-  // Armar Ruta
+  mapToolMode?: MapToolMode;
+  /** @deprecated use mapToolMode !== 'explorar' */
   routeBuildEnabled?: boolean;
   onToggleRouteBuild?: () => void;
   onPolygonSelectionChange?: (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => void;
   distId?: number;
   isSuperadmin?: boolean;
+  capas?: MapaCapaPlanificacion[];
+  visibleCapaIds?: Set<number>;
+  vendorNames?: Record<number, string>;
+  onToggleCapa?: (id: number) => void;
+  onToggleVendorCapas?: (ids: number[], visible: boolean) => void;
+  layerPanelSlot?: React.ReactNode;
+  onFinishPolygonRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 // ── Google Maps API Key ───────────────────────────────────────────────────────
@@ -191,7 +202,7 @@ const ROUTE_POLYGON_STYLE: google.maps.PolygonOptions = {
   clickable: false,
 };
 
-/** Distancia mínima entre puntos al dibujar arrastrando (freehand). */
+/** Distancia mínima entre puntos al dibujar arrastrando (freehand) — legacy, removido. */
 const FREEHAND_SAMPLE_METERS = 10;
 
 async function loadGmaps() {
@@ -266,22 +277,28 @@ export default function MapaRutas({
   selectedPDVs,
   onTogglePDV,
   vendedorKpis,
-  routeBuildEnabled = false,
+  mapToolMode = 'explorar',
+  routeBuildEnabled: routeBuildEnabledProp,
   onToggleRouteBuild,
   onPolygonSelectionChange,
   distId,
   isSuperadmin,
+  capas = [],
+  visibleCapaIds = new Set<number>(),
+  vendorNames = {},
+  onToggleCapa,
+  onToggleVendorCapas,
+  layerPanelSlot,
+  onFinishPolygonRef,
 }: MapaRutasProps) {
+  const routeBuildEnabled = routeBuildEnabledProp ?? mapToolMode !== 'explorar';
+  const drawStrokeColor = mapToolMode === 'crear_rutas' ? '#0ea5e9' : '#8b5cf6';
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const drawnPolyRef  = useRef<google.maps.Polygon[]>([]);
-  const activeDrawPathRef = useRef<google.maps.LatLng[]>([]);
-  const previewPolylineRef = useRef<google.maps.Polyline | null>(null);
-  const previewPolygonRef = useRef<google.maps.Polygon | null>(null);
-  const isDrawingRef = useRef(false);
-  const drawListenersRef = useRef<google.maps.MapsEventListener[]>([]);
+  const capaDataRef   = useRef<Map<number, google.maps.Data>>(new Map());
   const fittedRef     = useRef(false);
 
   const [mapLoaded,    setMapLoaded]    = useState(false);
@@ -291,7 +308,6 @@ export default function MapaRutas({
   const [noKey,        setNoKey]        = useState(false);
   const [authFailed,   setAuthFailed]   = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
-  const [activeVertexCount, setActiveVertexCount] = useState(0);
   const [pinConfig, setPinConfig] = useState({ pin_size_activo: 35, pin_size_inactivo: 24 });
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -581,67 +597,7 @@ export default function MapaRutas({
     });
   }, [selectedPDVs, filteredPines, mapLoaded, pinConfig]);
 
-  const clearActiveDrawPreview = useCallback(() => {
-    activeDrawPathRef.current = [];
-    isDrawingRef.current = false;
-    previewPolylineRef.current?.setMap(null);
-    previewPolygonRef.current?.setMap(null);
-    setActiveVertexCount(0);
-    if (mapRef.current) {
-      mapRef.current.setOptions({ draggable: true });
-    }
-  }, []);
-
-  const updateDrawPreview = useCallback((cursor?: google.maps.LatLng | null) => {
-    const map = mapRef.current;
-    if (!map || !window.google?.maps) return;
-
-    const verts = activeDrawPathRef.current;
-    if (verts.length === 0) {
-      previewPolylineRef.current?.setMap(null);
-      previewPolygonRef.current?.setMap(null);
-      return;
-    }
-
-    const path = cursor ? [...verts, cursor] : [...verts];
-    if (path.length < 2) return;
-
-    if (!previewPolylineRef.current) {
-      previewPolylineRef.current = new window.google.maps.Polyline({
-        path,
-        map,
-        strokeColor: '#8b5cf6',
-        strokeWeight: 3,
-        strokeOpacity: 1,
-        zIndex: 2000,
-        clickable: false,
-      });
-    } else {
-      previewPolylineRef.current.setPath(path);
-      previewPolylineRef.current.setMap(map);
-    }
-
-    if (path.length >= 3) {
-      if (!previewPolygonRef.current) {
-        previewPolygonRef.current = new window.google.maps.Polygon({
-          paths: path,
-          map,
-          fillColor: '#8b5cf6',
-          fillOpacity: 0.16,
-          strokeColor: '#8b5cf6',
-          strokeWeight: 2,
-          strokeOpacity: 0.85,
-          clickable: false,
-          zIndex: 1999,
-        });
-      } else {
-        previewPolygonRef.current.setPaths(path);
-        previewPolygonRef.current.setMap(map);
-      }
-    }
-  }, []);
-
-  const applyPolygonSelection = useCallback((polygon: google.maps.Polygon) => {
+  const resolvePdvIdsInPolygon = useCallback((polygon: google.maps.Polygon) => {
     const pdvIds: number[] = [];
     filteredPinesRef.current.forEach(p => {
       if (!p.lat || !p.lng) return;
@@ -650,118 +606,93 @@ export default function MapaRutas({
         pdvIds.push(p.id);
       }
     });
+    return pdvIds;
+  }, []);
 
-    const path = polygon.getPath();
-    const coords: number[][] = path.getArray().map((ll: google.maps.LatLng) => [ll.lng(), ll.lat()]);
-    if (coords.length > 0) coords.push(coords[0]);
-    const geoJson: DrawnPolygon['geoJson'] = {
-      type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [coords] },
-      properties: {},
-    };
+  const handlePolygonClosed = useCallback(
+    (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => {
+      onPolygonSelectionChange?.(pdvIds, geoJson);
+    },
+    [onPolygonSelectionChange],
+  );
 
-    onPolygonSelectionChange?.(pdvIds, geoJson);
-  }, [onPolygonSelectionChange]);
-
-  const finishActivePolygon = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !window.google) return;
-    const path = activeDrawPathRef.current;
-    if (path.length < 3) return;
-
-    previewPolylineRef.current?.setMap(null);
-    previewPolygonRef.current?.setMap(null);
-
-    const polygon = new window.google.maps.Polygon({
-      paths: path,
-      map,
-      ...ROUTE_POLYGON_STYLE,
+  const { vertexCount, polygonCount: drawPolygonCount, finishPolygon, clearAll: clearDrawPolygons } =
+    useVertexPolygonDraw({
+      enabled: routeBuildEnabled && mapLoaded,
+      mapRef,
+      mapLoaded,
+      strokeColor: drawStrokeColor,
+      onPolygonClosed: handlePolygonClosed,
+      resolvePdvIdsInPolygon,
+      onCancel: () => {
+        onPolygonSelectionChange?.([], {
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [] },
+          properties: {},
+        });
+      },
     });
-    drawnPolyRef.current.push(polygon);
-    setPolygonCount(c => c + 1);
-    applyPolygonSelection(polygon);
 
-    activeDrawPathRef.current = [];
-    setActiveVertexCount(0);
-  }, [applyPolygonSelection]);
+  useEffect(() => {
+    if (onFinishPolygonRef) onFinishPolygonRef.current = finishPolygon;
+  }, [finishPolygon, onFinishPolygonRef]);
 
-  // ── Dibujo freehand (arrastrar) — reemplaza DrawingManager deprecado ───────
+  useEffect(() => {
+    setPolygonCount(drawPolygonCount);
+  }, [drawPolygonCount]);
+
+  // ── Capas persistidas (google.maps.Data) ─────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded || !window.google?.maps?.geometry) return;
+    if (!map || !mapLoaded || !window.google?.maps?.Data) return;
 
-    const removeDrawListeners = () => {
-      drawListenersRef.current.forEach(l => l.remove());
-      drawListenersRef.current = [];
-    };
+    const activeIds = new Set(visibleCapaIds);
+    capaDataRef.current.forEach((layer, id) => {
+      if (!activeIds.has(id)) {
+        layer.setMap(null);
+      }
+    });
 
-    if (routeBuildEnabled) {
-      infoWindowRef.current?.close();
-      map.setOptions({ draggableCursor: 'crosshair', disableDoubleClickZoom: true });
-      markersMapRef.current.forEach(m => m.setClickable(false));
-
-      const sampleIfFarEnough = (latLng: google.maps.LatLng) => {
-        const verts = activeDrawPathRef.current;
-        const last = verts[verts.length - 1];
-        if (!last) return true;
-        const dist = window.google.maps.geometry.spherical.computeDistanceBetween(last, latLng);
-        return dist >= FREEHAND_SAMPLE_METERS;
-      };
-
-      const downL = map.addListener('mousedown', (e: google.maps.MapMouseEvent) => {
-        const latLng = e.latLng;
-        if (!latLng) return;
-        isDrawingRef.current = true;
-        map.setOptions({ draggable: false });
-        activeDrawPathRef.current = [latLng];
-        setActiveVertexCount(1);
-        updateDrawPreview(latLng);
-      });
-
-      const moveL = map.addListener('mousemove', (e: google.maps.MapMouseEvent) => {
-        const latLng = e.latLng;
-        if (!latLng) return;
-        if (isDrawingRef.current) {
-          if (sampleIfFarEnough(latLng)) {
-            activeDrawPathRef.current.push(latLng);
-            setActiveVertexCount(activeDrawPathRef.current.length);
-          }
-          updateDrawPreview(latLng);
-        } else if (activeDrawPathRef.current.length > 0) {
-          updateDrawPreview(latLng);
+    for (const capa of capas) {
+      let layer = capaDataRef.current.get(capa.id);
+      if (!layer) {
+        layer = new window.google.maps.Data();
+        capaDataRef.current.set(capa.id, layer);
+        try {
+          layer.addGeoJson(capa.geojson as object);
+        } catch {
+          /* invalid geojson */
         }
-      });
-
-      const upL = map.addListener('mouseup', () => {
-        if (!isDrawingRef.current) return;
-        isDrawingRef.current = false;
-        map.setOptions({ draggable: true });
-        if (activeDrawPathRef.current.length >= 3) {
-          finishActivePolygon();
-        } else {
-          clearActiveDrawPreview();
-        }
-      });
-
-      drawListenersRef.current = [downL, moveL, upL];
-    } else {
-      removeDrawListeners();
-      map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false, draggable: true });
-      markersMapRef.current.forEach(m => m.setClickable(true));
-      clearActiveDrawPreview();
-      drawnPolyRef.current.forEach(p => p.setMap(null));
-      drawnPolyRef.current = [];
-      setPolygonCount(0);
+        layer.setStyle({
+          fillColor: capa.color || '#8b5cf6',
+          fillOpacity: 0.2,
+          strokeColor: capa.color || '#8b5cf6',
+          strokeWeight: 2,
+          clickable: false,
+        });
+      }
+      layer.setMap(activeIds.has(capa.id) ? map : null);
     }
 
-    return () => {
-      removeDrawListeners();
-      if (mapRef.current) {
-        mapRef.current.setOptions({ draggableCursor: null, disableDoubleClickZoom: false, draggable: true });
+    capaDataRef.current.forEach((layer, id) => {
+      if (!capas.some(c => c.id === id)) {
+        layer.setMap(null);
+        capaDataRef.current.delete(id);
       }
-      isDrawingRef.current = false;
-    };
-  }, [routeBuildEnabled, mapLoaded, finishActivePolygon, clearActiveDrawPreview, updateDrawPreview]);
+    });
+  }, [capas, visibleCapaIds, mapLoaded]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (routeBuildEnabled) {
+      infoWindowRef.current?.close();
+      markersMapRef.current.forEach(m => m.setClickable(false));
+    } else {
+      markersMapRef.current.forEach(m => m.setClickable(true));
+      clearDrawPolygons();
+    }
+  }, [routeBuildEnabled, mapLoaded, clearDrawPolygons]);
 
   // ── ESC to exit fullscreen ────────────────────────────────────────────────
   useEffect(() => {
@@ -774,10 +705,10 @@ export default function MapaRutas({
   const clearPolygons = useCallback(() => {
     drawnPolyRef.current.forEach(p => p.setMap(null));
     drawnPolyRef.current = [];
-    clearActiveDrawPreview();
+    clearDrawPolygons();
     setPolygonCount(0);
     onPolygonSelectionChange?.([], { type: 'Feature', geometry: { type: 'Polygon', coordinates: [] }, properties: {} });
-  }, [onPolygonSelectionChange, clearActiveDrawPreview]);
+  }, [onPolygonSelectionChange, clearDrawPolygons]);
 
   // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {
@@ -954,8 +885,21 @@ export default function MapaRutas({
             boxShadow: '0 4px 20px rgba(139,92,246,0.4)',
           }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-              ✏️ Mantené clic y arrastrá para dibujar la zona · soltá para confirmar
+              ✏️ Clic = vértice · doble clic o Cerrar polígono · ESC cancelar
+              {vertexCount > 0 ? ` · ${vertexCount} pts` : ''}
             </span>
+            {vertexCount >= 3 && (
+              <button
+                onClick={finishPolygon}
+                style={{
+                  background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.35)',
+                  borderRadius: 6, color: 'white', fontSize: 10, fontWeight: 700,
+                  padding: '3px 8px', cursor: 'pointer',
+                }}
+              >
+                Cerrar polígono
+              </button>
+            )}
             {polygonCount > 0 && (
               <button
                 onClick={clearPolygons}
@@ -1018,6 +962,28 @@ export default function MapaRutas({
           >
             Dibujar Zona
           </button>
+        </div>
+      )}
+
+      {/* Layer panel + custom slot */}
+      {(layerPanelSlot || (capas.length > 0 && onToggleCapa)) && (
+        <div style={{
+          position: 'absolute', bottom: 12, left: panelOffset + 12, zIndex: 30,
+          width: 280, maxHeight: 280, overflow: 'hidden',
+          background: 'rgba(15,23,42,0.88)', backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
+        }}>
+          {layerPanelSlot ?? (
+            onToggleCapa && onToggleVendorCapas ? (
+              <SupervisionMapLayerPanel
+                capas={capas}
+                vendorNames={vendorNames}
+                visibleCapaIds={visibleCapaIds}
+                onToggleCapa={onToggleCapa}
+                onToggleVendorCapas={onToggleVendorCapas}
+              />
+            ) : null
+          )}
         </div>
       )}
 

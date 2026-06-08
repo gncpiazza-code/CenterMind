@@ -593,3 +593,43 @@ class LiquidacionPreviewOut(BaseModel):
     total_mando_medio: float
     total_distribuidora: float
 
+
+class MapaCapaCreate(BaseModel):
+    id_distribuidor: int
+    id_vendedor: int
+    nombre: str
+    geojson: dict
+    pdv_ids: list[int] = Field(default_factory=list)
+    color: str | None = None
+    id_ruta_anclada: int | None = None
+    orden: int | None = None
+
+
+class MapaCapaUpdate(BaseModel):
+    nombre: str | None = None
+    geojson: dict | None = None
+    pdv_ids: list[int] | None = None
+    color: str | None = None
+    orden: int | None = None
+
+
+class MapaCapaAnclar(BaseModel):
+    id_ruta_anclada: int
+
+
+class MapaCapaOut(BaseModel):
+    id: int
+    id_distribuidor: int
+    id_vendedor: int
+    id_ruta_anclada: int | None = None
+    nombre: str
+    geojson: dict
+    pdv_ids: list[int] = Field(default_factory=list)
+    color: str
+    orden: int = 0
+    estado: str
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+

@@ -39,7 +39,26 @@ from core.tenant_tables import (
     find_dist_by_ruta,
 )
 from db import sb
-from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoPreviewTelegramIn, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
+from models.schemas import (
+    EvaluarRequest,
+    MapaCapaAnclar,
+    MapaCapaCreate,
+    MapaCapaUpdate,
+    ObjetivoCreate,
+    ObjetivoItemCreate,
+    ObjetivoPreviewTelegramIn,
+    ObjetivoUpdate,
+    ObjetivoTimeline,
+    ObjetivoTimelineEvent,
+    RevertirRequest,
+)
+from services.mapa_capas_service import (
+    anclar_ruta as mapa_capa_anclar_ruta,
+    archive_capa as mapa_capa_archive,
+    create_capa as mapa_capa_create,
+    list_capas as mapa_capas_list,
+    update_capa as mapa_capa_update,
+)
 from services.objetivos_job_service import enqueue_create_objetivo, run_job as run_objetivo_job, get_job_status
 
 logger = logging.getLogger("ShelfyAPI")
@@ -4817,3 +4836,91 @@ def supervision_vendedor_kpi_mapa(
     except Exception as e:
         logger.error(f"Error en supervision_vendedor_kpi_mapa: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _mapa_capas_actor(user_payload: dict) -> str | None:
+    uid = user_payload.get("id_usuario")
+    if uid is not None:
+        return str(uid)
+    return user_payload.get("usuario") or user_payload.get("sub")
+
+
+def _assert_mapa_capas_edit(user_payload: dict) -> None:
+    if user_payload.get("is_superadmin"):
+        return
+    rol = normalize_rol(user_payload.get("rol") or "")
+    if rol in ("admin", "supervisor", "compania", "superadmin"):
+        return
+    permisos = user_payload.get("permisos") or {}
+    if permisos.get("action_edit_objetivos"):
+        return
+    raise HTTPException(status_code=403, detail="Sin permiso para editar capas de planificación")
+
+
+@router.get("/api/supervision/mapa/capas/{dist_id}", tags=["Supervisión"])
+def supervision_mapa_capas_list(
+    dist_id: int,
+    id_vendedor: int | None = Query(None),
+    estado: str = Query("activo"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    items, total = mapa_capas_list(
+        dist_id,
+        id_vendedor=id_vendedor,
+        estado=estado,
+        offset=offset,
+        limit=limit,
+    )
+    return {"items": items, "total": total}
+
+
+@router.post("/api/supervision/mapa/capas", tags=["Supervisión"], status_code=201)
+def supervision_mapa_capas_create(
+    body: MapaCapaCreate,
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, body.id_distribuidor)
+    _assert_mapa_capas_edit(user_payload)
+    row = mapa_capa_create(body.model_dump(), _mapa_capas_actor(user_payload))
+    return row
+
+
+@router.patch("/api/supervision/mapa/capas/{capa_id}", tags=["Supervisión"])
+def supervision_mapa_capas_update(
+    capa_id: int,
+    body: MapaCapaUpdate,
+    dist_id: int = Query(..., description="id_distribuidor"),
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    _assert_mapa_capas_edit(user_payload)
+    patch = body.model_dump(exclude_unset=True)
+    return mapa_capa_update(capa_id, dist_id, patch, _mapa_capas_actor(user_payload))
+
+
+@router.patch("/api/supervision/mapa/capas/{capa_id}/anclar", tags=["Supervisión"])
+def supervision_mapa_capas_anclar(
+    capa_id: int,
+    body: MapaCapaAnclar,
+    dist_id: int = Query(..., description="id_distribuidor"),
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    _assert_mapa_capas_edit(user_payload)
+    return mapa_capa_anclar_ruta(
+        capa_id, dist_id, body.id_ruta_anclada, _mapa_capas_actor(user_payload)
+    )
+
+
+@router.delete("/api/supervision/mapa/capas/{capa_id}", tags=["Supervisión"])
+def supervision_mapa_capas_delete(
+    capa_id: int,
+    dist_id: int = Query(..., description="id_distribuidor"),
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    _assert_mapa_capas_edit(user_payload)
+    return mapa_capa_archive(capa_id, dist_id, _mapa_capas_actor(user_payload))

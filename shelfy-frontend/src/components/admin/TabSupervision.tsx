@@ -54,6 +54,10 @@ import type { PinCliente, VendedorKpis } from "./MapaRutas";
 import { isInactivo30, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
+import { useSupervisionMapPreload } from "@/hooks/useSupervisionMapPreload";
+import { SupervisionMapToolbar } from "./map/SupervisionMapToolbar";
+import { CrearRutasPanel, useMapaCapasQuery } from "./map/CrearRutasPanel";
+import { ObjetivoPorZonaPanel } from "./map/ObjetivoPorZonaPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -528,6 +532,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     clearSelectedPDVs,
     routeBuildEnabled,
     toggleRouteBuild,
+    mapToolMode,
+    setMapToolMode,
+    visibleCapaIds,
+    toggleCapaVisibility,
+    setVisibleCapaIds,
     setActivePolygon,
     clearRouteBuildState,
     activePolygonPdvIds,
@@ -918,6 +927,56 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     });
   }, [vendedores, selectedSucursal]);
 
+  useSupervisionMapPreload(selectedDist, vendedoresFiltrados, !!selectedSucursal && vendedoresFiltrados.length > 0);
+
+  const { data: capasData } = useMapaCapasQuery(selectedDist);
+  const mapCapas = capasData?.items ?? [];
+  const finishPolygonRef = useRef<(() => void) | null>(null);
+
+  const vendorNamesMap = useMemo(() => {
+    const m: Record<number, string> = {};
+    for (const v of vendedores) m[v.id_vendedor] = v.nombre_vendedor;
+    return m;
+  }, [vendedores]);
+
+  const handleShowAllVendors = useCallback(async () => {
+    const ids = new Set(vendedoresFiltrados.map(v => v.id_vendedor));
+    setVisibleVends(ids);
+    const rutaIds = new Set<number>();
+    const clienteIds = new Set<number>();
+    for (const v of vendedoresFiltrados) {
+      const rutas = await queryClient.fetchQuery({
+        queryKey: ['supervision-rutas', selectedDist, v.id_vendedor],
+        queryFn: () => fetchRutasSupervision(v.id_vendedor),
+      });
+      for (const r of rutas ?? []) {
+        rutaIds.add(r.id_ruta);
+        const clientes = await queryClient.fetchQuery({
+          queryKey: ['supervision-clientes', selectedDist, r.id_ruta],
+          queryFn: () => fetchClientesSupervision(r.id_ruta),
+        });
+        for (const c of clientes ?? []) {
+          if (c.latitud != null && c.longitud != null) clienteIds.add(c.id_cliente);
+        }
+      }
+    }
+    setVisibleRutas(rutaIds);
+    setVisibleClientes(clienteIds);
+  }, [vendedoresFiltrados, selectedDist, queryClient, setVisibleVends, setVisibleRutas, setVisibleClientes]);
+
+  const handleHideAllVendors = useCallback(() => {
+    setVisibleVends(new Set());
+    setVisibleRutas(new Set());
+    setVisibleClientes(new Set());
+    setVisibleCapaIds(new Set());
+  }, [setVisibleVends, setVisibleRutas, setVisibleClientes, setVisibleCapaIds]);
+
+  const handleMapToolModeChange = useCallback((mode: typeof mapToolMode) => {
+    setMapToolMode(mode);
+    if (mode === 'explorar') clearRouteBuildState();
+    else toast.info(mode === 'objetivo_zona' ? 'Dibujá la zona del objetivo' : 'Dibujá la capa de ruteo');
+  }, [setMapToolMode, clearRouteBuildState]);
+
   useEffect(() => {
     const unsub = queryClient.getQueryCache().subscribe((e) => {
       const qk = e.query?.queryKey;
@@ -1243,7 +1302,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               activo:                !isInactivo30(c.fecha_ultima_compra),
               vendedor:              v.nombre_vendedor,
               ultimaCompra:          fucCanon ? fmt(fucCanon) : fmt(c.fecha_ultima_compra),
-              conExhibicion:         c.fecha_ultima_exhibicion != null,
+              conExhibicion:         c.tiene_exhibicion_reciente === true,
               idClienteErp:          c.id_cliente_erp ?? null,
               nroRuta:               r.dia_semana ?? null,
               fechaUltimaCompra:     fucCanon ?? c.fecha_ultima_compra ?? null,
@@ -1816,49 +1875,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     }
   };
 
-  // ── Map layer controls (inline pill bar above the map) ────────────────────
+  // ── Map layer controls (My Maps toolbar) ───────────────────────────────────
   function MapLayerControls() {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/80 shrink-0 flex-wrap">
-        {/* Capa Activos */}
-        <button
-          onClick={() => setMapMode('activos')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-            mapMode === 'activos'
-              ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]'
-              : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/40 hover:text-[var(--shelfy-text)]'
-          }`}
-        >
-          <MapPin className="w-3.5 h-3.5" />
-          Activos
-        </button>
-
-        {/* Separador */}
-        {hasPermiso("action_edit_objetivos") && (
-          <span className="w-px h-5 bg-[var(--shelfy-border)] mx-0.5" />
-        )}
-
-        {/* Armar Ruta — herramienta de polígono */}
-        {hasPermiso("action_edit_objetivos") && (
-          <button
-            onClick={handleToggleRouteBuild}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-              routeBuildEnabled
-                ? 'border-violet-400/60 bg-violet-500/15 text-violet-400'
-                : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-violet-400/40 hover:text-violet-400'
-            }`}
-          >
-            <RouteIcon className="w-3.5 h-3.5" />
-            {routeBuildEnabled
-              ? `Dibujar Zona · ${activePolygonPdvIds.length > 0 ? `${activePolygonPdvIds.length} PDVs` : 'dibujá'}`
-              : 'Dibujar Zona'
-            }
-            {routeBuildEnabled && (
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />
-            )}
-          </button>
-        )}
-      </div>
+      <SupervisionMapToolbar
+        mapToolMode={mapToolMode}
+        onMapToolModeChange={handleMapToolModeChange}
+        onShowAllVendors={() => void handleShowAllVendors()}
+        onHideAllVendors={handleHideAllVendors}
+        canEdit={hasPermiso("action_edit_objetivos")}
+        onFinishPolygon={() => finishPolygonRef.current?.()}
+      />
     );
   }
 
@@ -2206,10 +2233,33 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
                 onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
                 vendedorKpis={vendedorKpis}
+                mapToolMode={mapToolMode}
                 routeBuildEnabled={routeBuildEnabled}
                 onToggleRouteBuild={hasPermiso("action_edit_objetivos") ? handleToggleRouteBuild : undefined}
                 distId={selectedDist}
                 isSuperadmin={isSuperadmin}
+                capas={mapCapas}
+                visibleCapaIds={visibleCapaIds}
+                vendorNames={vendorNamesMap}
+                onToggleCapa={toggleCapaVisibility}
+                onToggleVendorCapas={(ids, visible) => {
+                  const next = new Set(visibleCapaIds);
+                  ids.forEach(id => (visible ? next.add(id) : next.delete(id)));
+                  setVisibleCapaIds(next);
+                }}
+                onFinishPolygonRef={finishPolygonRef}
+                layerPanelSlot={
+                  mapToolMode === 'crear_rutas' && activePolygonPdvIds.length > 0 && visibleVends.size === 1 ? (
+                    <CrearRutasPanel
+                      distId={selectedDist}
+                      idVendedor={[...visibleVends][0]}
+                      vendedorNombre={vendorNamesMap[[...visibleVends][0]] ?? ''}
+                      pdvIds={activePolygonPdvIds}
+                      geoJson={activePolygonGeoJson}
+                      onClearPolygon={clearRouteBuildState}
+                    />
+                  ) : undefined
+                }
                 onPolygonSelectionChange={(pdvIds, geoJson) => {
                   setActivePolygon(pdvIds, geoJson);
                   // En modo polígono, la selección debe representar exactamente
@@ -2218,6 +2268,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   pdvIds.forEach(id => togglePDVForObjective(id));
                   if (pdvIds.length > 0) {
                     toast.success(`${pdvIds.length} PDVs seleccionados por polígono`);
+                    if (mapToolMode === 'objetivo_zona') setObjMenuOpen(true);
                   }
                 }}
               />
@@ -3262,30 +3313,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
       )}
 
-      {/* ── Floating Objetivos Menu ("Shopping Cart") ────────────────────── */}
-      {selectedPDVsForObjective.length > 0 && hasPermiso("action_edit_objetivos") && (
+      {/* ── Objetivo por zona (panel flotante) ─────────────────────────────── */}
+      {mapToolMode === 'objetivo_zona' && selectedPDVsForObjective.length > 0 && hasPermiso("action_edit_objetivos") && (
         <div className="fixed bottom-6 right-6 z-[10050] flex flex-col items-end gap-3">
           {objMenuOpen && (
             <div className="flex flex-row items-stretch gap-2 max-h-[min(85vh,720px)]">
-            <div className="w-96 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/10 bg-white/90 dark:bg-[#1a1a2e]/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.25)] overflow-hidden flex flex-col min-h-0"
-              style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(255,255,255,0.12)' }}>
-              {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-black/8 dark:border-white/10 bg-gradient-to-r from-[var(--shelfy-accent)]/10 to-violet-500/5">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-[var(--shelfy-accent)]/15 flex items-center justify-center">
-                    <Target className="w-3.5 h-3.5 text-[var(--shelfy-accent)]" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-[var(--shelfy-text)] leading-none">Nuevo Objetivo</p>
-                    <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">{selectedPDVsForObjective.length} PDV{selectedPDVsForObjective.length !== 1 ? 's' : ''} seleccionado{selectedPDVsForObjective.length !== 1 ? 's' : ''}</p>
-                  </div>
-                </div>
-                <button onClick={() => setObjMenuOpen(false)} className="w-6 h-6 flex items-center justify-center rounded-lg text-[var(--shelfy-muted)] hover:bg-black/8 dark:hover:bg-white/10 transition-colors">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Selected PDVs chips */}
+              <ObjetivoPorZonaPanel
+                open
+                pdvCount={selectedPDVsForObjective.length}
+                onClose={() => setObjMenuOpen(false)}
+              >
               <div className="px-4 pt-3 pb-2">
                 <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">PDVs</p>
                 <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
@@ -3826,7 +3863,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   </button>
                 </div>
               </div>
-            </div>
+              </ObjetivoPorZonaPanel>
 
             {objTipo !== "ruteo" && (
               <div
@@ -3858,7 +3895,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             </div>
           )}
 
-          {/* Cart trigger button */}
           <button
             onClick={() => setObjMenuOpen(!objMenuOpen)}
             className="flex items-center gap-2.5 px-5 py-3 rounded-2xl text-white text-sm font-bold shadow-xl hover:opacity-90 active:scale-95 transition-all"
@@ -3866,7 +3902,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           >
             <Target className="w-4 h-4" />
             <span>{selectedPDVsForObjective.length} PDV{selectedPDVsForObjective.length !== 1 ? 's' : ''}</span>
-            <span className="opacity-70 text-xs font-normal">· Crear objetivo</span>
+            <span className="opacity-70 text-xs font-normal">· Objetivo por zona</span>
           </button>
         </div>
       )}

@@ -971,6 +971,22 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     setVisibleCapaIds(new Set());
   }, [setVisibleVends, setVisibleRutas, setVisibleClientes, setVisibleCapaIds]);
 
+  const handlePolygonSelectionChange = useCallback((pdvIds: number[], geoJson: import("@/store/useSupervisionStore").DrawnPolygon["geoJson"]) => {
+    setActivePolygon(pdvIds, geoJson);
+    clearSelectedPDVs();
+    pdvIds.forEach(id => togglePDVForObjective(id));
+    if (pdvIds.length > 0) {
+      toast.success(`${pdvIds.length} PDVs seleccionados por polígono`);
+      if (mapToolMode === 'objetivo_zona') setObjMenuOpen(true);
+    }
+  }, [setActivePolygon, clearSelectedPDVs, togglePDVForObjective, mapToolMode, setObjMenuOpen]);
+
+  const handleToggleVendorCapas = useCallback((ids: number[], visible: boolean) => {
+    const next = new Set(visibleCapaIds);
+    ids.forEach(id => (visible ? next.add(id) : next.delete(id)));
+    setVisibleCapaIds(next);
+  }, [visibleCapaIds, setVisibleCapaIds]);
+
   const handleMapToolModeChange = useCallback((mode: typeof mapToolMode) => {
     setMapToolMode(mode);
     if (mode === 'explorar') clearRouteBuildState();
@@ -2242,11 +2258,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 visibleCapaIds={visibleCapaIds}
                 vendorNames={vendorNamesMap}
                 onToggleCapa={toggleCapaVisibility}
-                onToggleVendorCapas={(ids, visible) => {
-                  const next = new Set(visibleCapaIds);
-                  ids.forEach(id => (visible ? next.add(id) : next.delete(id)));
-                  setVisibleCapaIds(next);
-                }}
+                onToggleVendorCapas={handleToggleVendorCapas}
                 onFinishPolygonRef={finishPolygonRef}
                 layerPanelSlot={
                   mapToolMode === 'crear_rutas' && activePolygonPdvIds.length > 0 && visibleVends.size === 1 ? (
@@ -2260,17 +2272,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     />
                   ) : undefined
                 }
-                onPolygonSelectionChange={(pdvIds, geoJson) => {
-                  setActivePolygon(pdvIds, geoJson);
-                  // En modo polígono, la selección debe representar exactamente
-                  // el polígono actual (evita mezclar con selecciones previas).
-                  clearSelectedPDVs();
-                  pdvIds.forEach(id => togglePDVForObjective(id));
-                  if (pdvIds.length > 0) {
-                    toast.success(`${pdvIds.length} PDVs seleccionados por polígono`);
-                    if (mapToolMode === 'objetivo_zona') setObjMenuOpen(true);
-                  }
-                }}
+                onPolygonSelectionChange={handlePolygonSelectionChange}
               />
             )}
           </div>

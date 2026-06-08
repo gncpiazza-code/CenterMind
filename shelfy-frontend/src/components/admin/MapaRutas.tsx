@@ -300,6 +300,10 @@ export default function MapaRutas({
   const drawnPolyRef  = useRef<google.maps.Polygon[]>([]);
   const capaDataRef   = useRef<Map<number, google.maps.Data>>(new Map());
   const fittedRef     = useRef(false);
+  const onPolygonChangeRef = useRef(onPolygonSelectionChange);
+  useEffect(() => {
+    onPolygonChangeRef.current = onPolygonSelectionChange;
+  }, [onPolygonSelectionChange]);
 
   const [mapLoaded,    setMapLoaded]    = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -611,10 +615,18 @@ export default function MapaRutas({
 
   const handlePolygonClosed = useCallback(
     (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => {
-      onPolygonSelectionChange?.(pdvIds, geoJson);
+      onPolygonChangeRef.current?.(pdvIds, geoJson);
     },
-    [onPolygonSelectionChange],
+    [],
   );
+
+  const handleDrawCancel = useCallback(() => {
+    onPolygonChangeRef.current?.([], {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [] },
+      properties: {},
+    });
+  }, []);
 
   const { vertexCount, polygonCount: drawPolygonCount, finishPolygon, clearAll: clearDrawPolygons } =
     useVertexPolygonDraw({
@@ -624,13 +636,7 @@ export default function MapaRutas({
       strokeColor: drawStrokeColor,
       onPolygonClosed: handlePolygonClosed,
       resolvePdvIdsInPolygon,
-      onCancel: () => {
-        onPolygonSelectionChange?.([], {
-          type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [] },
-          properties: {},
-        });
-      },
+      onCancel: handleDrawCancel,
     });
 
   useEffect(() => {
@@ -690,9 +696,8 @@ export default function MapaRutas({
       markersMapRef.current.forEach(m => m.setClickable(false));
     } else {
       markersMapRef.current.forEach(m => m.setClickable(true));
-      clearDrawPolygons();
     }
-  }, [routeBuildEnabled, mapLoaded, clearDrawPolygons]);
+  }, [routeBuildEnabled, mapLoaded]);
 
   // ── ESC to exit fullscreen ────────────────────────────────────────────────
   useEffect(() => {
@@ -707,8 +712,7 @@ export default function MapaRutas({
     drawnPolyRef.current = [];
     clearDrawPolygons();
     setPolygonCount(0);
-    onPolygonSelectionChange?.([], { type: 'Feature', geometry: { type: 'Polygon', coordinates: [] }, properties: {} });
-  }, [onPolygonSelectionChange, clearDrawPolygons]);
+  }, [clearDrawPolygons]);
 
   // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {

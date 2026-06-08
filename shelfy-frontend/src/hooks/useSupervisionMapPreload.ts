@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchRutasSupervision, fetchClientesSupervision, type VendedorSupervision } from "@/lib/api";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
@@ -18,10 +18,13 @@ export function useSupervisionMapPreload(
 ) {
   const queryClient = useQueryClient();
   const setPreloadComplete = useSupervisionStore((s) => s.setPreloadComplete);
+  const vendorKey = useMemo(
+    () => vendedores.map((v) => v.id_vendedor).join(","),
+    [vendedores],
+  );
 
   useEffect(() => {
     if (!enabled || !distId || vendedores.length === 0) {
-      setPreloadComplete(false);
       return;
     }
 
@@ -66,5 +69,5 @@ export function useSupervisionMapPreload(
     return () => {
       cancelled = true;
     };
-  }, [distId, enabled, vendedores, queryClient, setPreloadComplete]);
+  }, [distId, enabled, vendorKey, vendedores, queryClient, setPreloadComplete]);
 }

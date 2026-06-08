@@ -2,16 +2,29 @@
 
 const ALLOWED = new Set(["b", "i", "u", "s", "code", "pre"]);
 
+/** Secuencias literales \\n en DB (seed SQL sin E'…') → saltos reales. */
+function unescapeLiteralBackslashSequences(text: string): string {
+  return text.replace(/\\([nrt])/g, (_, ch: string) => {
+    if (ch === "n") return "\n";
+    if (ch === "r") return "\r";
+    return "\t";
+  });
+}
+
 /** Limpia HTML guardado (DB) antes de editar o previsualizar. */
 export function sanitizeStoredTelegramHtml(text: string): string {
   if (!text) return "";
-  return text
+  return unescapeLiteralBackslashSequences(text)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<div[^>]*>/gi, "")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<p[^>]*>/gi, "")
     .replace(/<(b|i|u|s|code|pre)\b[^>]*>/gi, "<$1>")
     .replace(/<\/(b|i|u|s|code|pre)\b[^>]*>/gi, "</$1>")
-    .replace(/<\/?(?:span|font|div|p)\b[^>]*>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(?:span|font)\b[^>]*>/gi, "")
     .replace(/&nbsp;/gi, " ")
     .replace(/\u200b/g, "")
     .replace(/\n{3,}/g, "\n\n");
@@ -21,7 +34,7 @@ export function sanitizeStoredTelegramHtml(text: string): string {
 export function normalizeTelegramHtml(raw: string): string {
   if (!raw) return "";
 
-  let html = raw
+  let html = unescapeLiteralBackslashSequences(raw)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/<strong\b[^>]*>/gi, "<b>")

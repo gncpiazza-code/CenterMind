@@ -12,6 +12,22 @@ _TAG_ATTR_RE = re.compile(r"<(b|i|u|s|code|pre)\b[^>]*>", re.I)
 _TAG_CLOSE_RE = re.compile(r"</(b|i|u|s|code|pre)\b[^>]*>", re.I)
 _DISALLOWED_TAG_RE = re.compile(r"</?(?:span|font|div|p)\b[^>]*>", re.I)
 _BR_RE = re.compile(r"<br\s*/?>", re.I)
+# Secuencias literales \n (dos chars) por seed SQL sin E'…' o doble-escape JSON
+_LITERAL_ESCAPES_RE = re.compile(r"\\([nrt])")
+
+
+def _unescape_literal_backslash_sequences(text: str) -> str:
+    """Convierte \\n, \\r, \\t literales → saltos/tabs reales."""
+
+    def repl(m: re.Match[str]) -> str:
+        ch = m.group(1)
+        if ch == "n":
+            return "\n"
+        if ch == "r":
+            return "\r"
+        return "\t"
+
+    return _LITERAL_ESCAPES_RE.sub(repl, text)
 
 
 def repair_telegram_message_html(text: str) -> str:
@@ -24,7 +40,8 @@ def repair_telegram_message_html(text: str) -> str:
     if not text:
         return ""
 
-    s = text.replace("\r\n", "\n").replace("\r", "\n")
+    s = _unescape_literal_backslash_sequences(text)
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
     s = _BR_RE.sub("\n", s)
     s = re.sub(r"</div>", "\n", s, flags=re.I)
     s = re.sub(r"<div[^>]*>", "", s, flags=re.I)
@@ -54,4 +71,5 @@ def message_needs_linebreak_repair(text: str) -> bool:
         or "<div" in lower
         or "</p>" in lower
         or "<p" in lower
+        or _LITERAL_ESCAPES_RE.search(text) is not None
     )

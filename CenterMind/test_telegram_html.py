@@ -22,3 +22,12 @@ def test_preserves_allowed_tags():
 def test_needs_repair_detects_br():
     assert message_needs_linebreak_repair("texto<br>más") is True
     assert message_needs_linebreak_repair("texto\nmás") is False
+
+
+def test_literal_backslash_n_from_bad_sql_seed():
+    raw = "Línea 1\\nLínea 2\\n\\nLínea 3"
+    assert repair_telegram_message_html(raw) == "Línea 1\nLínea 2\n\nLínea 3"
+
+
+def test_needs_repair_detects_literal_backslash_n():
+    assert message_needs_linebreak_repair("a\\nb") is True

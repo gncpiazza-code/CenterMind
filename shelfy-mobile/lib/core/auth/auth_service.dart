@@ -1,10 +1,29 @@
+import 'package:flutter/foundation.dart';
+
 import '../api/api_client.dart';
+import '../platform/app_platform.dart';
 import 'secure_storage.dart';
 import 'session_model.dart';
 
+int _readInt(dynamic value, String field) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  throw ApiException(
+    statusCode: 500,
+    message: 'Respuesta inválida del servidor ($field)',
+  );
+}
+
+Map<String, dynamic>? _readBranding(dynamic value) {
+  if (value == null) return null;
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
 /// Servicio de autenticación para vendedores de campo.
 /// Gestiona activación por API key y ciclo de vida de la sesión.
-class AuthService {
+class AuthService extends ChangeNotifier {
   final ApiClient _api;
   SessionData? _currentSession;
 
@@ -26,33 +45,47 @@ class AuthService {
         deviceId: _currentSession!.deviceId,
       );
     }
+    notifyListeners();
   }
 
   /// Activa el dispositivo con una API key (formato: sapp_{key_id}_{random32}).
   /// Llama a POST /api/vendedor-app/auth/activate y persiste la sesión.
   Future<SessionData> activate(String apiKey) async {
+    await _api.pingHealth();
+
     final deviceId = await SecureStorageService.getDeviceId();
 
     final response = await _api.post(
       '/api/vendedor-app/auth/activate',
       {
-        'api_key': apiKey.trim(),
+        'key': apiKey.trim(),
         'device_id': deviceId,
+        'platform': appPlatform,
+        'app_version': '1.0.0',
       },
     );
 
-    // El backend devuelve: jwt, id_distribuidor, id_vendedor, branding
+    final token = response['session_token'] as String? ??
+        response['jwt'] as String?;
+    if (token == null || token.isEmpty) {
+      throw ApiException(
+        statusCode: 500,
+        message: 'Respuesta inválida del servidor (sin token de sesión)',
+      );
+    }
+
     final session = SessionData(
-      jwt: response['jwt'] as String,
-      idDistribuidor: response['id_distribuidor'] as int,
-      idVendedor: response['id_vendedor'] as int,
+      jwt: token,
+      idDistribuidor: _readInt(response['id_distribuidor'], 'id_distribuidor'),
+      idVendedor: _readInt(response['id_vendedor'], 'id_vendedor'),
       deviceId: deviceId,
-      branding: response['branding'] as Map<String, dynamic>?,
+      branding: _readBranding(response['branding']),
     );
 
     await SecureStorageService.saveSession(session);
     _currentSession = session;
     _api.setAuth(jwt: session.jwt, deviceId: session.deviceId);
+    notifyListeners();
     return session;
   }
 
@@ -61,5 +94,14 @@ class AuthService {
     await SecureStorageService.clearSession();
     _currentSession = null;
     _api.clearAuth();
+    notifyListeners();
+  }
+
+  /// Solo tests: simula sesión activa sin llamar al backend.
+  @visibleForTesting
+  void debugSetSession(SessionData session) {
+    _currentSession = session;
+    _api.setAuth(jwt: session.jwt, deviceId: session.deviceId);
+    notifyListeners();
   }
 }

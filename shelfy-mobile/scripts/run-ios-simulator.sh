@@ -11,7 +11,7 @@ if [[ ! -f "$DEFINES" ]]; then
   exit 1
 fi
 
-echo "==> Simulador iOS + API $(python3 -c "import json; print(json.load(open('$DEFINES'))['API_BASE_URL'])")"
+echo "==> Simulador iOS + API $(python3 -c "import json; c=json.load(open('$DEFINES')); print(f\"{c.get('API_SCHEME','http')}://{c.get('API_HOST','127.0.0.1')}:{c.get('API_PORT','8000')}\")")"
 echo "    Asegurate de tener ./scripts/run-backend-local.sh corriendo en otra terminal."
 echo ""
 

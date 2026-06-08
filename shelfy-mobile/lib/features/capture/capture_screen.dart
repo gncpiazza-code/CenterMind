@@ -4,11 +4,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import 'capture_provider.dart';
-import 'widgets/pdv_search_widget.dart';
-import 'widgets/photo_capture_widget.dart';
-import 'widgets/tipo_pdv_selector.dart';
+import 'widgets/camera_capture_widget.dart';
 
-/// Pantalla principal del flujo de captura de exhibiciones.
+/// Pantalla de captura: cámara abierta por defecto, PDV después de la foto.
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
 
@@ -22,7 +20,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initGps());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startBackgroundGps());
   }
 
   @override
@@ -31,39 +29,38 @@ class _CaptureScreenState extends State<CaptureScreen> {
     super.dispose();
   }
 
-  Future<void> _initGps() async {
+  Future<void> _startBackgroundGps() async {
     final provider = context.read<CaptureProvider>();
-
     try {
-      // Verificar y solicitar permiso de ubicación
-      var status = await Permission.location.status;
+      var status = await Permission.locationWhenInUse.status;
       if (status.isDenied) {
-        status = await Permission.location.request();
+        status = await Permission.locationWhenInUse.request();
       }
-
       if (!status.isGranted) {
-        if (mounted) provider.onGpsFailed();
+        provider.onGpsUnavailable();
         return;
       }
 
-      final locationEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!locationEnabled) {
-        if (mounted) provider.onGpsFailed();
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        provider.onGpsUnavailable();
         return;
       }
 
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
+          timeLimit: Duration(seconds: 12),
         ),
       );
 
       if (mounted) {
-        provider.onGpsReady(position.latitude, position.longitude);
+        await provider.refreshNearbyPdvs(
+          lat: position.latitude,
+          lng: position.longitude,
+        );
       }
     } catch (_) {
-      if (mounted) provider.onGpsFailed();
+      if (mounted) provider.onGpsUnavailable();
     }
   }
 
@@ -71,78 +68,138 @@ class _CaptureScreenState extends State<CaptureScreen> {
   Widget build(BuildContext context) {
     return Consumer<CaptureProvider>(
       builder: (context, provider, _) {
-        return Scaffold(
-          body: _buildBody(context, provider),
-        );
+        switch (provider.currentStep) {
+          case CaptureStep.camera:
+            return _buildCameraStep(context, provider);
+          case CaptureStep.pdvConfirm:
+            return _buildPdvConfirm(context, provider);
+          case CaptureStep.manualInput:
+            return _buildManualInput(context, provider);
+          case CaptureStep.ingresoChoice:
+            return _buildIngresoChoice(context, provider);
+          case CaptureStep.uploading:
+            return _buildUploading();
+          case CaptureStep.success:
+            return _buildSuccess(context, provider);
+        }
       },
     );
   }
 
-  Widget _buildBody(BuildContext context, CaptureProvider provider) {
-    switch (provider.currentStep) {
-      case CaptureStep.gpsLoading:
-        return _buildGpsLoading();
-      case CaptureStep.pdvSelection:
-        return _buildPdvSelection(context, provider);
-      case CaptureStep.manualInput:
-        return _buildManualInput(context, provider);
-      case CaptureStep.pdvConfirmed:
-        return _buildPdvConfirmed(context, provider);
-      case CaptureStep.photoCapture:
-        return _buildPhotoCapture(context, provider);
-      case CaptureStep.typeSelection:
-        return _buildTypeSelection(context, provider);
-      case CaptureStep.reviewAndSubmit:
-        return _buildReviewAndSubmit(context, provider);
-      case CaptureStep.uploading:
-        return _buildUploading();
-      case CaptureStep.success:
-        return _buildSuccess(context, provider);
-    }
-  }
-
-  // ── Paso 1: Cargando GPS ──────────────────────────────────────────────────
-
-  Widget _buildGpsLoading() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildCameraStep(BuildContext context, CaptureProvider provider) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 20),
-          Text(
-            'Obteniendo ubicación...',
-            style: TextStyle(fontSize: 16, color: Colors.grey),
+          CameraCaptureWidget(
+            onPhotoTaken: provider.onPhotoTaken,
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  if (provider.nearbyLoading)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white70,
+                      ),
+                    )
+                  else if (provider.detectedPdv != null)
+                    Expanded(
+                      child: Text(
+                        'PDV cercano: ${provider.detectedPdv!.nombreDisplay}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    )
+                  else
+                    const Expanded(
+                      child: Text(
+                        'Sin PDV detectado — ingresarás el NRO al capturar',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ── Paso 2: Selección de PDV ──────────────────────────────────────────────
-
-  Widget _buildPdvSelection(BuildContext context, CaptureProvider provider) {
-    return SingleChildScrollView(
+  Widget _buildPdvConfirm(BuildContext context, CaptureProvider provider) {
+    final pdv = provider.detectedPdv!;
+    return _buildSheetScaffold(
+      context,
+      title: '¿Es este PDV?',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildStepHeader(context, 'Seleccionar PDV', step: 1, total: 4),
-          const PdvSearchWidget(),
+          if (provider.photos.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                provider.photos.first,
+                height: 180,
+                fit: BoxFit.cover,
+              ),
+            ),
+          const SizedBox(height: 16),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.store_rounded),
+              title: Text(
+                pdv.nombreDisplay,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                'NRO: ${pdv.idClienteErp} · ${pdv.distanciaM.toStringAsFixed(0)} m',
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: provider.confirmDetectedPdv,
+            child: const Text('Sí, es correcto'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: provider.rejectDetectedPdv,
+            child: const Text('No, ingresar otro NRO'),
+          ),
+          TextButton(
+            onPressed: provider.backToCamera,
+            child: const Text('Volver a tomar foto'),
+          ),
         ],
       ),
     );
   }
 
-  // ── Paso 3: Ingreso manual ────────────────────────────────────────────────
-
   Widget _buildManualInput(BuildContext context, CaptureProvider provider) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+    return _buildSheetScaffold(
+      context,
+      title: 'Ingresá el NRO de cliente',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildStepHeader(context, 'Ingresar NRO de cliente', step: 1, total: 4),
-          const SizedBox(height: 24),
+          if (provider.photos.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                provider.photos.first,
+                height: 140,
+                fit: BoxFit.cover,
+              ),
+            ),
+          const SizedBox(height: 16),
           TextField(
             controller: _manualNroController,
             keyboardType: TextInputType.number,
@@ -160,330 +217,146 @@ class _CaptureScreenState extends State<CaptureScreen> {
               final nro = _manualNroController.text.trim();
               if (nro.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Ingresá un número de cliente válido'),
-                  ),
+                  const SnackBar(content: Text('Ingresá un número válido')),
                 );
                 return;
               }
               provider.confirmManualNro(nro);
             },
-            child: const Text('Confirmar'),
+            child: const Text('Continuar'),
           ),
-          const SizedBox(height: 12),
-          if (provider.currentLat != null)
-            TextButton(
-              onPressed: () => setState(() {
-                _manualNroController.clear();
-                provider.onGpsReady(provider.currentLat!, provider.currentLng!);
-              }),
-              child: const Text('Volver a lista de PDVs cercanos'),
-            ),
+          TextButton(
+            onPressed: provider.backToCamera,
+            child: const Text('Volver a tomar foto'),
+          ),
         ],
       ),
     );
   }
 
-  // ── Paso 4: PDV confirmado ────────────────────────────────────────────────
-
-  Widget _buildPdvConfirmed(BuildContext context, CaptureProvider provider) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+  Widget _buildIngresoChoice(BuildContext context, CaptureProvider provider) {
+    return _buildSheetScaffold(
+      context,
+      title: 'Tipo de visita',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildStepHeader(context, 'PDV seleccionado', step: 1, total: 4),
-          const SizedBox(height: 24),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.store_rounded, size: 36),
-              title: Text(
-                provider.pdvDisplayName,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text('NRO: ${provider.nroCliente}'),
-              trailing: IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: 'Cambiar PDV',
-                onPressed: () {
-                  if (provider.currentLat != null) {
-                    provider.onGpsReady(
-                      provider.currentLat!,
-                      provider.currentLng!,
-                    );
-                  } else {
-                    provider.goToManualInput();
-                  }
-                },
-              ),
-            ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.store_outlined),
+            title: Text(provider.pdvDisplayName),
+            subtitle: Text('NRO: ${provider.nroCliente}'),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
           FilledButton.icon(
-            onPressed: () => provider.goToPhotoCapture(),
-            icon: const Icon(Icons.camera_alt_outlined),
-            label: const Text('Continuar a fotos'),
+            onPressed: provider.isUploading
+                ? null
+                : () => provider.selectIngreso(conIngreso: true),
+            icon: const Icon(Icons.login),
+            label: const Text('Comercio con ingreso'),
           ),
-        ],
-      ),
-    );
-  }
-
-  // ── Paso 5: Captura de fotos ──────────────────────────────────────────────
-
-  Widget _buildPhotoCapture(BuildContext context, CaptureProvider provider) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildStepHeader(context, 'Tomar fotos', step: 2, total: 4),
-          const PhotoCaptureWidget(),
-          if (provider.photos.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: FilledButton.icon(
-                onPressed: () => provider.goToTypeSelection(),
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text('Continuar'),
-              ),
-            ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  // ── Paso 6: Selección de tipo ─────────────────────────────────────────────
-
-  Widget _buildTypeSelection(BuildContext context, CaptureProvider provider) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildStepHeader(context, 'Tipo de PDV', step: 3, total: 4),
-          const SizedBox(height: 8),
-          const TipoPdvSelector(),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextButton.icon(
-              onPressed: () => provider.goBackToPhotoCapture(),
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('Volver a fotos'),
-            ),
+          const SizedBox(height: 10),
+          FilledButton.tonalIcon(
+            onPressed: provider.isUploading
+                ? null
+                : () => provider.selectIngreso(conIngreso: false),
+            icon: const Icon(Icons.storefront_outlined),
+            label: const Text('Comercio sin ingreso'),
           ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  // ── Paso 7: Revisión y envío ──────────────────────────────────────────────
-
-  Widget _buildReviewAndSubmit(BuildContext context, CaptureProvider provider) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildStepHeader(context, 'Confirmar y enviar', step: 4, total: 4),
-          const SizedBox(height: 16),
-          // PDV
-          _buildReviewRow(
-            icon: Icons.store_outlined,
-            label: 'PDV',
-            value: '${provider.pdvDisplayName} (NRO: ${provider.nroCliente})',
-          ),
-          const Divider(height: 24),
-          // Tipo
-          _buildReviewRow(
-            icon: Icons.category_outlined,
-            label: 'Tipo',
-            value: provider.selectedTipo ?? '-',
-          ),
-          const Divider(height: 24),
-          // Fotos
-          _buildReviewRow(
-            icon: Icons.photo_library_outlined,
-            label: 'Fotos',
-            value: '${provider.photos.length} foto${provider.photos.length == 1 ? '' : 's'}',
-          ),
-          if (provider.photos.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 80,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: provider.photos.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      provider.photos[index],
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
           if (provider.errorMessage != null) ...[
             const SizedBox(height: 16),
             Text(
-              'Error: ${provider.errorMessage}',
+              provider.errorMessage!,
               style: const TextStyle(color: Colors.red),
             ),
           ],
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: () => provider.submit(),
-            icon: const Icon(Icons.upload),
-            label: const Text('Enviar exhibición'),
-          ),
-          const SizedBox(height: 12),
           TextButton(
-            onPressed: () => provider.goToTypeSelection(),
-            child: const Text('Cambiar tipo de PDV'),
+            onPressed: provider.backToCamera,
+            child: const Text('Cancelar y retomar foto'),
           ),
         ],
       ),
     );
   }
 
-  // ── Paso 8: Subiendo ──────────────────────────────────────────────────────
+  Widget _buildSheetScaffold(
+    BuildContext context, {
+    required String title,
+    required Widget child,
+  }) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: child,
+      ),
+    );
+  }
 
   Widget _buildUploading() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 20),
-          Text(
-            'Enviando exhibición...',
-            style: TextStyle(fontSize: 16, color: Colors.grey),
-          ),
-        ],
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 20),
+            Text(
+              'Enviando exhibición...',
+              style: TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          ],
+        ),
       ),
     );
   }
-
-  // ── Paso 9: Éxito ─────────────────────────────────────────────────────────
 
   Widget _buildSuccess(BuildContext context, CaptureProvider provider) {
     final result = provider.lastResult;
     final isOffline = result == null;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isOffline ? Icons.schedule_send_outlined : Icons.check_circle_outline,
-              size: 80,
-              color: isOffline ? Colors.orange : Colors.green,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              isOffline
-                  ? 'Guardado sin conexión'
-                  : '¡Exhibición registrada!',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              isOffline
-                  ? 'La exhibición se enviará automáticamente cuando recuperes conexión.'
-                  : 'Total del mes: ${result.statsSummary.exhibicionesLogicas} exhibiciones lógicas.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey, fontSize: 15),
-            ),
-            const SizedBox(height: 32),
-            FilledButton.icon(
-              onPressed: () => provider.reset(),
-              icon: const Icon(Icons.add_a_photo_outlined),
-              label: const Text('Nueva captura'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  Widget _buildStepHeader(
-    BuildContext context,
-    String title, {
-    required int step,
-    required int total,
-  }) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Paso $step de $total',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(value: step / total),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReviewRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20, color: Colors.grey),
-        const SizedBox(width: 12),
-        Expanded(
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                label,
-                style:
-                    const TextStyle(fontSize: 12, color: Colors.grey),
+              Icon(
+                isOffline ? Icons.schedule_send_outlined : Icons.check_circle_outline,
+                size: 80,
+                color: isOffline ? Colors.orange : Colors.green,
               ),
+              const SizedBox(height: 20),
               Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
+                isOffline ? 'Guardado sin conexión' : '¡Exhibición registrada!',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isOffline
+                    ? 'Se enviará automáticamente al recuperar conexión.'
+                    : 'Total del mes: ${result.statsSummary.exhibicionesLogicas} exhibiciones lógicas.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey, fontSize: 15),
+              ),
+              const SizedBox(height: 32),
+              FilledButton.icon(
+                onPressed: () {
+                  _manualNroController.clear();
+                  provider.reset();
+                  _startBackgroundGps();
+                },
+                icon: const Icon(Icons.add_a_photo_outlined),
+                label: const Text('Nueva captura'),
               ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

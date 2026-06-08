@@ -47,7 +47,6 @@ def build_cartera_json(
     rutas = (
         sb.table(rutas_table)
         .select("id_ruta,dia_semana")
-        .eq("id_distribuidor", dist_id)
         .eq("id_vendedor", id_vendedor)
         .execute().data or []
     )

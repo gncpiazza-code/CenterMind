@@ -103,193 +103,195 @@ def erp_automatic_sync():
 async def lifespan(app: FastAPI):
     global _main_loop
     _main_loop = asyncio.get_running_loop()
-
-    # Startup — bots con reintento si Supabase schema cache (PGRST002) tarda
-    logger.info("🚀 Iniciando gestor de bots Webhook...")
-    bot_boot = await start_all_bots(manager, bots)
-    if bot_boot.get("error"):
-        logger.error("❌ Arranque de bots incompleto: %s", bot_boot["error"])
-    elif bot_boot.get("active", 0) < bot_boot.get("expected", 0):
-        logger.warning(
-            "⚠️ Bots parciales: %s/%s — el job ensure_bots reintentará",
-            bot_boot.get("active"),
-            bot_boot.get("expected"),
-        )
-
-    def _ensure_bots_job():
-        loop = _main_loop
-        if loop is None or not loop.is_running():
-            return
-        try:
-            fut = asyncio.run_coroutine_threadsafe(
-                ensure_missing_bots(manager, bots),
-                loop,
-            )
-            fut.result(timeout=120)
-        except Exception as e:
-            logger.warning("[bot_registry] ensure_bots job: %s", e)
-
-    scheduler.add_job(_ensure_bots_job, "interval", minutes=2, id="ensure_telegram_bots")
-    scheduler.add_job(erp_automatic_sync, "cron", hour=4, minute=0)
-
-    def _digest_padron():
-        try:
-            from services.motor_ops_notification_service import send_motor_digest
-            send_motor_digest("PADRÓN", since_hours=10)
-        except Exception as e:
-            logger.warning("Digest padrón programado omitido: %s", e)
-
-    def _digest_cc():
-        try:
-            from services.motor_ops_notification_service import send_motor_digest
-            send_motor_digest("CUENTAS CORRIENTES", since_hours=12)
-        except Exception as e:
-            logger.warning("Digest CC programado omitido: %s", e)
-
-    # Respaldo si el RPA no llamó a /api/v1/ops/motor-digest (horarios AR aprox. post-corrida)
-    for h, m in ((9, 0), (12, 0), (16, 0), (19, 0)):
-        scheduler.add_job(_digest_padron, "cron", hour=h, minute=m, id=f"digest_padron_{h:02d}{m:02d}")
-    for h, m in ((8, 0), (15, 30), (21, 0)):
-        scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
-
-    def _lanzar_objetivos_programados():
-        """08:00 AR: lanzar objetivos planificados con fecha_inicio = hoy."""
-        try:
-            from services.objetivos_launch_service import lanzar_programados_fecha
-            result = lanzar_programados_fecha()
-            if result["lanzados"] or result["errores"]:
-                logger.info(
-                    f"[Objetivos] Lanzamiento 08:00: lanzados={result['lanzados']} "
-                    f"errores={result['errores']} total={result['total']}"
-                )
-        except Exception as e:
-            logger.warning(f"[Objetivos] Lanzamiento programado omitido: {e}")
-
-    from zoneinfo import ZoneInfo as _ZoneInfoL
-    scheduler.add_job(
-        _lanzar_objetivos_programados,
-        "cron",
-        hour=8,
-        minute=0,
-        timezone=_ZoneInfoL("America/Argentina/Buenos_Aires"),
-        id="lanzar_objetivos_0800",
-    )
-
-    def _binding_watcher_scan():
-        """07:30 AR: scan diario de grupos para detectar drift y sugerencias."""
-        try:
-            from services.telegram_binding_watcher_service import scan_all_distributors
-            results = scan_all_distributors()
-            total_drifts = sum(r.get("drifts", 0) for r in results)
-            total_auto = sum(r.get("auto_applied", 0) for r in results)
-            logger.info(f"[binding-watcher] Scan completo: drifts={total_drifts} auto_applied={total_auto}")
-        except Exception as e:
-            logger.warning(f"[binding-watcher] Error en scan: {e}")
-
-    scheduler.add_job(
-        _binding_watcher_scan, "cron",
-        hour=10, minute=30,  # 07:30 AR = 10:30 UTC (UTC-3)
-        id="binding_watcher_daily"
-    )
-
-    def _archivar_terminados_compania():
-        """01:00 UTC (aprox. 22:00 AR): archiva objetivos compañía cumplidos hace >7d."""
-        try:
-            from services.objetivos_liquidacion_service import archivar_terminados_compania_7d
-            result = archivar_terminados_compania_7d()
-            if result["archivados"] or result["errores"]:
-                logger.info(
-                    "[liquidacion] Archivado terminados: archivados=%s errores=%s",
-                    result["archivados"],
-                    result["errores"],
-                )
-        except Exception as e:
-            logger.warning("[liquidacion] Archivado terminados omitido: %s", e)
-
-    scheduler.add_job(
-        _archivar_terminados_compania,
-        "cron",
-        hour=1,
-        id="archivar_terminados_compania_7d",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-
-    def _snapshot_prewarm_morning():
-        """06:45 AR: pre-calienta bundles dashboard + estadísticas + supervisión."""
-        try:
-            from services.snapshot_refresh_service import prewarm_all_active_distributors
-            prewarm_all_active_distributors(["dashboard", "estadisticas", "supervision"])
-        except Exception as e:
-            logger.warning("[snap_refresh] cron prewarm omitido: %s", e)
-
-    scheduler.add_job(
-        _snapshot_prewarm_morning,
-        "cron",
-        hour=6,
-        minute=45,
-        timezone=_ZoneInfoL("America/Argentina/Buenos_Aires"),
-        id="snapshot_prewarm_0645_ar",
-    )
-
     import os
 
-    if os.getenv("RECAP_CRON_ENABLED", "0") == "1":
-        from core.recap_period import is_last_day_of_month, _today_ar
-        from services.recap_cron_service import run_recap_job_q1, run_recap_job_q2_and_cierre
+    skip_bots = os.getenv("SHELFY_SKIP_BOTS", "0") == "1"
 
-        def _recap_job_q1():
-            try:
-                result = run_recap_job_q1()
-                logger.info(
-                    "[recap_cron] Q1 ok periodo=%s processed=%s errors=%s",
-                    result.get("periodo_key"),
-                    result.get("processed"),
-                    result.get("errors"),
-                )
-            except Exception as e:
-                logger.warning("[recap_cron] Q1 omitido: %s", e)
+    if skip_bots:
+        logger.info("⏭️ SHELFY_SKIP_BOTS=1 — arranque rápido (sin bots Telegram)")
+    else:
+        # Startup — bots con reintento si Supabase schema cache (PGRST002) tarda
+        logger.info("🚀 Iniciando gestor de bots Webhook...")
+        bot_boot = await start_all_bots(manager, bots)
+        if bot_boot.get("error"):
+            logger.error("❌ Arranque de bots incompleto: %s", bot_boot["error"])
+        elif bot_boot.get("active", 0) < bot_boot.get("expected", 0):
+            logger.warning(
+                "⚠️ Bots parciales: %s/%s — el job ensure_bots reintentará",
+                bot_boot.get("active"),
+                bot_boot.get("expected"),
+            )
 
-        def _recap_job_q2_cierre():
-            if not is_last_day_of_month(_today_ar()):
+    if not skip_bots:
+        def _ensure_bots_job():
+            loop = _main_loop
+            if loop is None or not loop.is_running():
                 return
             try:
-                result = run_recap_job_q2_and_cierre()
-                logger.info(
-                    "[recap_cron] Q2+C ok q2=%s c=%s processed=%s errors=%s",
-                    result.get("periodo_key_q2"),
-                    result.get("periodo_key_cierre"),
-                    result.get("processed"),
-                    result.get("errors"),
+                fut = asyncio.run_coroutine_threadsafe(
+                    ensure_missing_bots(manager, bots),
+                    loop,
                 )
+                fut.result(timeout=120)
             except Exception as e:
-                logger.warning("[recap_cron] Q2+C omitido: %s", e)
+                logger.warning("[bot_registry] ensure_bots job: %s", e)
 
-        _tz_recap = _ZoneInfoL("America/Argentina/Buenos_Aires")
+        scheduler.add_job(_ensure_bots_job, "interval", minutes=2, id="ensure_telegram_bots")
+        scheduler.add_job(erp_automatic_sync, "cron", hour=4, minute=0)
+
+        def _digest_padron():
+            try:
+                from services.motor_ops_notification_service import send_motor_digest
+                send_motor_digest("PADRÓN", since_hours=10)
+            except Exception as e:
+                logger.warning("Digest padrón programado omitido: %s", e)
+
+        def _digest_cc():
+            try:
+                from services.motor_ops_notification_service import send_motor_digest
+                send_motor_digest("CUENTAS CORRIENTES", since_hours=12)
+            except Exception as e:
+                logger.warning("Digest CC programado omitido: %s", e)
+
+        for h, m in ((9, 0), (12, 0), (16, 0), (19, 0)):
+            scheduler.add_job(_digest_padron, "cron", hour=h, minute=m, id=f"digest_padron_{h:02d}{m:02d}")
+        for h, m in ((8, 0), (15, 30), (21, 0)):
+            scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
+
+        def _lanzar_objetivos_programados():
+            try:
+                from services.objetivos_launch_service import lanzar_programados_fecha
+                result = lanzar_programados_fecha()
+                if result["lanzados"] or result["errores"]:
+                    logger.info(
+                        f"[Objetivos] Lanzamiento 08:00: lanzados={result['lanzados']} "
+                        f"errores={result['errores']} total={result['total']}"
+                    )
+            except Exception as e:
+                logger.warning(f"[Objetivos] Lanzamiento programado omitido: {e}")
+
+        from zoneinfo import ZoneInfo as _ZoneInfoL
         scheduler.add_job(
-            _recap_job_q1,
+            _lanzar_objetivos_programados,
             "cron",
-            day=15,
-            hour=23,
-            minute=59,
-            timezone=_tz_recap,
-            id="recap_q1_15_2359_ar",
+            hour=8,
+            minute=0,
+            timezone=_ZoneInfoL("America/Argentina/Buenos_Aires"),
+            id="lanzar_objetivos_0800",
         )
-        # Corre diariamente 23:59; solo persiste Q2+C si es último día del mes.
+
+        def _binding_watcher_scan():
+            try:
+                from services.telegram_binding_watcher_service import scan_all_distributors
+                results = scan_all_distributors()
+                total_drifts = sum(r.get("drifts", 0) for r in results)
+                total_auto = sum(r.get("auto_applied", 0) for r in results)
+                logger.info(f"[binding-watcher] Scan completo: drifts={total_drifts} auto_applied={total_auto}")
+            except Exception as e:
+                logger.warning(f"[binding-watcher] Error en scan: {e}")
+
         scheduler.add_job(
-            _recap_job_q2_cierre,
-            "cron",
-            hour=23,
-            minute=59,
-            timezone=_tz_recap,
-            id="recap_q2_cierre_2359_ar",
+            _binding_watcher_scan, "cron",
+            hour=10, minute=30,
+            id="binding_watcher_daily"
         )
-        logger.info("📅 Repaso Comercial cron activo (15 y fin de mes 23:59 AR)")
-    else:
-        logger.info("📅 Repaso Comercial cron desactivado (RECAP_CRON_ENABLED!=1)")
+
+        def _archivar_terminados_compania():
+            try:
+                from services.objetivos_liquidacion_service import archivar_terminados_compania_7d
+                result = archivar_terminados_compania_7d()
+                if result["archivados"] or result["errores"]:
+                    logger.info(
+                        "[liquidacion] Archivado terminados: archivados=%s errores=%s",
+                        result["archivados"],
+                        result["errores"],
+                    )
+            except Exception as e:
+                logger.warning("[liquidacion] Archivado terminados omitido: %s", e)
+
+        scheduler.add_job(
+            _archivar_terminados_compania,
+            "cron",
+            hour=1,
+            id="archivar_terminados_compania_7d",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+
+        def _snapshot_prewarm_morning():
+            try:
+                from services.snapshot_refresh_service import prewarm_all_active_distributors
+                prewarm_all_active_distributors(["dashboard", "estadisticas", "supervision"])
+            except Exception as e:
+                logger.warning("[snap_refresh] cron prewarm omitido: %s", e)
+
+        scheduler.add_job(
+            _snapshot_prewarm_morning,
+            "cron",
+            hour=6,
+            minute=45,
+            timezone=_ZoneInfoL("America/Argentina/Buenos_Aires"),
+            id="snapshot_prewarm_0645_ar",
+        )
+
+        if os.getenv("RECAP_CRON_ENABLED", "0") == "1":
+            from core.recap_period import is_last_day_of_month, _today_ar
+            from services.recap_cron_service import run_recap_job_q1, run_recap_job_q2_and_cierre
+
+            def _recap_job_q1():
+                try:
+                    result = run_recap_job_q1()
+                    logger.info(
+                        "[recap_cron] Q1 ok periodo=%s processed=%s errors=%s",
+                        result.get("periodo_key"),
+                        result.get("processed"),
+                        result.get("errors"),
+                    )
+                except Exception as e:
+                    logger.warning("[recap_cron] Q1 omitido: %s", e)
+
+            def _recap_job_q2_cierre():
+                if not is_last_day_of_month(_today_ar()):
+                    return
+                try:
+                    result = run_recap_job_q2_and_cierre()
+                    logger.info(
+                        "[recap_cron] Q2+C ok q2=%s c=%s processed=%s errors=%s",
+                        result.get("periodo_key_q2"),
+                        result.get("periodo_key_cierre"),
+                        result.get("processed"),
+                        result.get("errors"),
+                    )
+                except Exception as e:
+                    logger.warning("[recap_cron] Q2+C omitido: %s", e)
+
+            _tz_recap = _ZoneInfoL("America/Argentina/Buenos_Aires")
+            scheduler.add_job(
+                _recap_job_q1,
+                "cron",
+                day=15,
+                hour=23,
+                minute=59,
+                timezone=_tz_recap,
+                id="recap_q1_15_2359_ar",
+            )
+            scheduler.add_job(
+                _recap_job_q2_cierre,
+                "cron",
+                hour=23,
+                minute=59,
+                timezone=_tz_recap,
+                id="recap_q2_cierre_2359_ar",
+            )
+            logger.info("📅 Repaso Comercial cron activo (15 y fin de mes 23:59 AR)")
+        else:
+            logger.info("📅 Repaso Comercial cron desactivado (RECAP_CRON_ENABLED!=1)")
 
     scheduler.start()
-    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR + Binding Watcher 07:30 AR + Snapshot Prewarm 06:45 AR)")
+    if skip_bots:
+        logger.info("📅 Scheduler iniciado (modo dev mobile, sin bots)")
+    else:
+        logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR + Binding Watcher 07:30 AR + Snapshot Prewarm 06:45 AR)")
 
     yield
 

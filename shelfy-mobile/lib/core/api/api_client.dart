@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -24,12 +25,17 @@ class ApiException implements Exception {
 /// Cliente HTTP centralizado para Shelfy.
 /// Agrega automáticamente los headers de autenticación y gestión de errores.
 class ApiClient {
-  final String _baseUrl;
+  static const Duration _timeout = Duration(seconds: 20);
+
+  final String? _baseUrlOverride;
   String? _jwt;
   String? _deviceId;
 
-  ApiClient({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConfig.baseUrl;
+  ApiClient({String? baseUrl}) : _baseUrlOverride = baseUrl;
+
+  String get baseUrl => _baseUrl;
+
+  String get _baseUrl => _baseUrlOverride ?? AppConfig.baseUrl;
 
   void setAuth({required String jwt, required String deviceId}) {
     _jwt = jwt;
@@ -51,56 +57,117 @@ class ApiClient {
     return headers;
   }
 
-  Uri _uri(String path) => Uri.parse('$_baseUrl$path');
+  Uri _uri(String path) {
+    final base = _baseUrl.endsWith('/') ? _baseUrl.substring(0, _baseUrl.length - 1) : _baseUrl;
+    final normalizedPath = path.startsWith('/') ? path : '/$path';
+    return Uri.parse('$base$normalizedPath');
+  }
+
+  String _errorMessage(Map<String, dynamic>? errorBody, int statusCode) {
+    final detail = errorBody?['detail'];
+    if (detail is String && detail.isNotEmpty) return detail;
+    if (detail is List) {
+      final parts = detail
+          .map((item) {
+            if (item is Map && item['msg'] != null) return item['msg'].toString();
+            return item.toString();
+          })
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (parts.isNotEmpty) return parts.join('. ');
+    }
+    final message = errorBody?['message'];
+    if (message is String && message.isNotEmpty) return message;
+    return 'Error $statusCode';
+  }
+
+  Future<http.Response> _send(Future<http.Response> Function() request) async {
+    try {
+      return await request().timeout(_timeout);
+    } on TimeoutException {
+      throw ApiException(
+        statusCode: 0,
+        message: 'Timeout conectando a $_baseUrl',
+      );
+    } on SocketException catch (e) {
+      throw ApiException(
+        statusCode: 0,
+        message: 'Sin conexión a $_baseUrl (${e.message})',
+      );
+    } on http.ClientException catch (e) {
+      throw ApiException(
+        statusCode: 0,
+        message: 'Error de red: ${e.message}',
+      );
+    }
+  }
 
   Future<Map<String, dynamic>> _handleResponse(http.Response response) async {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return {};
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      throw ApiException(
+        statusCode: 500,
+        message: 'Respuesta JSON inválida del servidor',
+      );
     }
     Map<String, dynamic>? errorBody;
     try {
-      errorBody = jsonDecode(response.body) as Map<String, dynamic>;
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) errorBody = decoded;
     } catch (_) {}
-    final message = errorBody?['detail'] as String? ??
-        errorBody?['message'] as String? ??
-        'Error ${response.statusCode}';
     throw ApiException(
       statusCode: response.statusCode,
-      message: message,
+      message: _errorMessage(errorBody, response.statusCode),
       body: errorBody,
     );
   }
 
+  Future<void> pingHealth() async {
+    final response = await _send(
+      () => http.get(_uri('/health'), headers: _headers()),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(
+        statusCode: response.statusCode,
+        message: 'Backend no disponible (${response.statusCode})',
+      );
+    }
+  }
+
   /// GET a un path relativo al baseUrl.
   Future<Map<String, dynamic>> get(String path) async {
-    final response = await http.get(_uri(path), headers: _headers());
+    final response = await _send(
+      () => http.get(_uri(path), headers: _headers()),
+    );
     return _handleResponse(response);
   }
 
   /// GET a un path que retorna una lista JSON.
   Future<List<dynamic>> getList(String path) async {
-    final response = await http.get(_uri(path), headers: _headers());
+    final response = await _send(
+      () => http.get(_uri(path), headers: _headers()),
+    );
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return [];
       final decoded = jsonDecode(response.body);
       if (decoded is List) return decoded;
-      // Si el backend envuelve en { "items": [...] }
       if (decoded is Map<String, dynamic>) {
-        return (decoded['items'] as List<dynamic>?) ?? [];
+        return (decoded['items'] as List<dynamic>?) ??
+            (decoded['pdvs'] as List<dynamic>?) ??
+            [];
       }
       return [];
     }
     Map<String, dynamic>? errorBody;
     try {
-      errorBody = jsonDecode(response.body) as Map<String, dynamic>;
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) errorBody = decoded;
     } catch (_) {}
-    final message = errorBody?['detail'] as String? ??
-        errorBody?['message'] as String? ??
-        'Error ${response.statusCode}';
     throw ApiException(
       statusCode: response.statusCode,
-      message: message,
+      message: _errorMessage(errorBody, response.statusCode),
       body: errorBody,
     );
   }
@@ -110,29 +177,50 @@ class ApiClient {
     String path,
     Map<String, dynamic> body,
   ) async {
-    final response = await http.post(
-      _uri(path),
-      headers: _headers(),
-      body: jsonEncode(body),
+    final response = await _send(
+      () => http.post(
+        _uri(path),
+        headers: _headers(),
+        body: jsonEncode(body),
+      ),
     );
     return _handleResponse(response);
   }
 
-  /// POST multipart (foto + campos).
+  /// POST multipart (foto + campos). Todas las fotos usan el field `photos`.
   Future<Map<String, dynamic>> postMultipart(
     String path, {
     required Map<String, String> fields,
-    required List<MapEntry<String, File>> files,
+    required List<File> files,
+    String fileField = 'photos',
   }) async {
     final request = http.MultipartRequest('POST', _uri(path));
     request.headers.addAll(_headers(multipart: true));
     request.fields.addAll(fields);
-    for (final entry in files) {
-      request.files
-          .add(await http.MultipartFile.fromPath(entry.key, entry.value.path));
+    for (final file in files) {
+      request.files.add(
+        await http.MultipartFile.fromPath(fileField, file.path),
+      );
     }
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
-    return _handleResponse(response);
+    try {
+      final streamed = await request.send().timeout(_timeout);
+      final response = await http.Response.fromStream(streamed);
+      return _handleResponse(response);
+    } on TimeoutException {
+      throw ApiException(
+        statusCode: 0,
+        message: 'Timeout conectando a $_baseUrl',
+      );
+    } on SocketException catch (e) {
+      throw ApiException(
+        statusCode: 0,
+        message: 'Sin conexión a $_baseUrl (${e.message})',
+      );
+    } on http.ClientException catch (e) {
+      throw ApiException(
+        statusCode: 0,
+        message: 'Error de red: ${e.message}',
+      );
+    }
   }
 }

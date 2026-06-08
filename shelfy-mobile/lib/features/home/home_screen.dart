@@ -23,57 +23,76 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  bool _providersReady = false;
+
+  late CaptureProvider _captureProvider;
+  late CarteraProvider _carteraProvider;
+  late StatsProvider _statsProvider;
+  late ObjetivosProvider _objetivosProvider;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_providersReady) return;
+
+    final api = context.read<ApiClient>();
+    final db = context.read<ShelfyDatabase>();
+    _captureProvider = CaptureProvider(apiClient: api, db: db);
+    _carteraProvider = CarteraProvider(api: api);
+    _statsProvider = StatsProvider(api: api);
+    _objetivosProvider = ObjetivosProvider(api: api);
+    _providersReady = true;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final api = context.read<ApiClient>();
+    if (!_providersReady) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-    final db = context.read<ShelfyDatabase>();
-
-    final tabs = [
-      ChangeNotifierProvider<CaptureProvider>(
-        create: (_) => CaptureProvider(apiClient: api, db: db),
-        child: const CaptureScreen(),
-      ),
-      ChangeNotifierProvider<CarteraProvider>(
-        create: (_) => CarteraProvider(api: api),
-        child: const CarteraScreen(),
-      ),
-      ChangeNotifierProvider<StatsProvider>(
-        create: (_) => StatsProvider(api: api),
-        child: const StatsScreen(),
-      ),
-      ChangeNotifierProvider<ObjetivosProvider>(
-        create: (_) => ObjetivosProvider(api: api),
-        child: const ObjetivosScreen(),
-      ),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const _TenantLogo(),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sync_outlined),
-            tooltip: 'Sincronizar pendientes',
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Sincronizando exhibiciones pendientes...'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: tabs,
-      ),
-      bottomNavigationBar: _BottomNav(
-        selectedIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<CaptureProvider>.value(value: _captureProvider),
+        ChangeNotifierProvider<CarteraProvider>.value(value: _carteraProvider),
+        ChangeNotifierProvider<StatsProvider>.value(value: _statsProvider),
+        ChangeNotifierProvider<ObjetivosProvider>.value(
+          value: _objetivosProvider,
+        ),
+      ],
+      child: Scaffold(
+        appBar: AppBar(
+          title: const _TenantLogo(),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.sync_outlined),
+              tooltip: 'Sincronizar pendientes',
+              onPressed: () {
+                context.read<SyncWorker>().syncNow();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Sincronizando exhibiciones pendientes...'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        body: IndexedStack(
+          index: _selectedIndex,
+          children: const [
+            CaptureScreen(),
+            CarteraScreen(),
+            StatsScreen(),
+            ObjetivosScreen(),
+          ],
+        ),
+        bottomNavigationBar: _BottomNav(
+          selectedIndex: _selectedIndex,
+          onTap: (index) => setState(() => _selectedIndex = index),
+        ),
       ),
     );
   }
@@ -88,8 +107,6 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Intentar leer el stream de pendingCount del SyncWorker si está disponible.
-    // Si no está en el árbol, simplemente no mostramos el badge.
     final syncWorker = _trySyncWorker(context);
 
     return BottomNavigationBar(
@@ -138,8 +155,6 @@ class _BottomNav extends StatelessWidget {
     );
   }
 
-  /// Obtiene el stream de pendingCount del SyncWorker.
-  /// Devuelve null si el worker no está registrado en el contexto.
   Stream<int>? _trySyncWorker(BuildContext context) {
     try {
       return context.read<SyncWorker>().pendingCount;
@@ -149,8 +164,6 @@ class _BottomNav extends StatelessWidget {
   }
 }
 
-/// Widget del logo del tenant en el AppBar.
-/// Cuando el branding esté disponible, reemplazar por una imagen de red.
 class _TenantLogo extends StatelessWidget {
   const _TenantLogo();
 

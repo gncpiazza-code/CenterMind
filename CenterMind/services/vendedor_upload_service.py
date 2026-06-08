@@ -10,6 +10,8 @@ Maneja:
 from __future__ import annotations
 
 import logging
+import time
+import uuid
 from datetime import datetime, timezone, timedelta
 
 from supabase import Client
@@ -29,6 +31,76 @@ AR_TZ = timezone(timedelta(hours=-3))
 # ─── Constantes ───────────────────────────────────────────────────────────────
 
 _UPLOAD_QUEUE_TABLE = "vendedor_app_upload_queue"
+_STORAGE_BUCKET = "Exhibiciones-PDV"
+
+
+def _distribuidor_storage_folder(sb: Client, dist_id: int) -> str:
+    """Nombre seguro del distribuidor para paths en Storage."""
+    try:
+        res = (
+            sb.table("distribuidores")
+            .select("nombre")
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        nombre = (res.data or [{}])[0].get("nombre") or f"dist_{dist_id}"
+    except Exception:
+        nombre = f"dist_{dist_id}"
+    return "".join(c if c.isalnum() or c in "-_ " else "" for c in str(nombre)).strip().replace(" ", "_") or f"dist_{dist_id}"
+
+
+def upload_mobile_photos_to_storage(
+    sb: Client,
+    dist_id: int,
+    files: list[tuple[str, bytes]],
+) -> list[str]:
+    """
+    Sube fotos JPEG/PNG al bucket Exhibiciones-PDV.
+    files: lista de (filename, bytes).
+    Retorna URLs públicas en el mismo orden.
+    """
+    if not files:
+        return []
+
+    dist_folder = _distribuidor_storage_folder(sb, dist_id)
+    date_folder = datetime.now(AR_TZ).strftime("%Y-%m-%d")
+    urls: list[str] = []
+
+    for original_name, file_bytes in files:
+        if not file_bytes:
+            continue
+        ext = ".jpg"
+        lower = original_name.lower()
+        if lower.endswith(".png"):
+            ext = ".png"
+        elif lower.endswith(".webp"):
+            ext = ".webp"
+        storage_path = f"{dist_folder}/{date_folder}/mobile_{uuid.uuid4().hex}{ext}"
+        content_type = "image/jpeg" if ext == ".jpg" else f"image/{ext.lstrip('.')}"
+
+        uploaded = False
+        for attempt in range(1, 4):
+            try:
+                sb.storage.from_(_STORAGE_BUCKET).upload(
+                    path=storage_path,
+                    file=file_bytes,
+                    file_options={"content-type": content_type, "upsert": "true"},
+                )
+                url = sb.storage.from_(_STORAGE_BUCKET).get_public_url(storage_path)
+                urls.append(url)
+                uploaded = True
+                break
+            except Exception as e:
+                logger.warning(
+                    f"upload_mobile_photos attempt {attempt}/3 dist={dist_id} path={storage_path}: {e}"
+                )
+                time.sleep(attempt * 2)
+
+        if not uploaded:
+            raise HTTPException(status_code=500, detail="Error subiendo foto a storage")
+
+    return urls
 
 
 # ─── Validación de cartera ────────────────────────────────────────────────────
@@ -48,7 +120,6 @@ def validate_nro_cliente_en_cartera(
     rutas_res = (
         sb.table(rutas_table)
         .select("id_ruta")
-        .eq("id_distribuidor", dist_id)
         .eq("id_vendedor", id_vendedor)
         .execute()
     )
@@ -276,12 +347,12 @@ def process_exhibicion_upload(
         # Necesitamos los id_integrante del vendedor para la query
         integrantes_res = (
             sb.table("integrantes_grupo")
-            .select("id")
+            .select("id_integrante")
             .eq("id_distribuidor", dist_id)
             .eq("id_vendedor_v2", id_vendedor_v2)
             .execute()
         )
-        integrante_ids = [r["id"] for r in (integrantes_res.data or [])]
+        integrante_ids = [r["id_integrante"] for r in (integrantes_res.data or [])]
 
         if integrante_ids:
             rows: list[dict] = []

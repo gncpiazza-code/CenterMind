@@ -11,15 +11,12 @@ import '../../core/offline/upload_queue.dart';
 import 'models/batch_upload_result.dart';
 import 'models/pdv_candidate.dart';
 
-/// Pasos del flujo de captura.
+/// Pasos del flujo de captura (cámara primero, PDV después de la foto).
 enum CaptureStep {
-  gpsLoading,
-  pdvSelection,
+  camera,
+  pdvConfirm,
   manualInput,
-  pdvConfirmed,
-  photoCapture,
-  typeSelection,
-  reviewAndSubmit,
+  ingresoChoice,
   uploading,
   success,
 }
@@ -29,16 +26,17 @@ class CaptureProvider extends ChangeNotifier {
   final ApiClient _api;
   final ShelfyDatabase _db;
 
-  CaptureStep _currentStep = CaptureStep.gpsLoading;
+  CaptureStep _currentStep = CaptureStep.camera;
   PdvCandidate? _selectedPdv;
+  PdvCandidate? _detectedPdv;
   String? _manualNro;
   List<File> _photos = [];
   String? _selectedTipo;
   bool _isUploading = false;
+  bool _nearbyLoading = false;
   BatchUploadResult? _lastResult;
   String? _errorMessage;
 
-  // Datos de ubicación actuales
   double? _currentLat;
   double? _currentLng;
 
@@ -46,50 +44,86 @@ class CaptureProvider extends ChangeNotifier {
       : _api = apiClient,
         _db = db;
 
-  // ── Getters ─────────────────────────────────────────────────────────────────
-
   CaptureStep get currentStep => _currentStep;
   PdvCandidate? get selectedPdv => _selectedPdv;
+  PdvCandidate? get detectedPdv => _detectedPdv;
   String? get manualNro => _manualNro;
   List<File> get photos => List.unmodifiable(_photos);
   String? get selectedTipo => _selectedTipo;
   bool get isUploading => _isUploading;
+  bool get nearbyLoading => _nearbyLoading;
   BatchUploadResult? get lastResult => _lastResult;
   String? get errorMessage => _errorMessage;
   double? get currentLat => _currentLat;
   double? get currentLng => _currentLng;
 
-  /// Nombre visible del PDV seleccionado (manual o de la lista).
   String get nroCliente => _selectedPdv?.idClienteErp ?? _manualNro ?? '';
 
   String get pdvDisplayName =>
       _selectedPdv?.nombreDisplay ??
+      _detectedPdv?.nombreDisplay ??
       (_manualNro != null ? 'NRO: $_manualNro' : '');
 
-  // ── Acciones ─────────────────────────────────────────────────────────────────
-
-  /// Llamar al inicio: actualiza la ubicación y va al paso de selección.
-  void onGpsReady(double lat, double lng) {
+  /// Actualiza GPS y busca PDV cercano en segundo plano (sin bloquear cámara).
+  Future<void> refreshNearbyPdvs({required double lat, required double lng}) async {
     _currentLat = lat;
     _currentLng = lng;
-    _currentStep = CaptureStep.pdvSelection;
+    _nearbyLoading = true;
+    notifyListeners();
+
+    try {
+      final list = await _api.getList(
+        '/api/vendedor-app/pdv/cercanos?lat=$lat&lng=$lng&radio=150',
+      );
+      final candidates = list
+          .cast<Map<String, dynamic>>()
+          .map(PdvCandidate.fromJson)
+          .toList();
+      _detectedPdv = candidates.isNotEmpty ? candidates.first : null;
+    } catch (_) {
+      _detectedPdv = null;
+    } finally {
+      _nearbyLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void onGpsUnavailable() {
+    _detectedPdv = null;
     notifyListeners();
   }
 
-  /// GPS falló o permisos denegados: ir directo a input manual.
-  void onGpsFailed() {
-    _currentStep = CaptureStep.manualInput;
-    notifyListeners();
-  }
-
-  void selectPdv(PdvCandidate pdv) {
-    _selectedPdv = pdv;
+  /// Foto tomada: pasar a confirmación de PDV.
+  void onPhotoTaken(File file) {
+    _photos = [file];
+    _selectedPdv = null;
     _manualNro = null;
-    _currentStep = CaptureStep.pdvConfirmed;
+    _selectedTipo = null;
+    _errorMessage = null;
+
+    if (_detectedPdv != null) {
+      _currentStep = CaptureStep.pdvConfirm;
+    } else {
+      _currentStep = CaptureStep.manualInput;
+    }
     notifyListeners();
   }
 
-  void goToManualInput() {
+  void confirmDetectedPdv() {
+    final pdv = _detectedPdv;
+    if (pdv == null) {
+      _currentStep = CaptureStep.manualInput;
+    } else {
+      _selectedPdv = pdv;
+      _manualNro = null;
+      _currentStep = CaptureStep.ingresoChoice;
+    }
+    notifyListeners();
+  }
+
+  void rejectDetectedPdv() {
+    _selectedPdv = null;
+    _manualNro = null;
     _currentStep = CaptureStep.manualInput;
     notifyListeners();
   }
@@ -97,44 +131,26 @@ class CaptureProvider extends ChangeNotifier {
   void confirmManualNro(String nro) {
     _manualNro = nro.trim();
     _selectedPdv = null;
-    _currentStep = CaptureStep.pdvConfirmed;
+    _currentStep = CaptureStep.ingresoChoice;
     notifyListeners();
   }
 
-  void goToPhotoCapture() {
-    _currentStep = CaptureStep.photoCapture;
+  void selectIngreso({required bool conIngreso}) {
+    _selectedTipo =
+        conIngreso ? 'Comercio con Ingreso' : 'Comercio sin Ingreso';
+    submit();
+  }
+
+  void backToCamera() {
+    _photos = [];
+    _selectedPdv = null;
+    _manualNro = null;
+    _selectedTipo = null;
+    _errorMessage = null;
+    _currentStep = CaptureStep.camera;
     notifyListeners();
   }
 
-  void addPhoto(File file) {
-    if (_photos.length >= 10) return;
-    _photos = [..._photos, file];
-    notifyListeners();
-  }
-
-  void removePhoto(int index) {
-    if (index < 0 || index >= _photos.length) return;
-    _photos = List.from(_photos)..removeAt(index);
-    notifyListeners();
-  }
-
-  void goToTypeSelection() {
-    _currentStep = CaptureStep.typeSelection;
-    notifyListeners();
-  }
-
-  void selectTipo(String tipo) {
-    _selectedTipo = tipo;
-    _currentStep = CaptureStep.reviewAndSubmit;
-    notifyListeners();
-  }
-
-  void goBackToPhotoCapture() {
-    _currentStep = CaptureStep.photoCapture;
-    notifyListeners();
-  }
-
-  /// Envía la captura: directo al backend si hay red; sino encola en SQLite.
   Future<void> submit() async {
     if (nroCliente.isEmpty || _selectedTipo == null || _photos.isEmpty) return;
 
@@ -155,8 +171,8 @@ class CaptureProvider extends ChangeNotifier {
         _currentStep = CaptureStep.success;
       }
     } catch (e) {
-      _errorMessage = e.toString();
-      _currentStep = CaptureStep.reviewAndSubmit;
+      _errorMessage = e is ApiException ? e.message : e.toString();
+      _currentStep = CaptureStep.ingresoChoice;
     } finally {
       _isUploading = false;
       notifyListeners();
@@ -170,23 +186,14 @@ class CaptureProvider extends ChangeNotifier {
       'nro_cliente': nroCliente,
       'tipo_pdv': _selectedTipo!,
       'client_upload_id': clientUploadId,
-      if (_currentLat != null && _currentLng != null)
-        'capture_lat_lng': jsonEncode({
-          'lat': _currentLat,
-          'lng': _currentLng,
-        }),
+      if (_currentLat != null) 'capture_lat': _currentLat!.toString(),
+      if (_currentLng != null) 'capture_lng': _currentLng!.toString(),
     };
 
-    final files = _photos
-        .asMap()
-        .entries
-        .map((e) => MapEntry('foto_${e.key}', e.value))
-        .toList();
-
     final responseJson = await _api.postMultipart(
-      '/api/vendedor-app/exhibiciones/batch',
+      '/api/vendedor-app/exhibiciones/batch-multipart',
       fields: fields,
-      files: files,
+      files: _photos,
     );
 
     _lastResult = BatchUploadResult.fromJson(responseJson);
@@ -213,9 +220,8 @@ class CaptureProvider extends ChangeNotifier {
     );
   }
 
-  /// Reinicia el provider para una nueva captura.
   void reset() {
-    _currentStep = CaptureStep.gpsLoading;
+    _currentStep = CaptureStep.camera;
     _selectedPdv = null;
     _manualNro = null;
     _photos = [];
@@ -223,8 +229,6 @@ class CaptureProvider extends ChangeNotifier {
     _isUploading = false;
     _lastResult = null;
     _errorMessage = null;
-    _currentLat = null;
-    _currentLng = null;
     notifyListeners();
   }
 }

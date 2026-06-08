@@ -59,10 +59,16 @@ ThemeData buildTenantTheme(Map<String, dynamic>? branding) {
 Color? _parseColor(dynamic raw) {
   if (raw is! String) return null;
   final hex = raw.trim().replaceFirst('#', '');
-  if (hex.length == 6) {
-    return Color(int.parse('FF$hex', radix: 16));
-  } else if (hex.length == 8) {
-    return Color(int.parse(hex, radix: 16));
+  if (!RegExp(r'^[0-9A-Fa-f]+$').hasMatch(hex)) return null;
+  try {
+    if (hex.length == 6) {
+      return Color(int.parse('FF$hex', radix: 16));
+    }
+    if (hex.length == 8) {
+      return Color(int.parse(hex, radix: 16));
+    }
+  } catch (_) {
+    return null;
   }
   return null;
 }

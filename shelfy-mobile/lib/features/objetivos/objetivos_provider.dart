@@ -21,9 +21,7 @@ class ObjetivosProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await _api.get('/api/vendedor-app/objetivos');
-      final list = data['items'] as List<dynamic>? ??
-          (data is List ? data as List<dynamic> : <dynamic>[]);
+      final list = await _api.getList('/api/vendedor-app/objetivos');
       objetivos = list
           .map((e) => ObjetivoApp.fromJson(e as Map<String, dynamic>))
           .toList();

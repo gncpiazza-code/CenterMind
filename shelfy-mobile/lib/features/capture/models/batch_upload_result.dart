@@ -9,12 +9,11 @@ class BatchUploadResult {
   });
 
   factory BatchUploadResult.fromJson(Map<String, dynamic> json) {
+    final rawIds = json['exhibicion_ids'] as List<dynamic>? ?? [];
     return BatchUploadResult(
-      exhibicionIds: (json['exhibicion_ids'] as List<dynamic>)
-          .map((e) => e as String)
-          .toList(),
+      exhibicionIds: rawIds.map((e) => e.toString()).toList(),
       statsSummary: StatsSummary.fromJson(
-        json['stats_summary'] as Map<String, dynamic>,
+        json['stats_summary'] as Map<String, dynamic>? ?? {},
       ),
     );
   }
@@ -28,7 +27,9 @@ class StatsSummary {
 
   factory StatsSummary.fromJson(Map<String, dynamic> json) {
     return StatsSummary(
-      exhibicionesLogicas: (json['exhibiciones_logicas'] as num).toInt(),
+      exhibicionesLogicas: (json['exhibiciones_logicas'] as num?)?.toInt() ??
+          (json['total_logicas'] as num?)?.toInt() ??
+          0,
     );
   }
 }

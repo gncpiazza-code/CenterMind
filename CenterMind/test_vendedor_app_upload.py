@@ -157,7 +157,7 @@ def test_cartera_validation_accepts_known_pdv():
     pdv_result = MagicMock()
     pdv_result.data = [{"id_cliente_erp": "12345"}]
 
-    sb.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = rutas_result
+    sb.table.return_value.select.return_value.eq.return_value.execute.return_value = rutas_result
     sb.table.return_value.select.return_value.eq.return_value.eq.return_value.in_.return_value.limit.return_value.execute.return_value = pdv_result
 
     result = validate_nro_cliente_en_cartera(
@@ -184,7 +184,7 @@ def test_stats_vendor_scope():
 
     # Integrantes del vendedor
     integrantes_result = MagicMock()
-    integrantes_result.data = [{"id": 10, "nombre_integrante": "Juan Perez"}]
+    integrantes_result.data = [{"id_integrante": 10, "nombre_integrante": "Juan Perez"}]
     sb.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = integrantes_result
 
     # 2 filas del mismo cliente + mismo día (debe contar 1 lógica, gana Destacado)

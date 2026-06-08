@@ -14,7 +14,7 @@ echo ""
 
 # 1. IP LAN
 LAN=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "192.168.1.100")
-python3 -c "import json; print(json.dumps({'API_BASE_URL': f'http://${LAN}:8000', 'FLAVOR': 'tabaco'}, indent=2))" > "$ROOT/config/dev-device.json"
+python3 -c "import json; print(json.dumps({'API_SCHEME': 'http', 'API_HOST': '${LAN}', 'API_PORT': '8000', 'FLAVOR': 'tabaco'}, indent=2))" > "$ROOT/config/dev-device.json"
 echo "✓ config/dev-device.json → http://${LAN}:8000"
 
 # 2. Backend

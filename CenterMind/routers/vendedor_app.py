@@ -13,7 +13,7 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, Form, UploadFile
 from pydantic import BaseModel
 
 from core.security import verify_auth, check_dist_permission
@@ -29,6 +29,7 @@ from services.vendedor_app_auth_service import (
 from services.vendedor_cartera_service import build_cartera_json
 from services.vendedor_upload_service import (
     process_exhibicion_upload,
+    upload_mobile_photos_to_storage,
     validate_nro_cliente_en_cartera,
 )
 from services.vendedor_stats_service import get_stats_vendedor_app
@@ -295,6 +296,82 @@ def post_exhibicion_batch(
         )
     except Exception as e:
         logger.error(f"post_exhibicion_batch dist={dist_id} vendor={id_vendedor_v2}: {e}")
+        raise HTTPException(status_code=500, detail="Error procesando la subida")
+
+    return result
+
+
+@router.post(
+    "/exhibiciones/batch-multipart",
+    response_model=BatchUploadOut,
+    summary="Subir exhibiciones con fotos multipart (app móvil)",
+    description=(
+        "Recibe fotos como multipart/form-data, las sube a Supabase Storage "
+        "y registra la exhibición con idempotencia por client_upload_id."
+    ),
+)
+async def post_exhibicion_batch_multipart(
+    nro_cliente: str = Form(...),
+    tipo_pdv: str = Form(...),
+    client_upload_id: str = Form(...),
+    capture_lat: Optional[float] = Form(None),
+    capture_lng: Optional[float] = Form(None),
+    photos: list[UploadFile] = File(...),
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id: int = int(session["dist"])
+    id_vendedor_v2: int = int(session["vendor"])
+    device_id: str = str(session.get("device") or "unknown")
+
+    if not photos:
+        raise HTTPException(status_code=400, detail="Se requiere al menos una foto")
+
+    try:
+        en_cartera = validate_nro_cliente_en_cartera(
+            sb, dist_id, id_vendedor_v2, nro_cliente
+        )
+    except Exception as e:
+        logger.error(
+            f"post_exhibicion_batch_multipart validate_cartera dist={dist_id} vendor={id_vendedor_v2}: {e}"
+        )
+        raise HTTPException(status_code=500, detail="Error validando cartera")
+
+    if not en_cartera:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El PDV '{nro_cliente}' no pertenece a la cartera del vendedor",
+        )
+
+    file_payloads: list[tuple[str, bytes]] = []
+    for upload in photos:
+        content = await upload.read()
+        if not content:
+            continue
+        file_payloads.append((upload.filename or "photo.jpg", content))
+
+    if not file_payloads:
+        raise HTTPException(status_code=400, detail="Las fotos enviadas están vacías")
+
+    try:
+        photo_urls = upload_mobile_photos_to_storage(sb, dist_id, file_payloads)
+        result = process_exhibicion_upload(
+            sb=sb,
+            dist_id=dist_id,
+            id_vendedor_v2=id_vendedor_v2,
+            device_id=device_id,
+            nro_cliente=nro_cliente,
+            tipo_pdv=tipo_pdv,
+            photo_urls=photo_urls,
+            client_upload_id=client_upload_id,
+            capture_lat=capture_lat,
+            capture_lng=capture_lng,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"post_exhibicion_batch_multipart dist={dist_id} vendor={id_vendedor_v2}: {e}"
+        )
         raise HTTPException(status_code=500, detail="Error procesando la subida")
 
     return result

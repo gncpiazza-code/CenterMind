@@ -10,7 +10,7 @@ import 'features/home/home_screen.dart';
 import 'theme/tenant_theme.dart';
 
 /// Entrada principal de la aplicación con routing y tema tenant.
-class ShelfyApp extends StatelessWidget {
+class ShelfyApp extends StatefulWidget {
   final AuthService authService;
   final ShelfyDatabase db;
 
@@ -21,12 +21,22 @@ class ShelfyApp extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final router = GoRouter(
+  State<ShelfyApp> createState() => _ShelfyAppState();
+}
+
+class _ShelfyAppState extends State<ShelfyApp> {
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    _router = GoRouter(
       initialLocation: '/',
+      refreshListenable: widget.authService,
       redirect: (context, state) {
-        final loggedIn = authService.isLoggedIn;
-        final isActivation = state.matchedLocation == '/activation';
+        final loggedIn = widget.authService.isLoggedIn;
+        final location = state.matchedLocation;
+        final isActivation = location == '/activation';
 
         if (!loggedIn && !isActivation) return '/activation';
         if (loggedIn && isActivation) return '/home';
@@ -36,7 +46,7 @@ class ShelfyApp extends StatelessWidget {
         GoRoute(
           path: '/',
           redirect: (context, state) =>
-              authService.isLoggedIn ? '/home' : '/activation',
+              widget.authService.isLoggedIn ? '/home' : '/activation',
         ),
         GoRoute(
           path: '/activation',
@@ -48,21 +58,22 @@ class ShelfyApp extends StatelessWidget {
         ),
       ],
     );
+  }
 
-    final branding = authService.currentSession?.branding;
+  @override
+  Widget build(BuildContext context) {
+    final branding = widget.authService.currentSession?.branding;
 
-    // Proveer ApiClient y ShelfyDatabase para HomeScreen y sus providers.
-    // SyncWorker ya es provisto en main.dart (outer Provider).
     return MultiProvider(
       providers: [
-        Provider<ApiClient>.value(value: authService.api),
-        Provider<ShelfyDatabase>.value(value: db),
+        Provider<ApiClient>.value(value: widget.authService.api),
+        Provider<ShelfyDatabase>.value(value: widget.db),
       ],
       child: MaterialApp.router(
-        title: 'SHELFYAPP',
+        title: 'Shelfy',
         debugShowCheckedModeBanner: false,
         theme: buildTenantTheme(branding),
-        routerConfig: router,
+        routerConfig: _router,
       ),
     );
   }

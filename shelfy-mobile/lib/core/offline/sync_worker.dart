@@ -73,18 +73,22 @@ class SyncWorker {
         'nro_cliente': upload.nroCliente,
         'client_upload_id': upload.clientUploadId,
         if (upload.tipoPdv != null) 'tipo_pdv': upload.tipoPdv!,
-        if (upload.captureLatLng != null)
-          'capture_lat_lng': upload.captureLatLng!,
       };
 
-      final files = paths
-          .asMap()
-          .entries
-          .map((e) => MapEntry('foto_${e.key}', File(e.value)))
-          .toList();
+      if (upload.captureLatLng != null) {
+        try {
+          final coords = jsonDecode(upload.captureLatLng!) as Map<String, dynamic>;
+          final lat = coords['lat'];
+          final lng = coords['lng'];
+          if (lat != null) fields['capture_lat'] = lat.toString();
+          if (lng != null) fields['capture_lng'] = lng.toString();
+        } catch (_) {}
+      }
+
+      final files = paths.map((p) => File(p)).toList();
 
       await _api.postMultipart(
-        '/api/vendedor-app/exhibiciones/batch',
+        '/api/vendedor-app/exhibiciones/batch-multipart',
         fields: fields,
         files: files,
       );

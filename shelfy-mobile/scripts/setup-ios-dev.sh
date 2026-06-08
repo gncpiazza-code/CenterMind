@@ -66,7 +66,9 @@ if [[ ! -f "$DEVICE_CFG" ]]; then
   LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "192.168.1.100")"
   cat > "$DEVICE_CFG" <<EOF
 {
-  "API_BASE_URL": "http://${LAN_IP}:8000",
+  "API_SCHEME": "http",
+  "API_HOST": "${LAN_IP}",
+  "API_PORT": "8000",
   "FLAVOR": "tabaco"
 }
 EOF
@@ -74,7 +76,7 @@ EOF
   echo "   (Mac e iPhone deben estar en la misma WiFi)"
 else
   LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "192.168.1.100")"
-  python3 -c "import json; print(json.dumps({'API_BASE_URL': f'http://${LAN_IP}:8000', 'FLAVOR': 'tabaco'}, indent=2))" > "$DEVICE_CFG"
+  python3 -c "import json; print(json.dumps({'API_SCHEME': 'http', 'API_HOST': '${LAN_IP}', 'API_PORT': '8000', 'FLAVOR': 'tabaco'}, indent=2))" > "$DEVICE_CFG"
   echo "✅ Actualizado $DEVICE_CFG → http://${LAN_IP}:8000"
 fi
 

@@ -84,13 +84,13 @@ def _build_iid_to_erp_map(sb: Client, dist_id: int) -> dict[int, str]:
     while True:
         batch = (
             sb.table("integrantes_grupo")
-            .select("id,id_vendedor_v2,nombre_integrante")
+            .select("id_integrante,id_vendedor_v2,nombre_integrante")
             .eq("id_distribuidor", dist_id)
             .range(offset, offset + PAGE - 1)
             .execute().data or []
         )
         for row in batch:
-            iid = row.get("id")
+            iid = row.get("id_integrante")
             if iid is not None:
                 # Usar nombre_integrante como clave ERP
                 result[int(iid)] = str(row.get("nombre_integrante") or f"vendor_{row.get('id_vendedor_v2')}").strip()
@@ -168,12 +168,12 @@ def get_stats_vendedor_app(
     # Obtener integrantes del vendedor
     integrantes_res = (
         sb.table("integrantes_grupo")
-        .select("id,nombre_integrante")
+        .select("id_integrante,nombre_integrante")
         .eq("id_distribuidor", dist_id)
         .eq("id_vendedor_v2", id_vendedor_v2)
         .execute()
     )
-    integrante_ids = [r["id"] for r in (integrantes_res.data or [])]
+    integrante_ids = [r["id_integrante"] for r in (integrantes_res.data or [])]
     # Nombre del vendedor para el ranking (primer integrante)
     vendor_nombre: str | None = None
     if integrantes_res.data:

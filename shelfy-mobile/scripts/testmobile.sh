@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# /testmobile — levanta API local + SHELFYAPP (simulador o iPhone físico).
+# /testmobile — SHELFYAPP en simulador o iPhone físico.
+#
+# Modos (default = prod Railway, sin API local):
+#   testmobile.sh              → prod + auto (iPhone si hay, si no simulador)
+#   testmobile.sh prod           → prod + auto
+#   testmobile.sh prod device    → prod + iPhone USB
+#   testmobile.sh local device   → API Mac en LAN + iPhone USB
+#   testmobile.sh simulator      → API local + simulador iOS
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,9 +18,38 @@ FLUTTER_LOG="/tmp/shelfy-flutter.log"
 API_PID_FILE="/tmp/shelfy-api.pid"
 FLUTTER_PID_FILE="/tmp/shelfy-flutter.pid"
 WORKTREE_GDART="$REPO/.claude/worktrees/performance-mobile-2026-06-07/shelfy-mobile/lib/core/offline/upload_queue.g.dart"
-TARGET="${1:-auto}" # auto | simulator | device
 
-log() { echo "[testmobile] $*"; }
+API_MODE="prod"   # prod | local
+TARGET="auto"     # auto | simulator | device
+
+case "${1:-prod}" in
+  prod)
+    API_MODE="prod"
+    TARGET="${2:-auto}"
+    ;;
+  device)
+    API_MODE="prod"
+    TARGET="device"
+    ;;
+  local)
+    API_MODE="local"
+    TARGET="${2:-device}"
+    ;;
+  simulator)
+    API_MODE="local"
+    TARGET="simulator"
+    ;;
+  auto)
+    API_MODE="prod"
+    TARGET="auto"
+    ;;
+  *)
+    echo "Uso: $0 [prod|local|simulator|device] [device|simulator|auto]" >&2
+    exit 1
+    ;;
+esac
+
+log() { echo "[testmobile] $*" >&2; }
 
 kill_port() {
   lsof -ti :8000 | xargs kill -9 2>/dev/null || true
@@ -42,14 +78,26 @@ ensure_drift_stub() {
   fi
 }
 
-refresh_config() {
+refresh_local_config() {
   local lan
   lan=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "127.0.0.1")
-  python3 -c "import json; print(json.dumps({'API_BASE_URL': f'http://${lan}:8000', 'FLAVOR': 'tabaco'}, indent=2))" > "$ROOT/config/dev-device.json"
+  python3 -c "import json; print(json.dumps({'API_SCHEME': 'http', 'API_HOST': '${lan}', 'API_PORT': '8000', 'FLAVOR': 'tabaco'}, indent=2))" > "$ROOT/config/dev-device.json"
+  mkdir -p "$ROOT/assets/config"
+  cp "$ROOT/config/dev-device.json" "$ROOT/assets/config/dev-device.json"
   log "dev-device.json → http://${lan}:8000"
 }
 
+sync_prod_assets() {
+  cp "$ROOT/config/prod-device.json" "$ROOT/assets/config/prod-device.json"
+  log "prod-device.json → https://api.shelfycenter.com (Railway)"
+}
+
 start_api() {
+  if [[ "$API_MODE" != "local" ]]; then
+    log "Modo prod — sin API local"
+    return 0
+  fi
+
   if curl -sf --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
     log "API ya online en :8000"
     return 0
@@ -62,15 +110,15 @@ start_api() {
 
   kill_port
   ensure_venv
-  log "Levantando API → $API_LOG"
-  (cd "$CM" && nohup "$VENV/bin/python" -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload >>"$API_LOG" 2>&1 & echo $! >"$API_PID_FILE")
+  log "Levantando API → $API_LOG (SHELFY_SKIP_BOTS=1)"
+  (cd "$CM" && SHELFY_SKIP_BOTS=1 nohup "$VENV/bin/python" -m uvicorn api:app --host 0.0.0.0 --port 8000 >>"$API_LOG" 2>&1 & echo $! >"$API_PID_FILE")
 
-  for i in $(seq 1 45); do
+  for i in $(seq 1 30); do
     if curl -sf --max-time 2 http://127.0.0.1:8000/health >/dev/null; then
       log "API OK (health)"
       return 0
     fi
-    sleep 2
+    sleep 1
   done
   log "ERROR: API no respondió — tail $API_LOG"
   tail -30 "$API_LOG" || true
@@ -85,27 +133,15 @@ pick_device() {
   local mode="$1"
   local sim_id phys_id
 
-  sim_id="$(flutter devices --device-timeout 30 2>/dev/null \
-    | grep -i simulator \
-    | head -1 \
-    | sed -n 's/.*• \([^ ]*\) •.*simulator.*/\1/p' \
-    | xargs || true)"
-
-  phys_id="$(flutter devices --device-timeout 30 2>/dev/null \
-    | grep -iE 'iphone.*\(mobile\)' \
-    | grep -vi simulator \
-    | head -1 \
-    | sed -n 's/.*• \([^ ]*\) • ios.*/\1/p' \
-    | xargs || true)"
+  sim_id="$("$ROOT/scripts/flutter-device-id.sh" simulator | xargs || true)"
+  phys_id="$("$ROOT/scripts/flutter-device-id.sh" physical | xargs || true)"
 
   case "$mode" in
     simulator)
       if [[ -z "$sim_id" ]]; then
         open -a Simulator 2>/dev/null || true
         sleep 12
-        sim_id="$(flutter devices --device-timeout 30 2>/dev/null \
-          | grep -i simulator | head -1 \
-          | sed -n 's/.*• \([^ ]*\) •.*simulator.*/\1/p' | xargs || true)"
+        sim_id="$("$ROOT/scripts/flutter-device-id.sh" simulator | xargs || true)"
       fi
       [[ -n "$sim_id" ]] || { log "ERROR: no hay simulador iOS — Xcode → Platforms"; exit 1; }
       echo "simulator:$sim_id"
@@ -123,9 +159,7 @@ pick_device() {
       else
         open -a Simulator 2>/dev/null || true
         sleep 12
-        sim_id="$(flutter devices --device-timeout 30 2>/dev/null \
-          | grep -i simulator | head -1 \
-          | sed -n 's/.*• \([^ ]*\) •.*simulator.*/\1/p' | xargs || true)"
+        sim_id="$("$ROOT/scripts/flutter-device-id.sh" simulator | xargs || true)"
         [[ -n "$sim_id" ]] || { log "ERROR: no hay simulador ni iPhone listo"; exit 1; }
         echo "simulator:$sim_id"
       fi
@@ -134,15 +168,20 @@ pick_device() {
 }
 
 start_flutter() {
-  local kind id defines
-  read -r kind id <<<"$(pick_device "$TARGET" | tr ':' ' ')"
+  local picked kind id defines
+  picked="$(pick_device "$TARGET")"
+  kind="${picked%%:*}"
+  id="${picked#*:}"
 
   if [[ "$kind" == "simulator" ]]; then
     defines="$ROOT/config/dev-simulator.json"
     log "Target: simulador ($id)"
-  else
+  elif [[ "$API_MODE" == "local" ]]; then
     defines="$ROOT/config/dev-device.json"
-    log "Target: iPhone físico ($id)"
+    log "Target: iPhone físico ($id) → API local LAN"
+  else
+    defines="$ROOT/config/prod-device.json"
+    log "Target: iPhone físico ($id) → Railway prod"
   fi
 
   if [[ -f "$FLUTTER_PID_FILE" ]] && kill -0 "$(cat "$FLUTTER_PID_FILE")" 2>/dev/null; then
@@ -154,6 +193,7 @@ start_flutter() {
   cd "$ROOT"
   flutter pub get >/dev/null
   log "Compilando app (2-4 min primera vez) → $FLUTTER_LOG"
+  : > "$FLUTTER_LOG"
 
   nohup flutter run \
     --dart-define-from-file="$defines" \
@@ -177,33 +217,52 @@ start_flutter() {
 }
 
 print_next_steps() {
-  cat <<EOF
+  if [[ "$API_MODE" == "local" ]]; then
+    cat <<EOF
 
 ╔══════════════════════════════════════════════════════════════╗
-║  SHELFYAPP — listo para testear                              ║
+║  SHELFYAPP — modo LOCAL (API en tu Mac)                      ║
 ╚══════════════════════════════════════════════════════════════╝
 
   API:     http://127.0.0.1:8000/health  (log: $API_LOG)
+  iPhone:  misma WiFi que el Mac
+
+EOF
+  else
+    cat <<EOF
+
+╔══════════════════════════════════════════════════════════════╗
+║  SHELFYAPP — modo PROD (Railway)                             ║
+╚══════════════════════════════════════════════════════════════╝
+
+  API:     https://api.shelfycenter.com/health
+  Sin terminal local — keys del portal shelfycenter.com
+
+EOF
+  fi
+  cat <<EOF
   Flutter: log $FLUTTER_LOG
 
-  1. Portal → Fuerza de Ventas → App Móvil → generar key sapp_...
-  2. Pegar key en la app
-  3. Probar: Captura | Cartera | Stats | Objetivos
+  1. Portal → Fuerza de Ventas → App Móvil → key sapp_...
+  2. Pegar key en la app (debe decir Backend OK · https://api.shelfycenter.com)
+  3. Activar → Captura | Cartera | Stats | Objetivos
 
-  Simulador GPS: Xcode → Debug → Simulate Location
-  iPhone físico: misma WiFi que Mac (dev-device.json)
+  Modo local (opcional): ./scripts/testmobile.sh local device
 
-  Detener:
-    kill \$(cat $API_PID_FILE 2>/dev/null) 2>/dev/null; kill \$(cat $FLUTTER_PID_FILE 2>/dev/null) 2>/dev/null
+  Detener flutter:
+    kill \$(cat $FLUTTER_PID_FILE 2>/dev/null) 2>/dev/null
 
 EOF
 }
 
 main() {
-  log "SHELFYAPP /testmobile"
+  log "SHELFYAPP /testmobile (API_MODE=$API_MODE TARGET=$TARGET)"
   [[ -d "/Applications/Xcode.app" ]] || { log "ERROR: instalá Xcode desde App Store"; exit 1; }
 
-  refresh_config
+  sync_prod_assets
+  if [[ "$API_MODE" == "local" ]]; then
+    refresh_local_config
+  fi
   ensure_drift_stub
   start_api
   start_flutter

@@ -28,10 +28,11 @@ else
   exit 1
 fi
 
-echo "==> uvicorn en http://0.0.0.0:8000 (accesible desde iPhone en LAN)"
+echo "==> uvicorn en http://0.0.0.0:8000 (SHELFY_SKIP_BOTS=1, sin bots Telegram)"
 echo "    Health: http://127.0.0.1:8000/health"
 echo "    Vendedor app: http://127.0.0.1:8000/api/vendedor-app/..."
 echo "    Python: $VENV/bin/python"
 echo ""
 
-exec "$VENV/bin/python" -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+export SHELFY_SKIP_BOTS=1
+exec "$VENV/bin/python" -m uvicorn api:app --host 0.0.0.0 --port 8000

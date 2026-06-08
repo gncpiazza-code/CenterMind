@@ -18,8 +18,8 @@ class PdvCandidate {
 
   factory PdvCandidate.fromJson(Map<String, dynamic> json) {
     return PdvCandidate(
-      idClienteErp: json['id_cliente_erp'] as String,
-      nombreDisplay: json['nombre_display'] as String,
+      idClienteErp: json['id_cliente_erp']?.toString() ?? '',
+      nombreDisplay: json['nombre_display'] as String? ?? '',
       distanciaM: (json['distancia_m'] as num).toDouble(),
       latitud: json['latitud'] != null
           ? (json['latitud'] as num).toDouble()

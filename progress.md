@@ -29,11 +29,11 @@
 
 ## Cambios recientes (máx 5)
 
-1. **Mapa supervisión perf (2026-06-08):** sync incremental de markers Google Maps, popup lazy, dibujo polígono con vértices visibles sin re-render React en mousemove.
-2. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo por zona/Crear Rutas, capas `mapa_capas_planificacion`, fix pin exhibición 30d (`tiene_exhibicion_reciente`).
-3. **Tenants doc (2026-06-08):** catálogo 7 dist — ver `docs/context/modules/tenants.md`.
-4. **SHELFYAPP (2026-06-08):** 7 tabs Flutter, endpoints vendedor, push FCM, App Settings.
-5. **Security hardening (2026-06-07):** RLS, PyJWT, Snyk CI.
+1. **RPA padrón ENGINES (2026-06-08):** catch-up sin falsos stale si Supabase falla; lock con timeout; reintentos reporteador; informe ventas 09:45 AR (evita choque 09:38 catch-up).
+2. **Mapa supervisión perf v2 (2026-06-08):** pines en Zustand + engine TanStack Query, `SupervisionMapView` aislado, marker clustering Google Maps, sync key incremental.
+3. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo por zona/Crear Rutas, capas `mapa_capas_planificacion`, fix pin exhibición 30d (`tiene_exhibicion_reciente`).
+4. **Tenants doc (2026-06-08):** catálogo 7 dist — ver `docs/context/modules/tenants.md`.
+5. **SHELFYAPP (2026-06-08):** 7 tabs Flutter, endpoints vendedor, push FCM, App Settings.
 
 ## Guardrails activos
 

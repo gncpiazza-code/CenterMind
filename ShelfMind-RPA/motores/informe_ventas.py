@@ -7,7 +7,7 @@ Reglas clave:
 - Consolido: UN usuario/password; por tenant solo cambia el checkbox «Empresas» (id_empresa).
 - Un solo login por corrida (sin re-login entre tenants).
 - Fecha del reporte (AR):
-  - Scheduler 09:30: últimos 7 días → ayer (mín. día 1 del mes).
+  - Scheduler 09:45: últimos 7 días → ayer (mín. día 1 del mes).
     El 1º del mes: solo el último día del mes anterior (cierre); el calendario
     debe retroceder de mes porque Consolido abre en el mes en curso.
   - Scheduler 13/17/21: últimos 7 días → hoy (mín. día 1 del mes).

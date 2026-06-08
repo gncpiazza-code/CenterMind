@@ -13,8 +13,10 @@ RPA_ROOT = Path(__file__).resolve().parents[1] / "ShelfMind-RPA"
 sys.path.insert(0, str(RPA_ROOT))
 
 from lib.padron_schedule import (  # noqa: E402
+    PadronRunLookup,
     ordenar_tenants_para_corrida,
     list_stale_tenant_ids,
+    lookup_last_padron_run,
 )
 
 
@@ -40,10 +42,24 @@ def test_list_stale_tenant_ids():
     fresh = datetime.now(timezone.utc) - timedelta(hours=1)
     old = datetime.now(timezone.utc) - timedelta(hours=30)
 
-    with patch("lib.padron_schedule.last_padron_run_utc") as mock_last:
-        mock_last.side_effect = lambda dist: fresh if dist == 3 else old
+    def _lookup(dist: int) -> PadronRunLookup:
+        if dist == 3:
+            return PadronRunLookup(fresh, query_ok=True)
+        return PadronRunLookup(old, query_ok=True)
+
+    with patch("lib.padron_schedule.lookup_last_padron_run", side_effect=_lookup):
         stale = list_stale_tenant_ids(tenants, max_age_hours=11)
     assert stale == ["beltrocco"]
+
+
+def test_list_stale_skips_on_supabase_query_failure():
+    tenants = [{"id": "tabaco", "id_dist": 3}]
+    with patch(
+        "lib.padron_schedule.lookup_last_padron_run",
+        return_value=PadronRunLookup(None, query_ok=False),
+    ):
+        stale = list_stale_tenant_ids(tenants, max_age_hours=2.5)
+    assert stale == []
 
 
 if __name__ == "__main__":

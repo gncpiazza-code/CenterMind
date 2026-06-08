@@ -9,7 +9,7 @@ Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. 
 Horarios productivos (AR):
   - Padrón: 08:30, 11:30, 15:30, 18:30 — **un job por tenant** (escalonado) + catch-up
   - Cuentas corrientes: 07:00, 14:30, 20:00
-  - Informe de ventas enriquecido: 09:30, 13:00, 17:00, 21:00 (cierre)
+  - Informe de ventas enriquecido: 09:45, 13:00, 17:00, 21:00 (cierre)
 
 Padrón: lock de archivo serializa Consolido; tenants chicos primero; catch-up si falta motor_run.
 
@@ -42,9 +42,10 @@ AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 _SLOTS_CUENTAS = [(7, 0), (14, 30), (20, 0)]
 # Padrón (AR): 08:30, 11:30, 15:30, 18:30
 _SLOTS_PADRON = [(8, 30), (11, 30), (15, 30), (18, 30)]
-# Informe de ventas enriquecido (AR): 09:30, 13:00, 17:00, 21:00
-# 09:30 → últimos 7 días → ayer; 13/17/21 → últimos 7 días → hoy (ver informe_ventas.py)
-_SLOTS_INFORME_VENTAS = [(9, 30), (13, 0), (17, 0), (21, 0)]
+# Informe de ventas enriquecido (AR): 09:45, 13:00, 17:00, 21:00
+# 09:45 → últimos 7 días → ayer (15 min después del catch-up padrón 08:30 ~09:38)
+# 13/17/21 → últimos 7 días → hoy (ver informe_ventas.py)
+_SLOTS_INFORME_VENTAS = [(9, 45), (13, 0), (17, 0), (21, 0)]
 
 
 def job_cuentas():

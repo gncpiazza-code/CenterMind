@@ -109,6 +109,12 @@ PADRON_INCLUIR_ANULADOS = os.environ.get("PADRON_INCLUIR_ANULADOS", "true").lowe
 # Timeout general (ms)
 TIMEOUT_MS = 120_000  # Consolido puede ser lento (aumentado a 2 min porque reportes grandes tardan >1 min)
 COMBO_TIMEOUT_MS = int(os.environ.get("RPA_COMBO_TIMEOUT_MS", "15000"))
+PADRON_REPORTEADOR_TIMEOUT_MS = int(
+    os.environ.get("PADRON_REPORTEADOR_TIMEOUT_MS", str(max(COMBO_TIMEOUT_MS, 30_000)))
+)
+PADRON_REPORT_POLL_SEC = int(os.environ.get("PADRON_REPORT_POLL_SEC", "120"))
+PADRON_REPORT_POLL_SEC_HEAVY = int(os.environ.get("PADRON_REPORT_POLL_SEC_HEAVY", "240"))
+_HEAVY_TENANT_IDS = frozenset({"tabaco", "aloma"})
 ADMIN_PROCESOS_URL = "https://consolido.nextbyn.com/#/parametrizaciones/reportes/administrador-de-procesos"
 # Glyph Font Awesome (fa-file-excel) como accessible name — selector Playwright codegen.
 BTN_EXPORTAR_EXCEL_ICON = "\uf1c3"
@@ -448,6 +454,7 @@ async def seleccionar_proceso_reporteador(
     must_include: tuple[str, ...],
     must_exclude: tuple[str, ...] = (),
     descripcion: str = "proceso",
+    combo_timeout_ms: int | None = None,
 ) -> str:
     """
     Elige un proceso en el select idproceso sin regex (Playwright en Railway no acepta re.Pattern).
@@ -461,8 +468,9 @@ async def seleccionar_proceso_reporteador(
         n = _norm(text)
         return all(k in n for k in must_include) and not any(e in n for e in must_exclude)
 
+    combo_ms = combo_timeout_ms or COMBO_TIMEOUT_MS
     proc_sel = page.locator('select[formcontrolname="idproceso"]').first
-    await proc_sel.wait_for(state="visible", timeout=COMBO_TIMEOUT_MS)
+    await proc_sel.wait_for(state="visible", timeout=combo_ms)
     await page.wait_for_function(
         """
         () => {
@@ -470,7 +478,7 @@ async def seleccionar_proceso_reporteador(
           return s && s.options && s.options.length > 1;
         }
         """,
-        timeout=COMBO_TIMEOUT_MS,
+        timeout=combo_ms,
     )
 
     async def _pick_from_options(include: tuple[str, ...], exclude: tuple[str, ...]) -> str | None:
@@ -592,32 +600,11 @@ async def _set_empresa_padron(page: Page, tenant: dict) -> None:
 # PASO 2: NAVEGAR AL REPORTEADOR Y SELECCIONAR PADRÓN
 # ─────────────────────────────────────────────────────────────────
 
-async def _seleccionar_reporte_padron(page: Page) -> None:
-    """
-    Accede al módulo REPORTEADOR GENÉRICO y selecciona "Padrón de clientes".
-
-    Estructura observada:
-      - Tab "Informes" en la barra
-      - Dropdown "Proceso" con opciones (Padrón de clientes, Ventas, etc.)
-      - Seleccionar "Padrón de clientes"
-
-    Selectores: TBD (ajustar según HTML real de Consolido)
-    """
-    logger.info("  Seleccionando reporte: Padrón de clientes")
-
-    async def _esperar_ui_reporteador(timeout_ms: int = 12_000) -> bool:
-        try:
-            await page.locator('select[formcontrolname="idproceso"]').first.wait_for(state="attached", timeout=timeout_ms)
-            return True
-        except Exception as e:
-            logger.error(f"      [DEBUG] _esperar_ui_reporteador exception: {e}")
-            return False
-
-    # Si quedó en dashboard/login tras login, forzar navegación client-side más rápida.
+async def _navegar_admin_procesos(page: Page) -> None:
+    """SPA Consolido → administrador de procesos (reporteador)."""
     if "/dashboard" in page.url or "/login" in page.url:
         logger.info("  Navegando directo a administrador de procesos ...")
         try:
-            # En SPA de Consolido, cambiar hash es más rápido que page.goto().
             await page.evaluate(
                 """
                 () => {
@@ -629,45 +616,90 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
             )
             await page.wait_for_function(
                 "() => window.location.href.includes('/parametrizaciones/reportes/administrador-de-procesos')",
-                timeout=8_000,
+                timeout=10_000,
             )
         except Exception:
-            # Fallback si el hash-change no alcanza.
-            await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=20_000)
+            await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=25_000)
         await page.wait_for_timeout(700)
+    elif ADMIN_PROCESOS_URL.split("#")[-1] not in page.url:
+        await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=25_000)
+        await page.wait_for_timeout(1200)
 
-    # Espera rápida de UI real del reporteador.
-    if not await _esperar_ui_reporteador(8_000):
-        logger.warning("  ⚠️ UI de Reporteador no lista en fast-path; reintentando carga controlada...")
-        await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=20_000)
-        await page.wait_for_timeout(1800)
-        if not await _esperar_ui_reporteador(15_000):
-            html = await page.content()
-            with open("logs/errors/debug_html.html", "w") as f:
-                f.write(html)
-            raise RuntimeError(
-                f"No cargó administrador de procesos. URL actual: {page.url}. "
-                "No se encontró button#button-procesar / combobox / select."
+
+async def _seleccionar_reporte_padron(page: Page) -> None:
+    """
+    Accede al módulo REPORTEADOR GENÉRICO y selecciona "Padrón de clientes".
+    Reintenta carga del select idproceso (Consolido lento ~9:30 AR con informe ventas en cola).
+    """
+    logger.info("  Seleccionando reporte: Padrón de clientes")
+    max_attempts = max(1, int(os.environ.get("PADRON_REPORTEADOR_RETRIES", "3")))
+    last_err: Exception | None = None
+
+    async def _esperar_ui_reporteador(timeout_ms: int) -> bool:
+        try:
+            await page.locator('select[formcontrolname="idproceso"]').first.wait_for(
+                state="attached", timeout=timeout_ms
             )
+            return True
+        except Exception as e:
+            logger.warning("  UI reporteador no lista (%sms): %s", timeout_ms, e)
+            return False
 
-    # Esperar a que la página esté lista (cualquier elemento visible indica carga)
-    # Estrategia: esperar al heading "REPORTEADOR GENÉRICO" o al botón Ejecutar o cualquier elemento
-    try:
-        await page.locator("text=/REPORTEADOR|Proceso|Parámetros/i").first.wait_for(state="visible", timeout=8_000)
-        logger.info("  ✅ Página de Reporteador cargada")
-    except Exception as e:
-        logger.warning(f"  ⚠️ Timeout esperando elementos, continuando: {e}")
-        # Continuar de todas formas — la página probablemente está lista aunque los selectores específicos no aparezcan
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await _navegar_admin_procesos(page)
+            ui_timeout = PADRON_REPORTEADOR_TIMEOUT_MS if attempt > 1 else min(
+                PADRON_REPORTEADOR_TIMEOUT_MS, 12_000
+            )
+            if not await _esperar_ui_reporteador(ui_timeout):
+                await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=25_000)
+                await page.wait_for_timeout(1800)
+                if not await _esperar_ui_reporteador(PADRON_REPORTEADOR_TIMEOUT_MS):
+                    raise RuntimeError(
+                        f"No cargó administrador de procesos (intento {attempt}/{max_attempts}). "
+                        f"URL: {page.url}"
+                    )
 
-    selected_label = await seleccionar_proceso_reporteador(
-        page,
-        must_include=("padron",),
-        descripcion="Padrón de clientes",
-    )
+            try:
+                await page.locator("text=/REPORTEADOR|Proceso|Parámetros/i").first.wait_for(
+                    state="visible", timeout=10_000
+                )
+                logger.info("  ✅ Página de Reporteador cargada")
+            except Exception as e:
+                logger.warning("  Timeout esperando heading reporteador: %s", e)
 
-    await page.wait_for_timeout(1200)
-    await _esperar_comboboxes_parametros(page, min_count=1)
-    logger.info(f"  ✅ Panel de parámetros listo para {selected_label}")
+            selected_label = await seleccionar_proceso_reporteador(
+                page,
+                must_include=("padron",),
+                descripcion="Padrón de clientes",
+                combo_timeout_ms=PADRON_REPORTEADOR_TIMEOUT_MS,
+            )
+            await page.wait_for_timeout(1200)
+            await _esperar_comboboxes_parametros(page, min_count=1)
+            logger.info("  ✅ Panel de parámetros listo para %s", selected_label)
+            return
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "  Reintento seleccionar padrón %s/%s: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt < max_attempts:
+                await page.wait_for_timeout(2000 * attempt)
+
+    if last_err is not None:
+        try:
+            ERRORS_DIR.mkdir(parents=True, exist_ok=True)
+            html = await page.content()
+            debug_path = ERRORS_DIR / f"debug_padron_reporteador_{_timestamp()}.html"
+            debug_path.write_text(html, encoding="utf-8")
+            logger.error("  HTML debug guardado: %s", debug_path.name)
+        except Exception:
+            pass
+        raise last_err
+    raise RuntimeError("No se pudo seleccionar Padrón de clientes")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -690,7 +722,13 @@ async def _configurar_parametros(page: Page, tenant: dict) -> None:
 # PASO 4: EJECUTAR REPORTE
 # ─────────────────────────────────────────────────────────────────
 
-async def _ejecutar_reporte(page: Page) -> None:
+def _report_poll_max_sec(tenant_id: str) -> int:
+    if str(tenant_id).lower() in _HEAVY_TENANT_IDS:
+        return PADRON_REPORT_POLL_SEC_HEAVY
+    return PADRON_REPORT_POLL_SEC
+
+
+async def _ejecutar_reporte(page: Page, *, tenant_id: str = "") -> None:
     """
     Hace clic en el botón "Ejecutar" para correr el reporte.
 
@@ -712,8 +750,8 @@ async def _ejecutar_reporte(page: Page) -> None:
         raise
 
     # ESTRATEGIA: Esperar con polling — cada 5s verificar estado
-    logger.info("  ⏳ Iniciando polling cada 5 segundos...")
-    max_tiempo = 120
+    max_tiempo = _report_poll_max_sec(tenant_id)
+    logger.info("  ⏳ Iniciando polling cada 5 segundos (máx %ss)...", max_tiempo)
     tiempo_inicial = datetime.now(AR_TZ)
     tiempo_transcurrido = 0
 
@@ -753,7 +791,7 @@ async def _ejecutar_reporte(page: Page) -> None:
             logger.warning(f"    [{tiempo_transcurrido}s] Error en polling: {type(e).__name__}")
             pass
 
-    logger.warning(f"  ⚠️ Timeout de 120s alcanzado sin detectar resultados.")
+    logger.warning("  ⚠️ Timeout de %ss alcanzado sin detectar resultados.", max_tiempo)
     logger.info(f"  Continuando de todas formas para intentar exportar...")
     # El reporte puede haberse ejecutado igual, intentaremos descargar
 
@@ -882,7 +920,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
 
         # PASO 4: Ejecutar
         try:
-            await _ejecutar_reporte(page)
+            await _ejecutar_reporte(page, tenant_id=str(tenant.get("id", "")))
         except Exception as e:
             logger.error(f"  Error ejecutando reporte: {e}")
             await _screenshot_error(page, tenant["id"], "ejecutar")
@@ -972,7 +1010,7 @@ async def _procesar_tenant_con_reintentos(
     return resumen_tenant
 
 
-async def run_tenant(tenant_id: str) -> dict:
+async def run_tenant(tenant_id: str, *, lock_timeout_sec: float | None = None) -> dict:
     """
     Un solo tenant (scheduler: job por distribuidor).
     Usa lock de archivo: si otro tenant está en Consolido, espera a que termine.
@@ -989,18 +1027,27 @@ async def run_tenant(tenant_id: str) -> dict:
         return {"ok": 0, "errores": 1, "sin_cambios": 0, "tenant_id": tenant_id}
 
     resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "tenant_id": tenant_id}
-    with padron_consolido_lock():
-        usuario, password = _resolver_credenciales_consolido()
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=HEADLESS)
-            try:
-                r = await _procesar_tenant_con_reintentos(browser, tenant, usuario, password)
-                resumen["ok"] = r.get("ok", 0)
-                resumen["errores"] = r.get("errores", 0)
-                resumen["sin_cambios"] = r.get("sin_cambios", 0)
-                resumen["error_msg"] = r.get("error_msg")
-            finally:
-                await browser.close()
+    lock_kwargs = {} if lock_timeout_sec is None else {"timeout_sec": lock_timeout_sec}
+    try:
+        with padron_consolido_lock(**lock_kwargs):
+            usuario, password = _resolver_credenciales_consolido()
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=HEADLESS)
+                try:
+                    r = await _procesar_tenant_con_reintentos(browser, tenant, usuario, password)
+                    resumen["ok"] = r.get("ok", 0)
+                    resumen["errores"] = r.get("errores", 0)
+                    resumen["sin_cambios"] = r.get("sin_cambios", 0)
+                    resumen["error_msg"] = r.get("error_msg")
+                finally:
+                    await browser.close()
+    except RuntimeError as e:
+        if "lock padrón Consolido" in str(e):
+            logger.warning("Tenant %s diferido — Consolido ocupado: %s", tenant_id, e)
+            resumen["deferred"] = True
+            resumen["error_msg"] = str(e)[:500]
+            return resumen
+        raise
     if resumen.get("errores", 0) > 0:
         msg = resumen.get("error_msg") or f"RPA padrón falló tenant={tenant_id}"
         try:
@@ -1031,15 +1078,18 @@ async def run_catchup_stale(max_age_hours: float | None = None) -> dict:
         return resumen_total
 
     logger.warning("Catch-up padrón: %d tenant(s) pendientes: %s", len(stale_ids), stale_ids)
+    catchup_lock_sec = float(os.environ.get("PADRON_CATCHUP_LOCK_SEC", "180"))
     for tid in stale_ids:
-        r = await run_tenant(tid)
+        r = await run_tenant(tid, lock_timeout_sec=catchup_lock_sec)
         resumen_total["procesados"].append({"tenant_id": tid, **r})
+        if r.get("deferred"):
+            continue
         resumen_total["ok"] += r.get("ok", 0)
         resumen_total["errores"] += r.get("errores", 0)
         resumen_total["sin_cambios"] += r.get("sin_cambios", 0)
     still = list_stale_tenant_ids(tenants, max_age_hours=hours)
     if still:
-        logger.error("Catch-up padrón incompleto — siguen stale: %s", still)
+        logger.warning("Catch-up padrón incompleto — siguen stale: %s", still)
         resumen_total["errores"] += len(still)
     return resumen_total
 

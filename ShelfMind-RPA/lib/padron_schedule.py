@@ -39,21 +39,43 @@ def ordenar_tenants_para_corrida(tenants: list[dict]) -> list[dict]:
     return sorted(tenants, key=sort_key)
 
 
+def _padron_lock_timeout_sec() -> float:
+    return max(30.0, float(os.environ.get("PADRON_LOCK_WAIT_SEC", "900")))
+
+
 @contextmanager
-def padron_consolido_lock() -> Iterator[None]:
+def padron_consolido_lock(*, timeout_sec: float | None = None) -> Iterator[None]:
     """
     Un solo login/descarga Consolido a la vez (jobs escalonados esperan acá).
+    timeout_sec: si no se adquiere a tiempo, RuntimeError (catch-up evita bloquear 30+ min).
     """
+    import time
+
+    wait_cap = _padron_lock_timeout_sec() if timeout_sec is None else timeout_sec
     PADRON_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(PADRON_LOCK_PATH, "w", encoding="utf-8") as lock_file:
-        logger.debug("Esperando lock padrón Consolido…")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        logger.debug("Lock padrón Consolido adquirido")
+    lock_file = open(PADRON_LOCK_PATH, "w", encoding="utf-8")
+    try:
+        logger.info("Esperando lock padrón Consolido (máx %.0fs)…", wait_cap)
+        deadline = time.monotonic() + wait_cap
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                logger.info("Lock padrón Consolido adquirido")
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"Timeout esperando lock padrón Consolido ({wait_cap:.0f}s). "
+                        "Otro motor (padrón o informe ventas) sigue en Consolido."
+                    )
+                time.sleep(2)
         try:
             yield
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            logger.debug("Lock padrón Consolido liberado")
+            logger.info("Lock padrón Consolido liberado")
+    finally:
+        lock_file.close()
 
 
 def _supabase_client():
@@ -72,11 +94,27 @@ def _supabase_client():
     return create_client(url, key)
 
 
+class PadronRunLookup:
+    """Resultado de consulta motor_runs — distingue «sin corrida» de fallo de Supabase."""
+
+    __slots__ = ("last", "query_ok")
+
+    def __init__(self, last: datetime | None, *, query_ok: bool) -> None:
+        self.last = last
+        self.query_ok = query_ok
+
+
 def last_padron_run_utc(dist_id: int) -> datetime | None:
-    """Última corrida motor='padron' con ingesta o sin_cambios para un distribuidor."""
+    """Última corrida motor='padron' (compat). None si no hay run o falló la consulta."""
+    return lookup_last_padron_run(dist_id).last
+
+
+def lookup_last_padron_run(dist_id: int) -> PadronRunLookup:
+    """Última corrida padron con flag query_ok (evita catch-up masivo si Supabase falla)."""
     sb = _supabase_client()
     if sb is None:
-        return None
+        logger.warning("lookup_last_padron_run dist=%s: Supabase no configurado", dist_id)
+        return PadronRunLookup(None, query_ok=False)
     try:
         res = (
             sb.table("motor_runs")
@@ -89,15 +127,15 @@ def last_padron_run_utc(dist_id: int) -> datetime | None:
         )
         row = (res.data or [None])[0]
         if not row or not row.get("iniciado_en"):
-            return None
+            return PadronRunLookup(None, query_ok=True)
         s = str(row["iniciado_en"]).replace("Z", "+00:00")
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return PadronRunLookup(dt, query_ok=True)
     except Exception as e:
-        logger.warning("last_padron_run_utc dist=%s: %s", dist_id, e)
-        return None
+        logger.warning("lookup_last_padron_run dist=%s: %s", dist_id, e)
+        return PadronRunLookup(None, query_ok=False)
 
 
 def list_stale_tenant_ids(
@@ -112,7 +150,15 @@ def list_stale_tenant_ids(
         tid = str(t.get("id") or "")
         if dist_id is None or not tid:
             continue
-        last = last_padron_run_utc(int(dist_id))
+        lookup = lookup_last_padron_run(int(dist_id))
+        if not lookup.query_ok:
+            logger.warning(
+                "Padrón stale omitido tenant=%s dist=%s (consulta motor_runs falló)",
+                tid,
+                dist_id,
+            )
+            continue
+        last = lookup.last
         if last is None or last < cutoff:
             stale.append(tid)
             logger.warning(

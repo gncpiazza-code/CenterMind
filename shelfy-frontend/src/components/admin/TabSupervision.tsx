@@ -994,14 +994,19 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   }, [setMapToolMode, clearRouteBuildState]);
 
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = queryClient.getQueryCache().subscribe((e) => {
       const qk = e.query?.queryKey;
       if (!Array.isArray(qk) || qk[1] !== selectedDist) return;
       if (qk[0] === "supervision-clientes" || qk[0] === "supervision-rutas") {
-        setMapStatsTick((t) => t + 1);
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => setMapStatsTick((t) => t + 1), 400);
       }
     });
-    return unsub;
+    return () => {
+      unsub();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, [queryClient, selectedDist]);
 
   const vendorMapEligibleStats = useMemo(() => {

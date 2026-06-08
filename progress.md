@@ -29,11 +29,11 @@
 
 ## Cambios recientes (máx 5)
 
-1. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo por zona/Crear Rutas, capas `mapa_capas_planificacion`, fix pin exhibición 30d (`tiene_exhibicion_reciente`).
-2. **Tenants doc (2026-06-08):** catálogo 7 dist — ver `docs/context/modules/tenants.md`.
-3. **SHELFYAPP (2026-06-08):** 7 tabs Flutter, endpoints vendedor, push FCM, App Settings.
-4. **Security hardening (2026-06-07):** RLS, PyJWT, Snyk CI.
-5. **Mobile perf portal (2026-06-07):** idle prefetch, dashboard mobile, zustand reset.
+1. **Mapa supervisión perf (2026-06-08):** sync incremental de markers Google Maps, popup lazy, dibujo polígono con vértices visibles sin re-render React en mousemove.
+2. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo por zona/Crear Rutas, capas `mapa_capas_planificacion`, fix pin exhibición 30d (`tiene_exhibicion_reciente`).
+3. **Tenants doc (2026-06-08):** catálogo 7 dist — ver `docs/context/modules/tenants.md`.
+4. **SHELFYAPP (2026-06-08):** 7 tabs Flutter, endpoints vendedor, push FCM, App Settings.
+5. **Security hardening (2026-06-07):** RLS, PyJWT, Snyk CI.
 
 ## Guardrails activos
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import type { DrawnPolygon } from "@/store/useSupervisionStore";
 
 const ROUTE_POLYGON_STYLE: google.maps.PolygonOptions = {
@@ -22,6 +22,7 @@ export interface VertexDrawOptions {
   onCancel?: () => void;
 }
 
+/** Dibujo click-vértices sin setState en mousemove (evita re-render del árbol React). */
 export function useVertexPolygonDraw({
   enabled,
   mapRef,
@@ -35,57 +36,91 @@ export function useVertexPolygonDraw({
   const previewLineRef = useRef<google.maps.Polyline | null>(null);
   const previewPolyRef = useRef<google.maps.Polygon | null>(null);
   const finishedRef = useRef<google.maps.Polygon[]>([]);
-  const listenersRef = useRef<google.maps.MapsEventListener[]>([]);
-  const [vertexCount, setVertexCount] = useState(0);
-  const [polygonCount, setPolygonCount] = useState(0);
+  const vertexMarkersRef = useRef<google.maps.Marker[]>([]);
+  const listenersAttachedRef = useRef(false);
+  const moveRafRef = useRef(0);
 
-  const clearPreview = useCallback(() => {
+  const enabledRef = useRef(enabled);
+  const strokeColorRef = useRef(strokeColor);
+  const onPolygonClosedRef = useRef(onPolygonClosed);
+  const resolveRef = useRef(resolvePdvIdsInPolygon);
+  const onCancelRef = useRef(onCancel);
+
+  enabledRef.current = enabled;
+  strokeColorRef.current = strokeColor;
+  onPolygonClosedRef.current = onPolygonClosed;
+  resolveRef.current = resolvePdvIdsInPolygon;
+  onCancelRef.current = onCancel;
+
+  const clearPreviewGraphics = () => {
     previewLineRef.current?.setMap(null);
     previewPolyRef.current?.setMap(null);
     previewLineRef.current = null;
     previewPolyRef.current = null;
+    vertexMarkersRef.current.forEach((m) => m.setMap(null));
+    vertexMarkersRef.current = [];
     pathRef.current = [];
-    setVertexCount(0);
-  }, []);
+  };
 
-  const updatePreview = useCallback(
-    (cursor?: google.maps.LatLng) => {
-      const map = mapRef.current;
-      if (!map || !window.google) return;
-      const path = pathRef.current;
-      if (path.length === 0) return;
-      const style = { ...ROUTE_POLYGON_STYLE, strokeColor, fillColor: strokeColor };
-      if (path.length >= 3) {
-        previewLineRef.current?.setMap(null);
-        previewLineRef.current = null;
-        if (!previewPolyRef.current) {
-          previewPolyRef.current = new window.google.maps.Polygon({
-            paths: cursor ? [...path, cursor] : path,
-            map,
-            ...style,
-          });
-        } else {
-          previewPolyRef.current.setPaths(cursor ? [...path, cursor] : path);
-        }
+  const updatePreview = (cursor?: google.maps.LatLng) => {
+    const map = mapRef.current;
+    if (!map || !window.google) return;
+    const path = pathRef.current;
+    if (path.length === 0) return;
+
+    const color = strokeColorRef.current;
+    const style = { ...ROUTE_POLYGON_STYLE, strokeColor: color, fillColor: color };
+
+    if (path.length >= 3) {
+      previewLineRef.current?.setMap(null);
+      previewLineRef.current = null;
+      const paths = cursor ? [...path, cursor] : path;
+      if (!previewPolyRef.current) {
+        previewPolyRef.current = new window.google.maps.Polygon({ paths, map, ...style });
       } else {
-        previewPolyRef.current?.setMap(null);
-        previewPolyRef.current = null;
-        const linePath = cursor ? [...path, cursor] : path;
-        if (!previewLineRef.current) {
-          previewLineRef.current = new window.google.maps.Polyline({
-            path: linePath,
-            map,
-            strokeColor,
-            strokeWeight: 2,
-            strokeOpacity: 0.9,
-          });
-        } else {
-          previewLineRef.current.setPath(linePath);
-        }
+        previewPolyRef.current.setPaths(paths);
       }
-    },
-    [mapRef, strokeColor],
-  );
+    } else {
+      previewPolyRef.current?.setMap(null);
+      previewPolyRef.current = null;
+      const linePath = cursor ? [...path, cursor] : path;
+      if (!previewLineRef.current) {
+        previewLineRef.current = new window.google.maps.Polyline({
+          path: linePath,
+          map,
+          strokeColor: color,
+          strokeWeight: 2,
+          strokeOpacity: 0.9,
+          clickable: false,
+          zIndex: 2500,
+        });
+      } else {
+        previewLineRef.current.setPath(linePath);
+      }
+    }
+  };
+
+  const addVertexMarker = (latLng: google.maps.LatLng) => {
+    const map = mapRef.current;
+    if (!map || !window.google) return;
+    const color = strokeColorRef.current;
+    const marker = new window.google.maps.Marker({
+      position: latLng,
+      map,
+      clickable: false,
+      optimized: true,
+      zIndex: 2600,
+      icon: {
+        path: window.google.maps.SymbolPath.CIRCLE,
+        scale: 7,
+        fillColor: color,
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+      },
+    });
+    vertexMarkersRef.current.push(marker);
+  };
 
   const finishPolygon = useCallback(() => {
     const map = mapRef.current;
@@ -95,16 +130,18 @@ export function useVertexPolygonDraw({
 
     previewLineRef.current?.setMap(null);
     previewPolyRef.current?.setMap(null);
+    previewLineRef.current = null;
+    previewPolyRef.current = null;
 
     const polygon = new window.google.maps.Polygon({
       paths: path,
       map,
       ...ROUTE_POLYGON_STYLE,
-      strokeColor,
-      fillColor: strokeColor,
+      strokeColor: strokeColorRef.current,
+      fillColor: strokeColorRef.current,
+      clickable: false,
     });
     finishedRef.current.push(polygon);
-    setPolygonCount((c) => c + 1);
 
     const coords: number[][] = path.map((ll) => [ll.lng(), ll.lat()]);
     if (coords.length > 0) coords.push(coords[0]);
@@ -113,82 +150,96 @@ export function useVertexPolygonDraw({
       geometry: { type: "Polygon", coordinates: [coords] },
       properties: {},
     };
-    const pdvIds = resolvePdvIdsInPolygon(polygon);
-    onPolygonClosed(pdvIds, geoJson);
+    const pdvIds = resolveRef.current(polygon);
+    onPolygonClosedRef.current(pdvIds, geoJson);
 
+    vertexMarkersRef.current.forEach((m) => m.setMap(null));
+    vertexMarkersRef.current = [];
     pathRef.current = [];
-    setVertexCount(0);
-  }, [mapRef, onPolygonClosed, resolvePdvIdsInPolygon, strokeColor]);
+  }, [mapRef]);
 
-  const clearAll = useCallback(() => {
-    finishedRef.current.forEach((p) => p.setMap(null));
-    finishedRef.current = [];
-    clearPreview();
-    setPolygonCount(0);
-    onPolygonClosed([], {
-      type: "Feature",
-      geometry: { type: "Polygon", coordinates: [] },
-      properties: {},
-    });
-  }, [clearPreview, onPolygonClosed]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded || !window.google?.maps) return;
-
-    const removeListeners = () => {
-      listenersRef.current.forEach((l) => l.remove());
-      listenersRef.current = [];
-    };
-
-    if (enabled) {
-      map.setOptions({ draggableCursor: "crosshair", disableDoubleClickZoom: true });
-
-      const clickL = map.addListener("click", (e: google.maps.MapMouseEvent) => {
-        const latLng = e.latLng;
-        if (!latLng) return;
-        pathRef.current = [...pathRef.current, latLng];
-        setVertexCount(pathRef.current.length);
-        updatePreview();
-      });
-
-      const moveL = map.addListener("mousemove", (e: google.maps.MapMouseEvent) => {
-        if (pathRef.current.length === 0) return;
-        updatePreview(e.latLng ?? undefined);
-      });
-
-      const dblL = map.addListener("dblclick", (e: google.maps.MapMouseEvent) => {
-        e.stop?.();
-        if (pathRef.current.length >= 3) finishPolygon();
-      });
-
-      listenersRef.current = [clickL, moveL, dblL];
-    } else {
-      removeListeners();
-      map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+  const clearAll = useCallback(
+    (notify = true) => {
       finishedRef.current.forEach((p) => p.setMap(null));
       finishedRef.current = [];
-      clearPreview();
-      setPolygonCount(0);
-    }
+      clearPreviewGraphics();
+      if (notify) {
+        onPolygonClosedRef.current([], {
+          type: "Feature",
+          geometry: { type: "Polygon", coordinates: [] },
+          properties: {},
+        });
+      }
+    },
+    [],
+  );
+
+  // Listeners Google Maps: una sola vez por instancia de mapa
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !window.google?.maps || listenersAttachedRef.current) return;
+
+    const clickL = map.addListener("click", (e: google.maps.MapMouseEvent) => {
+      if (!enabledRef.current) return;
+      const latLng = e.latLng;
+      if (!latLng) return;
+      pathRef.current = [...pathRef.current, latLng];
+      addVertexMarker(latLng);
+      updatePreview();
+    });
+
+    const moveL = map.addListener("mousemove", (e: google.maps.MapMouseEvent) => {
+      if (!enabledRef.current || pathRef.current.length === 0) return;
+      const latLng = e.latLng ?? undefined;
+      if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
+      moveRafRef.current = requestAnimationFrame(() => {
+        moveRafRef.current = 0;
+        updatePreview(latLng);
+      });
+    });
+
+    const dblL = map.addListener("dblclick", (e: google.maps.MapMouseEvent) => {
+      if (!enabledRef.current) return;
+      e.stop?.();
+      if (pathRef.current.length >= 3) finishPolygon();
+    });
+
+    listenersAttachedRef.current = true;
 
     return () => {
-      removeListeners();
-      if (map) map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+      clickL.remove();
+      moveL.remove();
+      dblL.remove();
+      listenersAttachedRef.current = false;
     };
-  }, [enabled, mapRef, mapLoaded, finishPolygon, updatePreview, clearPreview]);
+  }, [mapLoaded, mapRef, finishPolygon]);
+
+  // Cursor + limpieza al salir del modo dibujo (sin notificar al padre)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    map.setOptions({
+      draggableCursor: enabled ? "crosshair" : null,
+      disableDoubleClickZoom: enabled,
+    });
+    if (!enabled) {
+      finishedRef.current.forEach((p) => p.setMap(null));
+      finishedRef.current = [];
+      clearPreviewGraphics();
+    }
+  }, [enabled, mapLoaded, mapRef]);
 
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        clearPreview();
-        onCancel?.();
+        clearPreviewGraphics();
+        onCancelRef.current?.();
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [enabled, clearPreview, onCancel]);
+  }, [enabled]);
 
-  return { vertexCount, polygonCount, finishPolygon, clearAll };
+  return { finishPolygon, clearAll };
 }

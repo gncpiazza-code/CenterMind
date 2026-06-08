@@ -149,6 +149,84 @@ function buildSelectedPinSvg(fillColor: string, borderColor: string, size: numbe
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
+function buildMarkerIconForPin(
+  pin: PinCliente,
+  isSelected: boolean,
+  pinConfig: { pin_size_activo: number; pin_size_inactivo: number },
+): google.maps.Icon {
+  const size = pin.activo ? pinConfig.pin_size_activo : pinConfig.pin_size_inactivo;
+  const iconUrl = isSelected
+    ? buildSelectedPinSvg(pin.color, STATUS_COLORS[getPinStatus(pin)], size)
+    : buildShapeSvg(pin, pin.color, size);
+  const iconSize = isSelected ? size + 10 : size;
+  return {
+    url: iconUrl,
+    scaledSize: new window.google.maps.Size(iconSize, iconSize),
+    anchor: new window.google.maps.Point(iconSize / 2, iconSize / 2),
+  };
+}
+
+function buildPinPopupHTML(p: PinCliente): string {
+  const diasCompra = diasDesdeIso(p.fechaUltimaCompra);
+  const diasExhib = diasDesdeIso(p.fechaUltimaExhibicion);
+  const compraColor = p.activo ? "#86efac" : "#fca5a5";
+  const compraLabel = diasCompra === null
+    ? `<span style="color:#475569">Sin compras registradas (padrón)</span>`
+    : `<span style="color:${compraColor}">🛒 Últ. compra (padrón): ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
+  const razonSocial = (p.razonSocial ?? "").trim();
+  const nombreFantasia = (p.nombre ?? "").trim();
+  const razonLine = razonSocial && razonSocial.toLowerCase() !== nombreFantasia.toLowerCase()
+    ? `<div style="font-size:11px;color:#94a3b8;margin-top:-2px;margin-bottom:6px">${razonSocial}</div>`
+    : "";
+  const exhibLine = p.fechaUltimaExhibicion
+    ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)">
+         <span style="color:#fbbf24;font-size:11px">
+           📸 Exhibición: ${p.fechaUltimaExhibicion.split("T")[0]}${diasExhib !== null ? ` · <b>hace ${diasExhib}d</b>` : ""}
+         </span>
+       </div>`
+    : "";
+  const deudaLine = p.deuda != null && p.deuda > 0
+    ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)">
+         <span style="color:#fb923c;font-size:11px;font-weight:700">💰 Deuda: $${p.deuda.toLocaleString("es-AR", { maximumFractionDigits: 0 })}</span>
+         ${p.antiguedadDias != null ? `<span style="color:#64748b;font-size:10px"> · ${p.antiguedadDias}d antigüedad</span>` : ""}
+       </div>`
+    : "";
+  const photoBlock = p.urlExhibicion
+    ? `<div style="margin-top:8px;border-radius:6px;overflow:hidden"><img src="${p.urlExhibicion}" style="width:100%;max-height:90px;object-fit:cover;display:block" loading="lazy"/></div>`
+    : "";
+  const svBtn = `<button onclick="window.__shelfySV&&window.__shelfySV(${p.lat},${p.lng})"
+    style="margin-top:8px;width:100%;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.4);
+           color:#a78bfa;font-size:10px;font-weight:600;border-radius:6px;padding:5px 8px;cursor:pointer">
+    🏘️ Street View
+  </button>`;
+  const status = getPinStatus(p);
+  const statusColor = STATUS_COLORS[status];
+  const vendorColor = p.color;
+  const modeBadge = `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
+                background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44;font-weight:700;margin-bottom:8px">
+         <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
+         ${STATUS_LABELS[status]}
+       </div>`;
+
+  return `
+    <div style="min-width:200px;max-width:260px;max-height:288px;overflow-y:auto;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                background:#1e293b;color:#e2e8f0;padding:12px 14px;border-radius:10px;
+                box-shadow:0 8px 30px rgba(0,0,0,0.45);line-height:1.5;border:1px solid rgba(255,255,255,0.08)">
+      ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Cliente ${p.idClienteErp}</div>` : ""}
+      <b style="display:block;font-size:14px;color:#f8fafc;margin-bottom:6px;line-height:1.3">${p.nombre}</b>
+      ${razonLine}
+      <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
+        <span style="width:9px;height:9px;border-radius:50%;background:${vendorColor};flex-shrink:0;border:1px solid rgba(255,255,255,0.2)"></span>
+        <span style="font-size:11px;font-weight:600;color:#94a3b8">${p.vendedor}</span>
+      </div>
+      ${modeBadge}
+      <div style="font-size:11px">${compraLabel}</div>
+      ${exhibLine}
+      ${deudaLine}
+      ${photoBlock}
+      ${svBtn}
+    </div>`;
+}
 
 const LEGEND_ICON_SIZE = 18;
 const LEGEND_ICONS: Record<PinStatus, string> = {
@@ -271,7 +349,7 @@ function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onCl
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function MapaRutas({
+function MapaRutas({
   pines,
   fullscreenPanel,
   selectedPDVs,
@@ -301,9 +379,13 @@ export default function MapaRutas({
   const capaDataRef   = useRef<Map<number, google.maps.Data>>(new Map());
   const fittedRef     = useRef(false);
   const onPolygonChangeRef = useRef(onPolygonSelectionChange);
+  const routeBuildEnabledRef = useRef(routeBuildEnabled);
+  const onTogglePDVRef = useRef(onTogglePDV);
   useEffect(() => {
     onPolygonChangeRef.current = onPolygonSelectionChange;
   }, [onPolygonSelectionChange]);
+  routeBuildEnabledRef.current = routeBuildEnabled;
+  onTogglePDVRef.current = onTogglePDV;
 
   const [mapLoaded,    setMapLoaded]    = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -314,6 +396,16 @@ export default function MapaRutas({
   const [polygonCount, setPolygonCount] = useState(0);
   const [pinConfig, setPinConfig] = useState({ pin_size_activo: 35, pin_size_inactivo: 24 });
   const [configOpen, setConfigOpen] = useState(false);
+
+  useEffect(() => {
+    (window as Window & { __shelfySV?: (lat: number, lng: number) => void }).__shelfySV = (lat, lng) => {
+      setSvPos({ lat, lng });
+      infoWindowRef.current?.close();
+    };
+    return () => {
+      delete (window as Window & { __shelfySV?: (lat: number, lng: number) => void }).__shelfySV;
+    };
+  }, []);
 
   useEffect(() => {
     if (!distId) return;
@@ -443,132 +535,72 @@ export default function MapaRutas({
     if (!isFullscreen) setShowSidePanel(true);
   }, [isFullscreen]);
 
-  // ── Markers ────────────────────────────────────────────────────────────────
+  // ── Markers (sync incremental — no recrear todos en cada cambio) ───────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
 
-    // Clear existing markers
-    markersMapRef.current.forEach(m => m.setMap(null));
-    markersMapRef.current.clear();
-    if (infoWindowRef.current) infoWindowRef.current.close();
-
-    const conCoords = filteredPines.filter(p => p.lat && p.lng);
     const selSet = new Set(selectedPDVs ?? []);
+    const nextIds = new Set<number>();
+    const conCoords = filteredPines.filter(p => p.lat && p.lng);
 
-    conCoords.forEach(p => {
-      const size        = p.activo ? pinConfig.pin_size_activo : pinConfig.pin_size_inactivo;
-      const isSelected  = selSet.has(p.id);
+    for (const p of conCoords) {
+      nextIds.add(p.id);
+      const isSelected = selSet.has(p.id);
+      const icon = buildMarkerIconForPin(p, isSelected, pinConfig);
+      let marker = markersMapRef.current.get(p.id);
 
-      const pinFillColor = p.color;
-      const iconUrl = isSelected
-        ? buildSelectedPinSvg(pinFillColor, STATUS_COLORS[getPinStatus(p)], size)
-        : buildShapeSvg(p, pinFillColor, size);
+      if (!marker) {
+        marker = new window.google.maps.Marker({
+          position: { lat: p.lat, lng: p.lng },
+          map,
+          clickable: !routeBuildEnabledRef.current,
+          icon,
+          title: `#${p.idClienteErp ?? p.id} - ${p.nombre}`,
+          optimized: true,
+          zIndex: isSelected ? 20 : (p.activo ? 10 : 5),
+        });
 
-      const iconSize = isSelected ? size + 10 : size;
-
-      const marker = new window.google.maps.Marker({
-        position: { lat: p.lat, lng: p.lng },
-        map,
-        clickable: !routeBuildEnabled,
-        icon: {
-          url: iconUrl,
-          scaledSize: new window.google.maps.Size(iconSize, iconSize),
-          anchor: new window.google.maps.Point(iconSize / 2, iconSize / 2),
-        },
-        title: `#${p.idClienteErp ?? p.id} - ${p.nombre}`,
-        optimized: false,
-        zIndex: p.activo ? 10 : 5,
-      });
-
-      markersMapRef.current.set(p.id, marker);
-
-      // ── Build popup HTML ─────────────────────────────────────────────────
-      const diasCompra = diasDesdeIso(p.fechaUltimaCompra);
-      const diasExhib  = diasDesdeIso(p.fechaUltimaExhibicion);
-      const compraColor = p.activo ? '#86efac' : '#fca5a5';
-      const compraLabel = diasCompra === null
-        ? `<span style="color:#475569">Sin compras registradas (padrón)</span>`
-        : `<span style="color:${compraColor}">🛒 Últ. compra (padrón): ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
-      const razonSocial = (p.razonSocial ?? '').trim();
-      const nombreFantasia = (p.nombre ?? '').trim();
-      const razonLine = razonSocial && razonSocial.toLowerCase() !== nombreFantasia.toLowerCase()
-        ? `<div style="font-size:11px;color:#94a3b8;margin-top:-2px;margin-bottom:6px">${razonSocial}</div>`
-        : '';
-      const exhibLine = p.fechaUltimaExhibicion
-        ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)">
-             <span style="color:#fbbf24;font-size:11px">
-               📸 Exhibición: ${p.fechaUltimaExhibicion.split('T')[0]}${diasExhib !== null ? ` · <b>hace ${diasExhib}d</b>` : ''}
-             </span>
-           </div>`
-        : '';
-      const deudaLine = p.deuda != null && p.deuda > 0
-        ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)">
-             <span style="color:#fb923c;font-size:11px;font-weight:700">💰 Deuda: $${p.deuda.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
-             ${p.antiguedadDias != null ? `<span style="color:#64748b;font-size:10px"> · ${p.antiguedadDias}d antigüedad</span>` : ''}
-           </div>`
-        : '';
-      const photoBlock = p.urlExhibicion
-        ? `<div style="margin-top:8px;border-radius:6px;overflow:hidden"><img src="${p.urlExhibicion}" style="width:100%;max-height:90px;object-fit:cover;display:block" loading="lazy"/></div>`
-        : '';
-      const svBtn = `<button onclick="window.__shelfySV&&window.__shelfySV(${p.lat},${p.lng})"
-        style="margin-top:8px;width:100%;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.4);
-               color:#a78bfa;font-size:10px;font-weight:600;border-radius:6px;padding:5px 8px;cursor:pointer">
-        🏘️ Street View
-      </button>`;
-
-      const status      = getPinStatus(p);
-      const statusColor = STATUS_COLORS[status];
-      const vendorColor = p.color;
-      const modeBadge = `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
-                    background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44;font-weight:700;margin-bottom:8px">
-             <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
-             ${STATUS_LABELS[status]}
-           </div>`;
-
-      const popupHTML = `
-        <div style="min-width:200px;max-width:260px;max-height:288px;overflow-y:auto;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-                    background:#1e293b;color:#e2e8f0;padding:12px 14px;border-radius:10px;
-                    box-shadow:0 8px 30px rgba(0,0,0,0.45);line-height:1.5;border:1px solid rgba(255,255,255,0.08)">
-          ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Cliente ${p.idClienteErp}</div>` : ''}
-          <b style="display:block;font-size:14px;color:#f8fafc;margin-bottom:6px;line-height:1.3">${p.nombre}</b>
-          ${razonLine}
-          <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
-            <span style="width:9px;height:9px;border-radius:50%;background:${vendorColor};flex-shrink:0;border:1px solid rgba(255,255,255,0.2)"></span>
-            <span style="font-size:11px;font-weight:600;color:#94a3b8">${p.vendedor}</span>
-          </div>
-          ${modeBadge}
-          <div style="font-size:11px">${compraLabel}</div>
-          ${exhibLine}
-          ${deudaLine}
-          ${photoBlock}
-          ${svBtn}
-        </div>`;
-
-      // Expose Street View callback globally (simpler than passing through InfoWindow HTML)
-      (window as any).__shelfySV = (lat: number, lng: number) => {
-        setSvPos({ lat, lng });
-        if (infoWindowRef.current) infoWindowRef.current.close();
-      };
-
-      let clickTimer: ReturnType<typeof setTimeout> | null = null;
-      marker.addListener('click', () => {
-        if (clickTimer) return;
-        clickTimer = setTimeout(() => {
-          clickTimer = null;
-          if (infoWindowRef.current) {
-            infoWindowRef.current.setContent(popupHTML);
+        let clickTimer: ReturnType<typeof setTimeout> | null = null;
+        const pinId = p.id;
+        marker.addListener("click", () => {
+          if (routeBuildEnabledRef.current) return;
+          if (clickTimer) return;
+          clickTimer = setTimeout(() => {
+            clickTimer = null;
+            const pin = filteredPinesRef.current.find(x => x.id === pinId);
+            if (!pin || !infoWindowRef.current) return;
+            infoWindowRef.current.setContent(buildPinPopupHTML(pin));
             infoWindowRef.current.open(map, marker);
-          }
-        }, 250);
-      });
-      marker.addListener('dblclick', () => {
-        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-        if (onTogglePDV) onTogglePDV(p.id);
-      });
+          }, 250);
+        });
+        marker.addListener("dblclick", () => {
+          if (routeBuildEnabledRef.current) return;
+          if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+          onTogglePDVRef.current?.(pinId);
+        });
+
+        markersMapRef.current.set(p.id, marker);
+      } else {
+        const pos = marker.getPosition();
+        if (!pos || pos.lat() !== p.lat || pos.lng() !== p.lng) {
+          marker.setPosition({ lat: p.lat, lng: p.lng });
+        }
+        marker.setIcon(icon);
+        marker.setTitle(`#${p.idClienteErp ?? p.id} - ${p.nombre}`);
+        marker.setZIndex(isSelected ? 20 : (p.activo ? 10 : 5));
+        if (!marker.getMap()) marker.setMap(map);
+      }
+    }
+
+    markersMapRef.current.forEach((marker, id) => {
+      if (!nextIds.has(id)) {
+        marker.setMap(null);
+        window.google.maps.event.clearInstanceListeners(marker);
+        markersMapRef.current.delete(id);
+      }
     });
 
-    // fitBounds
     if (conCoords.length > 0 && !fittedRef.current) {
       fittedRef.current = true;
       const bounds = new window.google.maps.LatLngBounds();
@@ -576,30 +608,7 @@ export default function MapaRutas({
       map.fitBounds(bounds, 60);
       if (conCoords.length === 1) map.setZoom(14);
     }
-  }, [filteredPines, mapLoaded, onTogglePDV, pinConfig, routeBuildEnabled]);
-
-  // ── Update selection style without recreating markers ─────────────────────
-  useEffect(() => {
-    if (!mapLoaded || !window.google) return;
-    const selSet = new Set(selectedPDVs ?? []);
-    markersMapRef.current.forEach((marker, id) => {
-      const pin = filteredPines.find(p => p.id === id);
-      if (!pin) return;
-      const size       = pin.activo ? pinConfig.pin_size_activo : pinConfig.pin_size_inactivo;
-      const isSelected = selSet.has(id);
-
-      const iconUrl = isSelected
-        ? buildSelectedPinSvg(pin.color, STATUS_COLORS[getPinStatus(pin)], size)
-        : buildShapeSvg(pin, pin.color, size);
-      const iconSize = isSelected ? size + 10 : size;
-      marker.setIcon({
-        url: iconUrl,
-        scaledSize: new window.google.maps.Size(iconSize, iconSize),
-        anchor: new window.google.maps.Point(iconSize / 2, iconSize / 2),
-      });
-      marker.setZIndex(isSelected ? 20 : (pin.activo ? 10 : 5));
-    });
-  }, [selectedPDVs, filteredPines, mapLoaded, pinConfig]);
+  }, [filteredPines, mapLoaded, pinConfig, selectedPDVs]);
 
   const resolvePdvIdsInPolygon = useCallback((polygon: google.maps.Polygon) => {
     const pdvIds: number[] = [];
@@ -615,6 +624,10 @@ export default function MapaRutas({
 
   const handlePolygonClosed = useCallback(
     (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => {
+      const ring = geoJson.geometry?.coordinates?.[0];
+      if (ring && ring.length >= 3) {
+        setPolygonCount(c => c + 1);
+      }
       onPolygonChangeRef.current?.(pdvIds, geoJson);
     },
     [],
@@ -628,7 +641,7 @@ export default function MapaRutas({
     });
   }, []);
 
-  const { vertexCount, polygonCount: drawPolygonCount, finishPolygon, clearAll: clearDrawPolygons } =
+  const { finishPolygon, clearAll: clearDrawPolygons } =
     useVertexPolygonDraw({
       enabled: routeBuildEnabled && mapLoaded,
       mapRef,
@@ -642,10 +655,6 @@ export default function MapaRutas({
   useEffect(() => {
     if (onFinishPolygonRef) onFinishPolygonRef.current = finishPolygon;
   }, [finishPolygon, onFinishPolygonRef]);
-
-  useEffect(() => {
-    setPolygonCount(drawPolygonCount);
-  }, [drawPolygonCount]);
 
   // ── Capas persistidas (google.maps.Data) ─────────────────────────────────
   useEffect(() => {
@@ -889,21 +898,18 @@ export default function MapaRutas({
             boxShadow: '0 4px 20px rgba(139,92,246,0.4)',
           }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-              ✏️ Clic = vértice · doble clic o Cerrar polígono · ESC cancelar
-              {vertexCount > 0 ? ` · ${vertexCount} pts` : ''}
+              ✏️ Clic = vértice (punto visible) · doble clic o Cerrar · ESC cancelar
             </span>
-            {vertexCount >= 3 && (
-              <button
-                onClick={finishPolygon}
-                style={{
-                  background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.35)',
-                  borderRadius: 6, color: 'white', fontSize: 10, fontWeight: 700,
-                  padding: '3px 8px', cursor: 'pointer',
-                }}
-              >
-                Cerrar polígono
-              </button>
-            )}
+            <button
+              onClick={finishPolygon}
+              style={{
+                background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.35)',
+                borderRadius: 6, color: 'white', fontSize: 10, fontWeight: 700,
+                padding: '3px 8px', cursor: 'pointer',
+              }}
+            >
+              Cerrar polígono
+            </button>
             {polygonCount > 0 && (
               <button
                 onClick={clearPolygons}
@@ -1142,3 +1148,5 @@ export default function MapaRutas({
     </div>
   );
 }
+
+export default React.memo(MapaRutas);

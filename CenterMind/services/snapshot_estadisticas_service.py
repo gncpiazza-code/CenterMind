@@ -410,6 +410,33 @@ def _read_estadisticas_snapshot(
         return None
 
 
+def _cartas_vendor_ids(cartas: list) -> set[str]:
+    return {
+        str(c.get("id_vendedor") or "").strip()
+        for c in cartas
+        if str(c.get("id_vendedor") or "").strip()
+    }
+
+
+def _should_accept_cartas_replacement(existing: list, new: list) -> bool:
+    """Evita que un refresh parcial (timeout/race) pise un snapshot más completo."""
+    if not existing:
+        return True
+    old_ids = _cartas_vendor_ids(existing)
+    new_ids = _cartas_vendor_ids(new)
+    if len(new_ids) >= len(old_ids):
+        return True
+    lost = old_ids - new_ids
+    if not lost:
+        return True
+    logger.warning(
+        "[snap_estadisticas] skip persist: perdería %s cartas (ej. %s)",
+        len(lost),
+        ", ".join(sorted(lost)[:5]),
+    )
+    return False
+
+
 def _upsert_estadisticas_snapshot(
     dist_id: int, meses_hash: str, sucursal: str | None, cartas: list[dict]
 ) -> None:
@@ -418,6 +445,12 @@ def _upsert_estadisticas_snapshot(
     índices únicos con expresiones (COALESCE) en ON CONFLICT.
     """
     try:
+        existing_snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
+        if existing_snap:
+            existing_cartas = _normalize_cartas_payload(existing_snap.get("payload"))
+            if not _should_accept_cartas_replacement(existing_cartas, cartas):
+                return
+
         now_iso = datetime.now(timezone.utc).isoformat()
         # Borrar snapshot existente
         dq = (

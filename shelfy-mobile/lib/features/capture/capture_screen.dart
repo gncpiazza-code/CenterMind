@@ -1,8 +1,5 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
@@ -21,7 +18,6 @@ class CaptureScreen extends StatefulWidget {
 
 class _CaptureScreenState extends State<CaptureScreen> {
   final TextEditingController _manualNroController = TextEditingController();
-  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -70,25 +66,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
     }
   }
 
-  /// Abre image_picker para agregar una foto adicional desde galería.
-  Future<void> _pickAdditionalPhoto(CaptureProvider provider) async {
-    try {
-      final xfile = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-      );
-      if (xfile != null) {
-        provider.addPhoto(File(xfile.path));
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo abrir la galería')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer<CaptureProvider>(
@@ -120,6 +97,29 @@ class _CaptureScreenState extends State<CaptureScreen> {
           CameraCaptureWidget(
             onPhotoTaken: provider.onPhotoTaken,
           ),
+          if (provider.appendingPhoto)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Material(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: Text(
+                        'Foto ${provider.photoCount + 1}/$kMaxPhotosPerExhibicion',
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -164,7 +164,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   // ────────────────────────────────────────────────────────────────
 
   Widget _buildPhotoStrip(CaptureProvider provider) {
-    final photos = provider.photos;
+    final photos = provider.photoFiles;
     if (photos.isEmpty) return const SizedBox.shrink();
 
     return Column(
@@ -184,9 +184,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
             const Spacer(),
             if (provider.canAddMorePhotos)
               TextButton.icon(
-                onPressed: () => _pickAdditionalPhoto(provider),
+                onPressed: () => provider.startAppendPhoto(),
                 icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                label: const Text('Agregar foto'),
+                label: const Text('Otra foto (cámara)'),
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,

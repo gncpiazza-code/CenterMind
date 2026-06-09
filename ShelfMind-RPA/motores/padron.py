@@ -147,6 +147,7 @@ def _tenants_legacy_fallback() -> list[dict]:
         {"id": "extra", "nombre": "GyG (Gomez Marcos Ariel)", "id_empresa": "3562", "id_dist": 6},
         {"id": "beltrocco", "nombre": "SILVINA RIBERO", "id_empresa": "3559", "id_dist": 11},
         {"id": "hugo_cena", "nombre": "CENA HUGO MARIO", "id_empresa": "3561", "id_dist": 12},
+        {"id": "ippolibaz", "nombre": "Ippolibaz SAS", "id_empresa": "3536", "id_dist": 13},
     ]
 
 

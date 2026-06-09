@@ -72,6 +72,14 @@ CONSOLIDO_TENANTS: list[dict[str, Any]] = [
         "orden": 70,
         "activo": True,
     },
+    {
+        "tenant_id": "ippolibaz",
+        "nombre_consolido": "Ippolibaz SAS",
+        "id_empresa": "3536",
+        "id_distribuidor": 13,
+        "orden": 75,
+        "activo": True,
+    },
 ]
 
 # Mapeo tenant_id → id_distribuidor (ingesta API ventas / enriched / detalle)

@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 8 Jun 2026 (v15 — refactor docs lean)  
+**Última actualización:** 9 Jun 2026 (v16 — alta Ippolibaz dist 13)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -15,7 +15,7 @@
 | Objetivos v9 | 🟢 |
 | Galería MapLibre | 🟢 |
 | SHELFYAPP Flutter | 🟢 |
-| Bot + RPA | 🟢 — 7 tenants Consolido; `extra` CC CHESS pendiente |
+| Bot + RPA | 🟢 — 8 tenants Consolido (`ippolibaz` dist 13); `extra` CC CHESS pendiente |
 | Difusión / Reportería | 🟢 |
 
 ## SQL pendiente Supabase
@@ -29,7 +29,8 @@
 
 ## Cambios recientes (máx 5)
 
-1. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` responde 202 + thread (mismo patrón padrón); evita 524/502 Cloudflare en uploads RPA.
+1. **Alta Ippolibaz dist 13 (2026-06-09):** registry + CHESS vault + tablas `*_d13`; padrón 1111 PDVs; CC 3 filas; guardrail CC permite primer bootstrap sin snapshot previo.
+2. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` responde 202 + thread (mismo patrón padrón); evita 524/502 Cloudflare en uploads RPA.
 2. **RPA padrón ENGINES (2026-06-08):** catch-up sin falsos stale si Supabase falla; lock con timeout; reintentos reporteador; informe ventas 09:45 AR (evita choque 09:38 catch-up).
 3. **Mapa supervisión perf v2 (2026-06-08):** pines en Zustand + engine TanStack Query, `SupervisionMapView` aislado, marker clustering Google Maps, sync key incremental.
 4. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo por zona/Crear Rutas, capas `mapa_capas_planificacion`, fix pin exhibición 30d (`tiene_exhibicion_reciente`).

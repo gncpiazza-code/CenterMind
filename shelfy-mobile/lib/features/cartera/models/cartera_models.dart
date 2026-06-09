@@ -1,3 +1,5 @@
+import '../../../core/utils/json_helpers.dart';
+
 // Modelos de datos para la cartera de clientes del vendedor.
 
 class CarteraResponse {
@@ -71,7 +73,7 @@ class PdvCartera {
 
   factory PdvCartera.fromJson(Map<String, dynamic> json) {
     return PdvCartera(
-      idClienteErp: json['id_cliente_erp'] as String? ?? '',
+      idClienteErp: jsonAsString(json['id_cliente_erp']),
       nombreDisplay: json['nombre_display'] as String? ?? '',
       domicilio: json['domicilio'] as String?,
       localidad: json['localidad'] as String?,

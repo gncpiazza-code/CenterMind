@@ -59,6 +59,14 @@ def _fetch_rutas_para_vendedor(sb, t_rutas: str, id_vendedor: int) -> list[int]:
     return rutas
 
 
+def _pdv_display_name(pdv: dict[str, Any]) -> str:
+    return (
+        (pdv.get("nombre_fantasia") or "").strip()
+        or (pdv.get("nombre_razon_social") or "").strip()
+        or "—"
+    )
+
+
 def _fetch_clientes_pdv(sb, t_clientes: str, id_rutas: list[int]) -> list[dict[str, Any]]:
     """
     Retorna clientes_pdv con coordenadas para las rutas dadas.
@@ -74,7 +82,7 @@ def _fetch_clientes_pdv(sb, t_clientes: str, id_rutas: list[int]) -> list[dict[s
         batch = (
             sb.table(t_clientes)
             .select(
-                "id_cliente_erp, nombre_display, latitud, longitud, id_ruta"
+                "id_cliente_erp, nombre_fantasia, nombre_razon_social, latitud, longitud, id_ruta"
             )
             .in_("id_ruta", id_rutas)
             .not_.is_("latitud", "null")
@@ -136,7 +144,7 @@ def pdvs_cercanos_cartera(
             cercanos.append(
                 {
                     "id_cliente_erp": c.get("id_cliente_erp"),
-                    "nombre_display": c.get("nombre_display") or "",
+                    "nombre_display": _pdv_display_name(c),
                     "distancia_m": round(dist, 1),
                     "latitud": plat_f,
                     "longitud": plng_f,

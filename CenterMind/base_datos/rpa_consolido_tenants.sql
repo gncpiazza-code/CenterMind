@@ -29,7 +29,8 @@ VALUES
     ('liver',     'Liver SRL',                         '3534', 5,  TRUE, 40),
     ('extra',     'GyG (Gomez Marcos Ariel)',          '3562', 6,  TRUE, 50),
     ('beltrocco', 'SILVINA RIBERO',                    '3559', 11, TRUE, 60),
-    ('hugo_cena', 'CENA HUGO MARIO',                   '3561', 12, TRUE, 70)
+    ('hugo_cena', 'CENA HUGO MARIO',                   '3561', 12, TRUE, 70),
+    ('ippolibaz', 'Ippolibaz SAS',                     '3536', 13, TRUE, 75)
 ON CONFLICT (tenant_id) DO UPDATE SET
     nombre = EXCLUDED.nombre,
     id_empresa = EXCLUDED.id_empresa,

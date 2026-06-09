@@ -32,17 +32,27 @@ Proyecto Maps GCP: `center-mind-maps-2026` (API key **CenterMind Frontend Maps**
 ## Estructura del repo
 
 ```
-CenterMind/          → API FastAPI, bot, servicios, tests
-shelfy-frontend/     → Portal Next.js
-ShelfMind-RPA/       → Playwright (Railway)
-CLAUDE.md            → Reglas de negocio e invariantes
+CenterMind/           → API FastAPI, bot, servicios, tests
+shelfy-frontend/      → Portal Next.js
+ShelfMind-RPA/        → Playwright (Railway)
+shelfy-mobile/        → Flutter SHELFYAPP
+docs/                 → context, plans, assets, runbooks
+scripts/              → utilidades repo
+archive/              → histórico / sandbox
+REPO_INDEX.txt/.pdf   → Mapa del repo + stack
+CLAUDE.md             → Reglas de negocio e invariantes
 ```
 
 ## Antes de implementar
 
-1. Leer `CLAUDE.md`, `progress.md`, `arquitectura.md`, `frontend.md`
-2. Elegir MCP según `.cursor/rules/shelfy-agent-hub.mdc`
-3. Al cerrar tarea relevante: sincronizar docs de contexto
+1. Leer lean: `CLAUDE.md`, `progress.md`, `arquitectura.md`, `frontend.md` (~240 líneas)
+2. Detalle por módulo: `docs/context/README.md` — solo el `.md` que aplique a la tarea
+3. Elegir MCP según `.cursor/rules/shelfy-agent-hub.mdc`
+4. Al cerrar tarea relevante: sincronizar docs de contexto
+
+## Regla de oro — favicon
+
+**No borrar el logo de la pestaña.** Archivos protegidos: `shelfy-frontend/src/app/icon.png`, `apple-icon.png`, `favicon.ico`, `public/WEBICON.svg` y `metadata.icons` en `layout.tsx`. Ver `.cursor/rules/shelfy-favicon.mdc`.
 
 ## Auth pendiente (checklist)
 

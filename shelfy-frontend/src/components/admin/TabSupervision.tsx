@@ -808,6 +808,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         const head = k[0];
         return (
           head === "supervision-vendedores" ||
+          head === "supervision-vendedores-lite" ||
           head === "supervision-rutas" ||
           head === "supervision-clientes"
         );
@@ -2020,7 +2021,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               )}
             </div>
           <button
-            onClick={() => refetchVendedores()}
+            onClick={() => {
+              void queryClient.invalidateQueries({ queryKey: ["supervision-vendedores-lite", selectedDist] });
+              void refetchVendedores();
+            }}
             disabled={loading}
             title="Actualizar todo"
             className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors p-2 rounded-xl hover:bg-white/5 border border-[var(--shelfy-border)] h-[38px]"

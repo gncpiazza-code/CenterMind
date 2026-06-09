@@ -23,54 +23,61 @@ class _CarteraScreenState extends State<CarteraScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
 
-    // Carga inicial de ambas pestañas y resumen de ruta en el primer frame.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final provider = context.read<CarteraProvider>();
       provider.fetchCartera('hoy');
       provider.fetchCartera('general');
       provider.fetchRutaHoy();
     });
 
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        final provider = context.read<CarteraProvider>();
-        if (_tabController.index == 0 && provider.cartaHoy == null) {
-          provider.fetchCartera('hoy');
-        } else if (_tabController.index == 1 &&
-            provider.cartaGeneral == null) {
-          provider.fetchCartera('general');
-        }
-      }
-    });
+    _tabController.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging || !mounted) return;
+    final provider = context.read<CarteraProvider>();
+    if (_tabController.index == 0 && provider.cartaHoy == null) {
+      provider.fetchCartera('hoy');
+    } else if (_tabController.index == 1 && provider.cartaGeneral == null) {
+      provider.fetchCartera('general');
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Hoy'),
-            Tab(text: 'General'),
+    return Scaffold(
+      body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Theme.of(context).colorScheme.surface,
+              child: TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'Hoy'),
+                  Tab(text: 'General'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: const [
+                  _CarteraTab(mode: 'hoy'),
+                  _CarteraTab(mode: 'general'),
+                ],
+              ),
+            ),
           ],
         ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: const [
-              _CarteraTab(mode: 'hoy'),
-              _CarteraTab(mode: 'general'),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
@@ -86,38 +93,43 @@ class _CarteraTab extends StatelessWidget {
       builder: (context, provider, _) {
         final loading =
             mode == 'hoy' ? provider.loadingHoy : provider.loadingGeneral;
-        final error = mode == 'hoy' ? provider.errorHoy : provider.errorGeneral;
-        final data = mode == 'hoy' ? provider.cartaHoy : provider.cartaGeneral;
+        final error =
+            mode == 'hoy' ? provider.errorHoy : provider.errorGeneral;
+        final data =
+            mode == 'hoy' ? provider.cartaHoy : provider.cartaGeneral;
 
-        if (loading) {
+        if (loading && data == null) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (error != null) {
+        if (error != null && data == null) {
           return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
-                const SizedBox(height: 12),
-                Text(
-                  error,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () =>
-                      context.read<CarteraProvider>().fetchCartera(mode),
-                  child: const Text('Reintentar'),
-                ),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                  const SizedBox(height: 12),
+                  Text(
+                    error,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () =>
+                        context.read<CarteraProvider>().fetchCartera(mode),
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              ),
             ),
           );
         }
 
         if (data == null) {
-          return const SizedBox.shrink();
+          return const Center(child: CircularProgressIndicator());
         }
 
         return RefreshIndicator(
@@ -145,10 +157,8 @@ class _CarteraList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Construir lista agrupada por ruta.
     final items = <Widget>[];
 
-    // Card de resumen ruta de hoy (solo tab Hoy)
     if (rutaHoy != null) {
       items.add(_RutaHoyCard(rutaHoy: rutaHoy!));
     }
@@ -158,7 +168,6 @@ class _CarteraList extends StatelessWidget {
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 48),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.list_alt, size: 48, color: Colors.grey),
               SizedBox(height: 12),
@@ -211,7 +220,6 @@ class _CarteraList extends StatelessWidget {
   }
 }
 
-/// Card de resumen de ruta del día de hoy.
 class _RutaHoyCard extends StatelessWidget {
   final RutaHoyResponse rutaHoy;
 
@@ -222,7 +230,6 @@ class _RutaHoyCard extends StatelessWidget {
     final pct = rutaHoy.porcentajeActividad;
     final colorScheme = Theme.of(context).colorScheme;
 
-    // Color del badge según porcentaje de actividad
     Color badgeColor;
     if (pct >= 70) {
       badgeColor = Colors.green;
@@ -256,7 +263,6 @@ class _RutaHoyCard extends StatelessWidget {
                         ),
                   ),
                 ),
-                // Badge porcentaje actividad
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -278,7 +284,9 @@ class _RutaHoyCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _StatChip(
                   label: 'Total',
@@ -286,21 +294,18 @@ class _RutaHoyCard extends StatelessWidget {
                   icon: Icons.store_outlined,
                   color: colorScheme.primary,
                 ),
-                const SizedBox(width: 8),
                 _StatChip(
                   label: 'Activos',
                   value: '${rutaHoy.activos}',
                   icon: Icons.check_circle_outline,
                   color: Colors.green,
                 ),
-                const SizedBox(width: 8),
                 _StatChip(
                   label: 'Por caer',
                   value: '${rutaHoy.porCaer}',
                   icon: Icons.warning_amber_outlined,
                   color: Colors.orange,
                 ),
-                const SizedBox(width: 8),
                 _StatChip(
                   label: 'Inactivos',
                   value: '${rutaHoy.inactivos}',
@@ -331,34 +336,33 @@ class _StatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(height: 2),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+    return Container(
+      width: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: color.withValues(alpha: 0.8),
-              ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: color.withValues(alpha: 0.8),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

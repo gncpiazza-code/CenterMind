@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/offline/upload_queue.dart';
 import 'models/batch_upload_result.dart';
+import 'models/capture_photo.dart';
 import 'models/pdv_candidate.dart';
 import 'models/post_upload_summary.dart';
 
@@ -35,8 +37,11 @@ class CaptureProvider extends ChangeNotifier {
   PdvCandidate? _detectedPdv;
   String? _manualNro;
 
-  /// Lista de fotos capturadas en la sesión actual (máximo [kMaxPhotosPerExhibicion]).
-  List<File> _photos = [];
+  /// Fotos capturadas solo desde cámara in-app (con metadatos).
+  List<CapturePhoto> _photos = [];
+
+  /// Si true, al tomar foto se agrega a la sesión sin reiniciar flujo PDV.
+  bool _appendingPhoto = false;
 
   String? _selectedTipo;
   bool _isUploading = false;
@@ -59,17 +64,20 @@ class CaptureProvider extends ChangeNotifier {
   PdvCandidate? get selectedPdv => _selectedPdv;
   PdvCandidate? get detectedPdv => _detectedPdv;
   String? get manualNro => _manualNro;
+  bool get appendingPhoto => _appendingPhoto;
 
-  /// Lista inmutable de fotos capturadas.
-  List<File> get photos => List.unmodifiable(_photos);
+  List<CapturePhoto> get photos => List.unmodifiable(_photos);
 
-  /// Número de fotos actualmente capturadas.
+  List<File> get photoFiles => _photos.map((p) => p.file).toList();
+
   int get photoCount => _photos.length;
 
-  /// Si se puede agregar otra foto (no se ha llegado al límite).
-  bool get canAddMorePhotos => _photos.length < kMaxPhotosPerExhibicion;
+  bool get canAddMorePhotos =>
+      _photos.length < kMaxPhotosPerExhibicion &&
+      _currentStep != CaptureStep.camera &&
+      _currentStep != CaptureStep.uploading &&
+      _currentStep != CaptureStep.success;
 
-  /// Si hay al menos 1 foto (requisito mínimo para subir).
   bool get hasPhotos => _photos.isNotEmpty;
 
   String? get selectedTipo => _selectedTipo;
@@ -91,7 +99,6 @@ class CaptureProvider extends ChangeNotifier {
       _detectedPdv?.nombreDisplay ??
       (_manualNro != null ? 'NRO: $_manualNro' : '');
 
-  /// Actualiza GPS y busca PDV cercano en segundo plano (sin bloquear cámara).
   Future<void> refreshNearbyPdvs({required double lat, required double lng}) async {
     _currentLat = lat;
     _currentLng = lng;
@@ -120,10 +127,27 @@ class CaptureProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Primera foto tomada: inicia el flujo hacia confirmación de PDV.
-  /// Las fotos adicionales se agregan con [addPhoto].
-  void onPhotoTaken(File file) {
-    _photos = [file];
+  /// Registra foto tomada desde cámara in-app con metadatos de auditoría.
+  void onPhotoTaken(File file, CapturePhotoMetadata metadata) {
+    final photo = CapturePhoto(file: file, metadata: metadata);
+
+    if (_appendingPhoto) {
+      if (_photos.length >= kMaxPhotosPerExhibicion) return;
+      _photos = [..._photos, photo];
+      _appendingPhoto = false;
+      _currentStep = CaptureStep.ingresoChoice;
+      if (_selectedPdv != null || (_manualNro != null && _manualNro!.isNotEmpty)) {
+        _currentStep = CaptureStep.ingresoChoice;
+      } else if (_detectedPdv != null) {
+        _currentStep = CaptureStep.pdvConfirm;
+      } else {
+        _currentStep = CaptureStep.manualInput;
+      }
+      notifyListeners();
+      return;
+    }
+
+    _photos = [photo];
     _selectedPdv = null;
     _manualNro = null;
     _selectedTipo = null;
@@ -137,22 +161,21 @@ class CaptureProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Agrega una foto adicional a la exhibición actual (máx. [kMaxPhotosPerExhibicion]).
-  /// Solo disponible en los pasos pdvConfirm, manualInput e ingresoChoice.
-  void addPhoto(File file) {
-    if (_photos.length >= kMaxPhotosPerExhibicion) return;
-    _photos = [..._photos, file];
+  /// Abre cámara para agregar otra foto (sin galería).
+  void startAppendPhoto() {
+    if (!canAddMorePhotos) return;
+    _appendingPhoto = true;
+    _currentStep = CaptureStep.camera;
     notifyListeners();
   }
 
-  /// Elimina la foto en la posición [index] de la lista.
   void removePhoto(int index) {
     if (index < 0 || index >= _photos.length) return;
-    final updated = List<File>.from(_photos);
+    final updated = List<CapturePhoto>.from(_photos);
     updated.removeAt(index);
     _photos = updated;
-    // Si se eliminaron todas las fotos, volver a cámara.
     if (_photos.isEmpty) {
+      _appendingPhoto = false;
       _currentStep = CaptureStep.camera;
     }
     notifyListeners();
@@ -196,8 +219,17 @@ class CaptureProvider extends ChangeNotifier {
     _manualNro = null;
     _selectedTipo = null;
     _errorMessage = null;
+    _appendingPhoto = false;
     _currentStep = CaptureStep.camera;
     notifyListeners();
+  }
+
+  CaptureSessionMetadata _buildSessionMetadata() {
+    return CaptureSessionMetadata(
+      sessionLat: _currentLat,
+      sessionLng: _currentLng,
+      photos: _photos.map((p) => p.metadata).toList(),
+    );
   }
 
   Future<void> submit() async {
@@ -231,20 +263,21 @@ class CaptureProvider extends ChangeNotifier {
 
   Future<void> _submitDirect() async {
     final clientUploadId = const Uuid().v4();
+    final metadata = _buildSessionMetadata();
 
     final fields = <String, String>{
       'nro_cliente': nroCliente,
       'tipo_pdv': _selectedTipo!,
       'client_upload_id': clientUploadId,
+      'capture_metadata': metadata.toJsonString(),
       if (_currentLat != null) 'capture_lat': _currentLat!.toString(),
       if (_currentLng != null) 'capture_lng': _currentLng!.toString(),
     };
 
-    // Envía todas las fotos como multipart photos[] (backend ya lo soporta).
     final responseJson = await _api.postMultipart(
       '/api/vendedor-app/exhibiciones/batch-multipart',
       fields: fields,
-      files: _photos,
+      files: photoFiles,
     );
 
     _lastResult = BatchUploadResult.fromJson(responseJson);
@@ -257,15 +290,11 @@ class CaptureProvider extends ChangeNotifier {
       );
     }
 
-    // Carga el resumen post-upload enriquecido en background (no bloquea).
     _fetchPostUploadSummary(nroCliente);
-
     _currentStep = CaptureStep.success;
     onUploadSuccess?.call(nroCliente);
   }
 
-  /// Llama al endpoint de resumen post-upload y actualiza el estado.
-  /// Se ejecuta en background tras el upload exitoso; silencia errores.
   Future<void> _fetchPostUploadSummary(String nroCliente) async {
     try {
       final json = await _api.get(
@@ -274,19 +303,14 @@ class CaptureProvider extends ChangeNotifier {
       _postUploadSummary = PostUploadSummary.fromJson(json);
       notifyListeners();
     } catch (_) {
-      // Silenciar errores: la pantalla de éxito se muestra igualmente
-      // con los datos básicos del BatchUploadResult.
       _postUploadSummary = null;
     }
   }
 
   Future<void> _enqueueOffline() async {
     final clientUploadId = const Uuid().v4();
-    final pathsJson = jsonEncode(_photos.map((f) => f.path).toList());
-    String? latLngJson;
-    if (_currentLat != null && _currentLng != null) {
-      latLngJson = jsonEncode({'lat': _currentLat, 'lng': _currentLng});
-    }
+    final pathsJson = jsonEncode(_photos.map((p) => p.file.path).toList());
+    final metadataJson = _buildSessionMetadata().toJsonString();
 
     await _db.enqueueUpload(
       PendingUploadsCompanion.insert(
@@ -294,7 +318,7 @@ class CaptureProvider extends ChangeNotifier {
         nroCliente: nroCliente,
         tipoPdv: Value(_selectedTipo),
         photoLocalPaths: pathsJson,
-        captureLatLng: Value(latLngJson),
+        captureLatLng: Value(metadataJson),
         estado: const Value('enCola'),
       ),
     );
@@ -310,6 +334,31 @@ class CaptureProvider extends ChangeNotifier {
     _lastResult = null;
     _postUploadSummary = null;
     _errorMessage = null;
+    _appendingPhoto = false;
     notifyListeners();
+  }
+
+  /// Metadatos GPS al instante de disparar la cámara.
+  static Future<CapturePhotoMetadata> captureMetadataNow() async {
+    final capturedAt = DateTime.now().toUtc();
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      return CapturePhotoMetadata(
+        capturedAtUtc: capturedAt,
+        lat: position.latitude,
+        lng: position.longitude,
+        accuracyM: position.accuracy,
+        altitudeM: position.altitude,
+        heading: position.heading,
+        speedMps: position.speed,
+      );
+    } catch (_) {
+      return CapturePhotoMetadata(capturedAtUtc: capturedAt);
+    }
   }
 }

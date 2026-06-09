@@ -86,6 +86,15 @@ CHESS_TENANTS: list[dict[str, Any]] = [
         "id_dist": 12,
         "activo": True,
     },
+    {
+        "id": "ippolibaz",
+        "nombre": "Ippolibaz SAS - Villa Maria",
+        "url_base": "https://ippolibaz.chesserp.com/AR1275",
+        "vault_user": "chess_ippolibaz_usuario",
+        "vault_pass": "chess_ippolibaz_password",
+        "id_dist": 13,
+        "activo": True,
+    },
 ]
 
 # Alias usado por motores/cuentas_corrientes.py y motores/ventas.py

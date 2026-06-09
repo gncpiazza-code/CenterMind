@@ -77,9 +77,10 @@ class SyncWorker {
 
       if (upload.captureLatLng != null) {
         try {
-          final coords = jsonDecode(upload.captureLatLng!) as Map<String, dynamic>;
-          final lat = coords['lat'];
-          final lng = coords['lng'];
+          final meta = jsonDecode(upload.captureLatLng!) as Map<String, dynamic>;
+          fields['capture_metadata'] = upload.captureLatLng!;
+          final lat = meta['session_lat'] ?? meta['lat'];
+          final lng = meta['session_lng'] ?? meta['lng'];
           if (lat != null) fields['capture_lat'] = lat.toString();
           if (lng != null) fields['capture_lng'] = lng.toString();
         } catch (_) {}

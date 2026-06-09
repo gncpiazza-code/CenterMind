@@ -2,19 +2,14 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// Preview de cámara a pantalla completa con botón de captura.
-///
-/// Performance: ResolutionPreset.medium + enableAudio: false + init lazy via
-/// addPostFrameCallback para reducir tiempo de apertura en dispositivos
-/// mid-range (Motorola, Redmi) de ~2-3s a <1s.
-///
-/// Fallback: botón "Galería/Nativa" usa image_picker para acceder a la
-/// galería o al selector nativo del OS en iOS/Android.
+import '../capture_provider.dart';
+import '../models/capture_photo.dart';
+
+/// Preview de cámara a pantalla completa — única fuente de fotos (sin galería).
 class CameraCaptureWidget extends StatefulWidget {
-  final void Function(File photo) onPhotoTaken;
+  final void Function(File photo, CapturePhotoMetadata metadata) onPhotoTaken;
 
   const CameraCaptureWidget({super.key, required this.onPhotoTaken});
 
@@ -28,13 +23,9 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   String? _error;
   bool _capturing = false;
 
-  final ImagePicker _imagePicker = ImagePicker();
-
   @override
   void initState() {
     super.initState();
-    // Init lazy: esperar a que el frame esté montado antes de inicializar
-    // la cámara para evitar overhead durante la construcción del árbol de widgets.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _initCamera();
     });
@@ -53,7 +44,8 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       }
       if (!status.isGranted) {
         setState(() {
-          _error = 'Se necesita permiso de cámara para capturar exhibiciones.';
+          _error =
+              'Se necesita permiso de cámara. Las exhibiciones solo se registran con foto tomada en la app.';
           _initializing = false;
         });
         return;
@@ -73,10 +65,6 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
         orElse: () => cameras.first,
       );
 
-      // ResolutionPreset.medium en lugar de .high: reduce tiempo de init
-      // ~50-60% en dispositivos mid-range sin impacto visual apreciable
-      // para fotos de exhibiciones.
-      // enableAudio: false eliminado del overhead de captura de micrófono.
       final controller = CameraController(
         back,
         ResolutionPreset.medium,
@@ -94,7 +82,7 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
         _controller = controller;
         _initializing = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = 'No se pudo abrir la cámara.';
@@ -111,8 +99,9 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
 
     setState(() => _capturing = true);
     try {
+      final metadata = await CaptureProvider.captureMetadataNow();
       final xfile = await controller.takePicture();
-      widget.onPhotoTaken(File(xfile.path));
+      widget.onPhotoTaken(File(xfile.path), metadata);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -121,26 +110,6 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       }
     } finally {
       if (mounted) setState(() => _capturing = false);
-    }
-  }
-
-  /// Abre el selector nativo (galería o cámara del OS) como alternativa.
-  /// En iOS usa el picker nativo de Photos; en Android abre la galería.
-  Future<void> _pickFromGallery() async {
-    try {
-      final xfile = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-      );
-      if (xfile != null && mounted) {
-        widget.onPhotoTaken(File(xfile.path));
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo abrir la galería')),
-        );
-      }
     }
   }
 
@@ -187,19 +156,6 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
                 onPressed: _initCamera,
                 child: const Text('Reintentar'),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _pickFromGallery,
-                icon: const Icon(Icons.photo_library_outlined,
-                    color: Colors.white70),
-                label: const Text(
-                  'Elegir de Galería',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.white38),
-                ),
-              ),
             ],
           ),
         ),
@@ -211,29 +167,6 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       fit: StackFit.expand,
       children: [
         CameraPreview(controller),
-        // Botón de galería nativa (esquina inferior izquierda)
-        Positioned(
-          left: 24,
-          bottom: 40,
-          child: GestureDetector(
-            onTap: _pickFromGallery,
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.black45,
-                border: Border.all(color: Colors.white54, width: 1.5),
-              ),
-              child: const Icon(
-                Icons.photo_library_outlined,
-                color: Colors.white,
-                size: 24,
-              ),
-            ),
-          ),
-        ),
-        // Botón de captura principal (centro inferior)
         Positioned(
           left: 0,
           right: 0,
@@ -258,6 +191,24 @@ class _CameraCaptureWidgetState extends State<CameraCaptureWidget> {
                         ),
                       )
                     : const Icon(Icons.camera, color: Colors.white, size: 32),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 120,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                'Solo cámara in-app · sin galería',
+                style: TextStyle(color: Colors.white70, fontSize: 11),
               ),
             ),
           ),

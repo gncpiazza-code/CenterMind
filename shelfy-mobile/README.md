@@ -127,7 +127,7 @@ Editá `config/dev-device.json` si cambiás de red WiFi.
 
 ## Flavors Android (futuro piloto APK)
 
-`tabaco` | `aloma` | `liver` | `real` — white-label por tenant.
+`tabaco` · `aloma` · `liver` · `real` · `extra` · `beltrocco` · `hugo_cena` — white-label por tenant (ver `docs/context/modules/tenants.md`).
 
 iOS usa branding remoto vía `/api/vendedor-app/branding` post-login.
 

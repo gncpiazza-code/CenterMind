@@ -316,6 +316,7 @@ async def post_exhibicion_batch_multipart(
     client_upload_id: str = Form(...),
     capture_lat: Optional[float] = Form(None),
     capture_lng: Optional[float] = Form(None),
+    capture_metadata: Optional[str] = Form(None),
     photos: list[UploadFile] = File(...),
     session: dict = Depends(vendedor_session_dep),
 ):
@@ -365,6 +366,7 @@ async def post_exhibicion_batch_multipart(
             client_upload_id=client_upload_id,
             capture_lat=capture_lat,
             capture_lng=capture_lng,
+            capture_metadata=capture_metadata,
         )
     except HTTPException:
         raise

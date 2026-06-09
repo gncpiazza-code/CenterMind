@@ -9,6 +9,7 @@ Maneja:
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -27,6 +28,17 @@ from core.vendedor_app_auth import ensure_mobile_integrante
 logger = logging.getLogger("ShelfyAPI")
 
 AR_TZ = timezone(timedelta(hours=-3))
+
+
+def _parse_capture_metadata(raw: str | None) -> dict | None:
+    """Parsea JSON de metadatos de captura in-app (auditoría)."""
+    if not raw or not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {"raw": parsed}
+    except json.JSONDecodeError:
+        return {"raw": raw[:2000]}
 
 # ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -214,6 +226,7 @@ def process_exhibicion_upload(
     client_upload_id: str,
     capture_lat: float | None,
     capture_lng: float | None,
+    capture_metadata: str | None = None,
 ) -> dict:
     """
     Procesa subida de exhibiciones desde la app móvil con idempotencia.
@@ -267,6 +280,7 @@ def process_exhibicion_upload(
                 "client_upload_id": client_upload_id,
                 "capture_lat": capture_lat,
                 "capture_lng": capture_lng,
+                "payload_meta": _parse_capture_metadata(capture_metadata),
                 "estado": "processing",
                 "created_at": datetime.now(AR_TZ).isoformat(),
             })

@@ -18,6 +18,7 @@ import '../stats/stats_provider.dart';
 import '../stats/stats_screen.dart';
 import '../ventas/ventas_provider.dart';
 import '../ventas/ventas_screen.dart';
+import 'home_tab_controller.dart';
 
 /// Shell de navegación principal con BottomNavigationBar (7 tabs).
 class HomeScreen extends StatefulWidget {
@@ -28,9 +29,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
   bool _providersReady = false;
 
+  late HomeTabController _tabController;
   late CaptureProvider _captureProvider;
   late CarteraProvider _carteraProvider;
   late VentasProvider _ventasProvider;
@@ -46,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final api = context.read<ApiClient>();
     final db = context.read<ShelfyDatabase>();
+    _tabController = HomeTabController();
     _captureProvider = CaptureProvider(apiClient: api, db: db);
     _carteraProvider = CarteraProvider(api: api);
     _ventasProvider = VentasProvider(api: api);
@@ -53,6 +55,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _statsProvider = StatsProvider(api: api);
     _objetivosProvider = ObjetivosProvider(api: api);
     _galeriaProvider = GaleriaProvider(api: api);
+    _captureProvider.onUploadSuccess = (nroCliente) {
+      _galeriaProvider.refreshAfterUpload(nroCliente);
+    };
     _providersReady = true;
   }
 
@@ -66,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider<HomeTabController>.value(value: _tabController),
         ChangeNotifierProvider<CaptureProvider>.value(value: _captureProvider),
         ChangeNotifierProvider<CarteraProvider>.value(value: _carteraProvider),
         ChangeNotifierProvider<VentasProvider>.value(value: _ventasProvider),
@@ -76,7 +82,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         ChangeNotifierProvider<GaleriaProvider>.value(value: _galeriaProvider),
       ],
-      child: Scaffold(
+      child: ListenableBuilder(
+        listenable: _tabController,
+        builder: (context, _) => Scaffold(
         appBar: AppBar(
           title: const _TenantLogo(),
           actions: [
@@ -96,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         body: IndexedStack(
-          index: _selectedIndex,
+          index: _tabController.selectedIndex,
           children: const [
             CaptureScreen(),    // 0
             CarteraScreen(),    // 1
@@ -108,9 +116,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         bottomNavigationBar: _BottomNav(
-          selectedIndex: _selectedIndex,
-          onTap: (index) => setState(() => _selectedIndex = index),
+          selectedIndex: _tabController.selectedIndex,
+          onTap: (index) {
+            if (index == 6 &&
+                _tabController.pendingGaleriaClienteErp == null) {
+              _galeriaProvider.fetchClientes();
+            }
+            _tabController.goToTab(index);
+          },
         ),
+      ),
       ),
     );
   }

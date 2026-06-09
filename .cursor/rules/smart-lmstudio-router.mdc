@@ -1,0 +1,14 @@
+---
+description: Router LM Studio vs Composer — analisis local primero, builds en terminal
+alwaysApply: true
+---
+
+# Smart LM Studio Router (Windows)
+
+Antes de usar Composer para analisis:
+
+1. **Analisis** (logcat, flutter analyze, P0, diff review, checklist) → `scripts/lmstudio-worker/invoke-local.ps1` con Gemma en `:1234`.
+2. **Builds/tests** (APK, pytest, adb) → terminal, sin LLM.
+3. **Implementar fixes** → Composer solo despues del informe en `docs/coordination/lmstudio-queue/done/*.md`.
+
+Ver `docs/runbooks/CURSOR-WINDOWS-CONTEXT.md` y `scripts/lmstudio-worker/router-config.json`.

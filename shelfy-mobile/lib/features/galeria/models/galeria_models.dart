@@ -19,7 +19,7 @@ class GaleriaCliente {
 
   factory GaleriaCliente.fromJson(Map<String, dynamic> json) {
     return GaleriaCliente(
-      idClienteErp: json['id_cliente_erp'] as String? ?? '',
+      idClienteErp: json['id_cliente_erp']?.toString() ?? '',
       nombreDisplay: json['nombre_display'] as String? ?? '',
       totalExhibiciones: (json['total_exhibiciones'] as num?)?.toInt() ?? 0,
       ultimaExhibicion: json['ultima_exhibicion'] as String?,
@@ -96,7 +96,7 @@ class GaleriaClienteTimeline {
 
   factory GaleriaClienteTimeline.fromJson(Map<String, dynamic> json) {
     return GaleriaClienteTimeline(
-      idClienteErp: json['id_cliente_erp'] as String? ?? '',
+      idClienteErp: json['id_cliente_erp']?.toString() ?? '',
       nombreDisplay: json['nombre_display'] as String? ?? '',
       publicaciones: (json['publicaciones'] as List<dynamic>? ?? [])
           .map((e) => GaleriaPublicacion.fromJson(e as Map<String, dynamic>))
@@ -122,7 +122,7 @@ class GaleriaMapPin {
 
   factory GaleriaMapPin.fromJson(Map<String, dynamic> json) {
     return GaleriaMapPin(
-      idClienteErp: json['id_cliente_erp'] as String? ?? '',
+      idClienteErp: json['id_cliente_erp']?.toString() ?? '',
       nombre: json['nombre'] as String? ?? '',
       latitud: (json['latitud'] as num?)?.toDouble() ?? 0,
       longitud: (json['longitud'] as num?)?.toDouble() ?? 0,

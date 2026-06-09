@@ -1,6 +1,6 @@
 # SHELFYAPP — Flutter
 
-Directorio: `shelfy-mobile/lib/features/` — **4 tabs** (Captura·Cartera·Stats·Más).
+Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Cartera·Objetivos·Stats).
 
 ## Estrategia plataforma
 
@@ -20,11 +20,12 @@ Directorio: `shelfy-mobile/lib/features/` — **4 tabs** (Captura·Cartera·Stat
 
 **Futuro supervisores:** flavor o gate por rol JWT (`supervisor`) — mapa/galería read-only, sin captura obligatoria; reutilizar tokens Shelfy y API `/api/vendedor-app/*` con permisos ampliados.
 
-## Nav
+## Nav (MVP — 5 tabs directos)
 
-- **4 tabs:** `CaptureScreen` | `CarteraScreen` | `StatsScreen` | `MoreScreen`
-- **Hub Más** (`more_screen.dart`): hub animado (stagger 4 cards) → Ventas, Cuentas, Objetivos, Galería vía `pushMoreSubScreen(index)` en `HomeTabController`
-- Sub-screens del hub tienen back arrow + `AnimatedSwitcher` en título
+- **5 tabs:** `CaptureScreen`(0) | `CuentasScreen`(1) | `CarteraScreen`(2) | `ObjetivosScreen`(3) | `StatsScreen`(4)
+- Tab inicial: **Captura** (índice 0) — lazy camera mount ~350 ms para evitar SIGKILL iOS
+- Hub Más deprecado en MVP — `more_screen.dart` existe pero fuera de nav; galería acceso futuro
+- **SERVIR, NO COCINAR** — app solo fetch→parse→render; cero lógica de negocio en Dart
 
 ## Identidad visual (Oleada 2)
 
@@ -41,6 +42,17 @@ Directorio: `shelfy-mobile/lib/features/` — **4 tabs** (Captura·Cartera·Stat
 - **Flash:** toggle auto/on/off en `CameraCaptureWidget`
 - **Radio GPS:** 100 m (era 150)
 - **Autocompletado:** `pdv/buscar?q=` endpoint + debounce 300 ms en provider
+
+## Captura — multifoto (campo ruta 2026-06-09)
+
+- **addExtraPhoto()** en `CaptureProvider` — colapsa sheet volviendo a `live` con `_addingExtraPhoto=true`; el shutter agrega la foto y vuelve a `confirmPdv` sin resetear PDV
+- Botón "Agregar otra foto" en fase `confirmPdv` wired a `provider.addExtraPhoto()`
+
+## API vendedor-app (nuevos endpoints 2026-06-09)
+
+- `GET /estadisticas/resumen?meses=YYYY-MM` → `aggregate_kpis_vendedor` (7 KPIs: pdvs, altas, exhibiciones, compradores, bultos, cobertura_pct, objetivos_pct)
+- Cartera JSON: +`fecha_alta`, `nombre_fantasia`, `nombre_razon_social` en cada PDV
+- Objetivos detalle: +`recomendaciones[]` generadas BE (texto accionable sin lógica Dart)
 
 ## Invariantes
 

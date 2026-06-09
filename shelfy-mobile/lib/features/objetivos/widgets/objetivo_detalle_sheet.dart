@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/widgets/shelfy/shelfy_widgets.dart';
+import '../../../theme/shelfy_tokens.dart';
 import '../models/objetivo_detalle.dart';
 
 /// BottomSheet con el detalle completo de un objetivo.
@@ -25,13 +27,13 @@ class ObjetivoDetalleSheet extends StatelessWidget {
   Color _tipoColor() {
     switch (detalle.tipo) {
       case 'exhibicion':
-        return Colors.blue;
+        return ShelfyTokens.primary;
       case 'compradores':
-        return Colors.teal;
+        return ShelfyTokens.primary2;
       case 'ruteo_alteo':
-        return Colors.orange;
+        return ShelfyTokens.warning;
       default:
-        return Colors.indigo;
+        return ShelfyTokens.accent;
     }
   }
 
@@ -60,6 +62,10 @@ class ObjetivoDetalleSheet extends StatelessWidget {
         desc.startsWith('🎯') ||
         desc.startsWith('📋') ||
         desc.startsWith('🔔') ||
+        desc.startsWith('🚀') ||
+        desc.contains('<b>') ||
+        desc.contains('<code>') ||
+        desc.contains('/objetivos') ||
         (desc.contains('Objetivo de') && desc.contains('\n') && desc.length > 120);
   }
 
@@ -88,7 +94,7 @@ class ObjetivoDetalleSheet extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: ShelfyTokens.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -120,7 +126,7 @@ class ObjetivoDetalleSheet extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: Colors.green.withValues(alpha: 0.12),
+                      color: ShelfyTokens.success.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
@@ -128,7 +134,7 @@ class ObjetivoDetalleSheet extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: Colors.green,
+                        color: ShelfyTokens.success,
                       ),
                     ),
                   ),
@@ -139,33 +145,42 @@ class ObjetivoDetalleSheet extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .labelSmall
-                      ?.copyWith(color: Colors.grey[600]),
+                      ?.copyWith(color: ShelfyTokens.muted),
                 ),
               ],
             ),
             const SizedBox(height: 16),
 
-            // Descripción
-            if (descRaw != null &&
-                descRaw.isNotEmpty &&
-                !_esTelegramPayload(descRaw)) ...[
-              Text(
-                descRaw,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 14),
-            ],
-
-            // Barra de progreso
+            // Hero: progreso prominente
             _ProgresoSection(
               valorActual: detalle.valorActual,
               valorObjetivo: detalle.valorObjetivo,
               progresoPct: detalle.progresoPct,
               progress: progress.toDouble(),
-              color: detalle.cumplido ? Colors.green : tipoColor,
+              color: detalle.cumplido ? ShelfyTokens.success : tipoColor,
+            ),
+            const SizedBox(height: 20),
+
+            // Metadata grid (origen, vence)
+            ShelfyKeyValueGrid(
+              items: [
+                (key: 'Tipo', value: _tipoLabel()),
+                (key: 'Vence', value: _formatFecha(detalle.fechaObjetivo)),
+              ],
             ),
 
-            // Desglose (si existe)
+            // Recomendaciones accionables (desde API) — primero, antes del desglose
+            if (detalle.recomendaciones.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              ShelfySectionHeader(
+                title: 'Recomendaciones',
+                icon: Icons.lightbulb_outline,
+              ),
+              const SizedBox(height: 10),
+              ShelfyInsightList(items: detalle.recomendaciones),
+            ],
+
+            // Desglose (si existe) — colapsable
             if (detalle.desglose != null && detalle.desglose!.isNotEmpty) ...[
               const SizedBox(height: 20),
               _DesgloseSection(desglose: detalle.desglose!),
@@ -177,10 +192,17 @@ class ObjetivoDetalleSheet extends StatelessWidget {
               _PdvsSection(items: detalle.itemsPdv),
             ],
 
-            // Recomendaciones accionables (desde API)
-            if (detalle.recomendaciones.isNotEmpty) ...[
-              const SizedBox(height: 20),
-              _RecomendacionesSection(items: detalle.recomendaciones),
+            // Descripción libre (si no es payload Telegram)
+            if (descRaw != null &&
+                descRaw.isNotEmpty &&
+                !_esTelegramPayload(descRaw)) ...[
+              const SizedBox(height: 16),
+              Text(
+                descRaw,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: ShelfyTokens.textSoft,
+                    ),
+              ),
             ],
           ],
         );
@@ -221,7 +243,7 @@ class _ProgresoSection extends StatelessWidget {
               style: Theme.of(context)
                   .textTheme
                   .labelMedium
-                  ?.copyWith(color: Colors.grey[600]),
+                  ?.copyWith(color: ShelfyTokens.muted),
             ),
             Text(
               '$valorActual / $valorObjetivo  (${progresoPct.toStringAsFixed(0)}%)',
@@ -237,8 +259,8 @@ class _ProgresoSection extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           child: LinearProgressIndicator(
             value: progress,
-            minHeight: 10,
-            backgroundColor: Colors.grey[200],
+            minHeight: 12,
+            backgroundColor: ShelfyTokens.border,
             valueColor: AlwaysStoppedAnimation<Color>(color),
           ),
         ),
@@ -277,7 +299,7 @@ class _DesgloseSection extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
-                      ?.copyWith(color: Colors.grey[700]),
+                      ?.copyWith(color: ShelfyTokens.textSoft),
                 ),
                 Text(
                   '${e.value}',
@@ -326,7 +348,7 @@ class _PdvsSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
               children: [
-                const Icon(Icons.store_outlined, size: 16, color: Colors.grey),
+                const Icon(Icons.store_outlined, size: 16, color: ShelfyTokens.muted),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -340,7 +362,7 @@ class _PdvsSection extends StatelessWidget {
                     style: Theme.of(context)
                         .textTheme
                         .labelSmall
-                        ?.copyWith(color: Colors.grey[500]),
+                        ?.copyWith(color: ShelfyTokens.muted),
                   ),
               ],
             ),
@@ -351,46 +373,3 @@ class _PdvsSection extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sección de recomendaciones accionables (generadas por BE)
-// ---------------------------------------------------------------------------
-
-class _RecomendacionesSection extends StatelessWidget {
-  final List<String> items;
-
-  const _RecomendacionesSection({required this.items});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Recomendaciones',
-          style: Theme.of(context).textTheme.titleSmall,
-        ),
-        const SizedBox(height: 8),
-        ...items.map(
-          (rec) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.lightbulb_outline, size: 16, color: Colors.orange),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    rec,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.orange[800],
-                        ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/utils/device_profile.dart';
@@ -40,6 +41,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   double _maxZoom = 1.0;
   double _currentZoom = 1.0;
   double _scaleBaseZoom = 1.0;
+  double _prevZoom = 1.0; // Para double-tap toggle
   Offset? _focusPoint;
   bool _showGrid = true;
 
@@ -178,10 +180,34 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     final target = (_scaleBaseZoom * scale).clamp(_minZoom, _maxZoom);
+    await _setZoom(target);
+  }
+
+  Future<void> _setZoom(double target) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
     try {
       await controller.setZoomLevel(target);
-      setState(() => _currentZoom = target);
+      if (mounted) setState(() => _currentZoom = target);
     } catch (_) {}
+  }
+
+  Future<void> _handleDoubleTap() async {
+    HapticFeedback.lightImpact();
+    if (_currentZoom > _minZoom + 0.05) {
+      _prevZoom = _currentZoom;
+      await _setZoom(_minZoom);
+    } else {
+      final target = _prevZoom > _minZoom + 0.05
+          ? _prevZoom
+          : (_maxZoom * 0.45).clamp(_minZoom + 1.0, _maxZoom);
+      await _setZoom(target);
+    }
+  }
+
+  Future<void> _handleDialPreset(double target) async {
+    HapticFeedback.selectionClick();
+    await _setZoom(target);
   }
 
   void _setCapturing(bool value) {
@@ -252,8 +278,8 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
           );
         }
 
-        // Tap (focus) y pinch (zoom) en capas separadas — un solo GestureDetector
-        // con onTapUp + onScale provoca crashes nativos en iOS.
+        // Tap (focus), double-tap (zoom toggle) y pinch (zoom) en capas separadas.
+        // Un solo GestureDetector con onTapUp + onScale provoca crashes nativos en iOS.
         return ClipRect(
           child: Stack(
             fit: StackFit.expand,
@@ -270,6 +296,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTapUp: (d) => _handleTapFocus(d, constraints),
+                onDoubleTap: _handleDoubleTap,
                 child: const SizedBox.expand(),
               ),
             ],
@@ -319,14 +346,13 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     }
 
     final controller = _controller!;
-    final zoomLabel = _maxZoom > _minZoom
-        ? '${_currentZoom.toStringAsFixed(1)}x'
-        : null;
+    final hasZoom = _maxZoom > _minZoom + 0.5;
 
     return Stack(
       fit: StackFit.expand,
       children: [
         Positioned.fill(child: _buildCoverPreview(controller)),
+        // Herramientas top-right: flash + grid
         Positioned(
           top: 56,
           right: 12,
@@ -339,24 +365,23 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
                   icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
                   onTap: () => setState(() => _showGrid = !_showGrid),
                 ),
-                if (zoomLabel != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      zoomLabel,
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
         ),
+        // Zoom dial horizontal — presets glass centrados en bottom
+        if (hasZoom)
+          Positioned(
+            bottom: 110,
+            left: 0,
+            right: 0,
+            child: _ZoomDial(
+              minZoom: _minZoom,
+              maxZoom: _maxZoom,
+              currentZoom: _currentZoom,
+              onPreset: _handleDialPreset,
+            ),
+          ),
       ],
     );
   }
@@ -429,6 +454,80 @@ class _FocusRing extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border.all(color: ShelfyTokens.primary, width: 2),
           borderRadius: BorderRadius.circular(6),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Zoom dial glass — presets horizontales: min · 1x · 2x · max
+// ---------------------------------------------------------------------------
+
+class _ZoomDial extends StatelessWidget {
+  final double minZoom;
+  final double maxZoom;
+  final double currentZoom;
+  final void Function(double) onPreset;
+
+  const _ZoomDial({
+    required this.minZoom,
+    required this.maxZoom,
+    required this.currentZoom,
+    required this.onPreset,
+  });
+
+  List<double> _presets() {
+    final presets = <double>{minZoom, 1.0};
+    if (maxZoom >= 2.0) presets.add(2.0);
+    presets.add(maxZoom);
+    return presets.toList()..sort();
+  }
+
+  String _label(double v) {
+    if (v == v.truncateToDouble()) return '${v.toInt()}x';
+    return '${v.toStringAsFixed(1)}x';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final presets = _presets();
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.50),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: presets.asMap().entries.map((e) {
+            final preset = e.value;
+            final isActive = (currentZoom - preset).abs() < 0.15;
+            return GestureDetector(
+              onTap: () => onPreset(preset),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                margin: EdgeInsets.only(left: e.key > 0 ? 4 : 0),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? ShelfyTokens.primary.withValues(alpha: 0.85)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  _label(preset),
+                  style: TextStyle(
+                    color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.7),
+                    fontSize: 13,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
         ),
       ),
     );

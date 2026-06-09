@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../theme/shelfy_tokens.dart';
 import 'cuentas_provider.dart';
@@ -38,12 +39,12 @@ class _CuentasScreenState extends State<CuentasScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                const Icon(Icons.error_outline, size: 48, color: ShelfyTokens.muted),
                 const SizedBox(height: 12),
                 Text(
                   provider.error!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: const TextStyle(color: ShelfyTokens.muted),
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
@@ -102,7 +103,7 @@ class _CuentasList extends StatelessWidget {
             child: Center(
               child: Text(
                 'Sin cuentas corrientes en este período',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: ShelfyTokens.muted),
               ),
             ),
           )
@@ -116,8 +117,7 @@ class _CuentasList extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           ...data.clientes
-              .map((c) => _ClienteCcTile(cliente: c, fmt: fmt))
-              .toList(),
+              .map((c) => _ClienteCcTile(cliente: c, fmt: fmt)),
         ],
       ],
     );
@@ -221,8 +221,8 @@ class _CcHeader extends StatelessWidget {
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: data.totalSaldo > 0
-                              ? Colors.red[700]
-                              : Theme.of(context).colorScheme.primary,
+                              ? ShelfyTokens.error
+                              : ShelfyTokens.primary,
                         ),
                   ),
                   const SizedBox(height: 4),
@@ -231,7 +231,7 @@ class _CcHeader extends StatelessWidget {
                     style: Theme.of(context)
                         .textTheme
                         .bodyMedium
-                        ?.copyWith(color: Colors.grey[600]),
+                        ?.copyWith(color: ShelfyTokens.muted),
                   ),
                 ],
               ),
@@ -250,7 +250,7 @@ class _CcHeader extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
-                      ?.copyWith(color: Colors.grey[600]),
+                      ?.copyWith(color: ShelfyTokens.muted),
                 ),
               ],
             ),
@@ -270,15 +270,15 @@ class _SnapshotLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(
+        const Icon(
           Icons.access_time_outlined,
           size: 13,
-          color: Colors.grey[500],
+          color: ShelfyTokens.muted,
         ),
         const SizedBox(width: 4),
         Text(
           label,
-          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          style: const TextStyle(fontSize: 12, color: ShelfyTokens.muted),
         ),
       ],
     );
@@ -291,56 +291,139 @@ class _ClienteCcTile extends StatelessWidget {
 
   const _ClienteCcTile({required this.cliente, required this.fmt});
 
+  String _formatFuc(String iso) {
+    if (iso.length < 10) return iso;
+    final parts = iso.substring(0, 10).split('-');
+    if (parts.length != 3) return iso;
+    return '${parts[2]}/${parts[1]}/${parts[0]}';
+  }
+
+  Future<void> _openMaps() async {
+    final url = cliente.mapsUrl();
+    if (url == null) return;
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final esCritico = cliente.esCritico;
     final diasVencido = cliente.diasVencido;
+    final fuc = cliente.fechaUltimaCompra;
+    final hasMaps = cliente.mapsUrl() != null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        title: Text(
-          cliente.nombreDisplay,
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
-        subtitle: Row(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '#${cliente.idClienteErp}',
-              style: TextStyle(color: Colors.grey[600], fontSize: 12),
-            ),
-            if (diasVencido != null) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: esCritico
-                      ? Colors.red.withValues(alpha: 0.12)
-                      : Colors.orange.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '$diasVencido días vencido',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: esCritico ? Colors.red[700] : Colors.orange[800],
+            // Fila 1: nombre + saldo
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    cliente.nombreDisplay,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  fmt.format(cliente.saldo),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: cliente.saldo > 0
+                        ? ShelfyTokens.error
+                        : ShelfyTokens.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            // Fila 2: ERP id + antigüedad + FUC
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                _InfoChip(
+                  label: '#${cliente.idClienteErp}',
+                  color: ShelfyTokens.muted,
+                ),
+                if (diasVencido != null && diasVencido > 0)
+                  _InfoChip(
+                    label: 'Antigüedad $diasVencido d',
+                    color: esCritico ? ShelfyTokens.error : ShelfyTokens.warning,
+                    filled: true,
+                  ),
+                if (fuc != null && fuc.isNotEmpty)
+                  _InfoChip(
+                    label: 'ÚC: ${_formatFuc(fuc)}',
+                    color: ShelfyTokens.textSoft,
+                  ),
+              ],
+            ),
+            if (hasMaps) ...[
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: _openMaps,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.map_outlined, size: 14, color: ShelfyTokens.primary),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Ver en Google Maps',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: ShelfyTokens.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ],
         ),
-        trailing: Text(
-          fmt.format(cliente.saldo),
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-            color: cliente.saldo > 0
-                ? Colors.red[700]
-                : Theme.of(context).colorScheme.primary,
-          ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool filled;
+
+  const _InfoChip({
+    required this.label,
+    required this.color,
+    this.filled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: filled ? color.withValues(alpha: 0.12) : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        border: filled ? null : Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: filled ? FontWeight.w600 : FontWeight.w400,
+          color: color,
         ),
       ),
     );

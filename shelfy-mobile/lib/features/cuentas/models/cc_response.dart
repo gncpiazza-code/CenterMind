@@ -39,6 +39,12 @@ class ClienteCc {
   final double deuda30Dias;
   final double deuda60Dias;
   final double deudaMas60Dias;
+  // Geo + FUC (enriquecido por BE desde clientes_pdv_v2)
+  final double? latitud;
+  final double? longitud;
+  final String? domicilio;
+  final String? localidad;
+  final String? fechaUltimaCompra;
 
   ClienteCc({
     required this.idClienteErp,
@@ -51,10 +57,14 @@ class ClienteCc {
     this.deuda30Dias = 0,
     this.deuda60Dias = 0,
     this.deudaMas60Dias = 0,
+    this.latitud,
+    this.longitud,
+    this.domicilio,
+    this.localidad,
+    this.fechaUltimaCompra,
   });
 
   factory ClienteCc.fromJson(Map<String, dynamic> json) {
-    // Defensive: BE may send nombre_display or nombre (legacy)
     final nombre = (json['nombre_display'] as String? ??
         json['nombre'] as String? ??
         '');
@@ -70,8 +80,28 @@ class ClienteCc {
       deuda30Dias: (json['deuda_30_dias'] as num?)?.toDouble() ?? 0,
       deuda60Dias: (json['deuda_60_dias'] as num?)?.toDouble() ?? 0,
       deudaMas60Dias: (json['deuda_mas_60_dias'] as num?)?.toDouble() ?? 0,
+      latitud: (json['latitud'] as num?)?.toDouble(),
+      longitud: (json['longitud'] as num?)?.toDouble(),
+      domicilio: json['domicilio'] as String?,
+      localidad: json['localidad'] as String?,
+      fechaUltimaCompra: json['fecha_ultima_compra'] as String?,
     );
   }
 
   bool get esCritico => (diasVencido ?? 0) > 60;
+
+  bool get tieneGeo => latitud != null && longitud != null;
+
+  /// Construye URL Google Maps al PDV (coordenadas o búsqueda por dirección).
+  String? mapsUrl() {
+    if (tieneGeo) {
+      return 'https://www.google.com/maps/search/?api=1&query=$latitud,$longitud';
+    }
+    final addr = [domicilio, localidad].whereType<String>().join(', ').trim();
+    if (addr.isNotEmpty) {
+      final encoded = Uri.encodeComponent(addr);
+      return 'https://www.google.com/maps/search/?api=1&query=$encoded';
+    }
+    return null;
+  }
 }

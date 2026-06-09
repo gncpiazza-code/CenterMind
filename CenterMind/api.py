@@ -90,6 +90,7 @@ async def health_check():
         "status": "online" if (supabase_ok and (bots_expected == 0 or bots_healthy)) else "degraded",
         "version": "2.1.4-bot-recovery",
         # Railway / CI inyectan SHA para verificar deploy sin CLI (fixit / ops).
+        "build_tag": "cc-vendor-pk-fix-2026-06-09",
         "deploy_git_sha": (
             os.getenv("RAILWAY_GIT_COMMIT_SHA")
             or os.getenv("RAILWAY_GIT_COMMIT")

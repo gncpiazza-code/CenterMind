@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/utils/device_profile.dart';
@@ -168,9 +169,20 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       await controller.setFocusPoint(point);
       await controller.setExposurePoint(point);
       setState(() => _focusPoint = point);
+      HapticFeedback.lightImpact();
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) setState(() => _focusPoint = null);
       });
+    } catch (_) {}
+  }
+
+  Future<void> _setZoomLevel(double target) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    final clamped = target.clamp(_minZoom, _maxZoom);
+    try {
+      await controller.setZoomLevel(clamped);
+      if (mounted) setState(() => _currentZoom = clamped);
     } catch (_) {}
   }
 
@@ -178,10 +190,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     final target = (_scaleBaseZoom * scale).clamp(_minZoom, _maxZoom);
-    try {
-      await controller.setZoomLevel(target);
-      setState(() => _currentZoom = target);
-    } catch (_) {}
+    await _setZoomLevel(target);
   }
 
   void _setCapturing(bool value) {
@@ -323,10 +332,30 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
         ? '${_currentZoom.toStringAsFixed(1)}x'
         : null;
 
+    final hasZoomRange = _maxZoom > _minZoom + 0.01;
+
     return Stack(
       fit: StackFit.expand,
       children: [
         Positioned.fill(child: _buildCoverPreview(controller)),
+        if (hasZoomRange)
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 108,
+            child: SafeArea(
+              top: false,
+              child: _ZoomBar(
+                value: _currentZoom,
+                min: _minZoom,
+                max: _maxZoom,
+                onChanged: (v) {
+                  _setZoomLevel(v);
+                  HapticFeedback.selectionClick();
+                },
+              ),
+            ),
+          ),
         Positioned(
           top: 56,
           right: 12,
@@ -358,6 +387,67 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Barra horizontal de zoom sobre el shutter — pinch + slider.
+class _ZoomBar extends StatelessWidget {
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+
+  const _ZoomBar({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.zoom_out_map, color: Colors.white70, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            '${value.toStringAsFixed(1)}x',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                activeTrackColor: ShelfyTokens.primary,
+                inactiveTrackColor: Colors.white24,
+                thumbColor: Colors.white,
+                overlayColor: ShelfyTokens.primary.withValues(alpha: 0.2),
+              ),
+              child: Slider(
+                value: value.clamp(min, max),
+                min: min,
+                max: max,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

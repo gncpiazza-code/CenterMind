@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/build_info.dart';
 import '../../theme/shelfy_tokens.dart';
 import 'cuentas_provider.dart';
 import 'models/cc_response.dart';
+import 'widgets/cc_detalle_sheet.dart';
 
 /// Pantalla de cuentas corrientes del vendedor.
 class CuentasScreen extends StatefulWidget {
@@ -38,12 +40,12 @@ class _CuentasScreenState extends State<CuentasScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                const Icon(Icons.error_outline, size: 48, color: ShelfyTokens.muted),
                 const SizedBox(height: 12),
                 Text(
                   provider.error!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: const TextStyle(color: ShelfyTokens.textSoft),
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
@@ -93,7 +95,12 @@ class _CuentasList extends StatelessWidget {
 
         // 3. Header totales
         _CcHeader(data: data),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
+        Text(
+          'Build ${BuildInfo.versionLabel} · ${BuildInfo.tag}',
+          style: const TextStyle(fontSize: 10, color: ShelfyTokens.muted),
+        ),
+        const SizedBox(height: 12),
 
         // 4. Lista clientes
         if (data.clientes.isEmpty)
@@ -299,6 +306,7 @@ class _ClienteCcTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
+        onTap: () => CcDetalleSheet.show(context, cliente),
         title: Text(
           cliente.nombreDisplay,
           style: const TextStyle(fontWeight: FontWeight.w500),

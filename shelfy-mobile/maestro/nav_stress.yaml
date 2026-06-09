@@ -1,8 +1,8 @@
-# Stress de navegación entre tabs — requiere app ya activada (sesión válida).
+# Stress de navegación — 5 tabs MVP (sesión ya activada).
 # Uso: maestro test maestro/nav_stress.yaml
-# iPhone físico o simulador con SHELFYAPP instalada.
+# APK tabaco: com.shelfy.shelfy_mobile.tabaco
 
-appId: com.shelfy.shelfyMobile
+appId: com.shelfy.shelfy_mobile.tabaco
 
 ---
 - launchApp:
@@ -12,25 +12,20 @@ appId: com.shelfy.shelfyMobile
     visible: "Captura"
     timeout: 30000
 
-# 3 ciclos: Captura → Cartera → Stats → Más → Captura
+# 3 ciclos completos: Captura → CC → Cartera → Objetivos → Stats → Captura
 - repeat:
     times: 3
     commands:
+      - tapOn: "CC"
+      - waitForAnimationToEnd
       - tapOn: "Cartera"
       - waitForAnimationToEnd
-      - tapOn: "Stats"
+      - tapOn: "Objetivos"
       - waitForAnimationToEnd
-      - tapOn: "Más"
+      - tapOn: "Stats"
       - waitForAnimationToEnd
       - tapOn: "Captura"
       - waitForAnimationToEnd
 
-# Hub Más: abrir Ventas y volver
-- tapOn: "Más"
-- tapOn: "Ventas"
-- waitForAnimationToEnd
-- back
-- waitForAnimationToEnd
-
-- tapOn: "Captura"
-- waitForAnimationToEnd
+# Verificar que Captura sigue montada tras el stress
+- assertVisible: "Captura"

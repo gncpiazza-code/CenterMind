@@ -61,7 +61,7 @@ class AuthService extends ChangeNotifier {
         'key': apiKey.trim(),
         'device_id': deviceId,
         'platform': appPlatform,
-        'app_version': '1.0.0',
+        'app_version': '1.0.1',
       },
     );
 

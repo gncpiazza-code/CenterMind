@@ -11,21 +11,50 @@ logger = logging.getLogger("ShelfyAPI")
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-def _get_vendor_erp_id(sb: Client, dist_id: int, id_vendedor_v2: int) -> str | None:
-    """Obtiene el id_vendedor ERP del vendedor."""
+def _get_vendor_profile(
+    sb: Client, dist_id: int, id_vendedor_v2: int
+) -> tuple[str | None, str | None]:
+    """ERP id y nombre del vendedor (para fallback en filas cc_detalle sin id_vendedor)."""
     from core.helpers import tenant_table_name
+
     t = tenant_table_name("vendedores_v2", dist_id)
     res = (
         sb.table(t)
-        .select("id_vendedor_erp")
+        .select("id_vendedor_erp, nombre_erp")
         .eq("id_distribuidor", dist_id)
         .eq("id_vendedor", id_vendedor_v2)
         .limit(1)
         .execute()
     )
-    if res.data:
-        return str(res.data[0].get("id_vendedor_erp") or "").strip() or None
-    return None
+    if not res.data:
+        return None, None
+    row = res.data[0]
+    erp = str(row.get("id_vendedor_erp") or "").strip() or None
+    nombre = str(row.get("nombre_erp") or "").strip() or None
+    return erp, nombre
+
+
+def _row_matches_vendor(
+    row: dict,
+    id_vendedor_v2: int,
+    erp_id: str | None,
+    nombre_erp: str | None,
+) -> bool:
+    """True si la fila cc_detalle pertenece al vendedor (PK o nombre legacy)."""
+    vid = row.get("id_vendedor")
+    if vid is not None:
+        try:
+            return int(vid) == int(id_vendedor_v2)
+        except (TypeError, ValueError):
+            pass
+    vn = str(row.get("vendedor_nombre") or "").upper()
+    if nombre_erp and nombre_erp.upper() in vn:
+        return True
+    if erp_id:
+        erp_norm = erp_id.lstrip("0") or erp_id
+        if erp_id.upper() in vn or erp_norm.upper() in vn:
+            return True
+    return False
 
 
 def _fetch_latest_cc_snapshot_date(sb: Client, dist_id: int) -> str | None:
@@ -57,7 +86,7 @@ def get_cc_vendedor(
     """
     from core.bot_snapshot_meta import resolve_snapshot_label
 
-    erp_id = _get_vendor_erp_id(sb, dist_id, id_vendedor_v2)
+    erp_id, nombre_erp = _get_vendor_profile(sb, dist_id, id_vendedor_v2)
     snapshot_date = _fetch_latest_cc_snapshot_date(sb, dist_id)
     snapshot_label = resolve_snapshot_label(sb, dist_id, "cc")
 
@@ -77,13 +106,40 @@ def get_cc_vendedor(
         )
         if snapshot_date:
             q = q.eq("fecha_snapshot", snapshot_date)
-        if erp_id:
-            q = q.eq("id_vendedor", erp_id)
+        # cc_detalle.id_vendedor = PK vendedores_v2 (int), NO id_vendedor_erp
+        q = q.eq("id_vendedor", id_vendedor_v2)
         batch = q.range(offset, offset + PAGE - 1).execute().data or []
         rows.extend(batch)
         if len(batch) < PAGE:
             break
         offset += PAGE
+
+    # Filas legacy sin FK (id_vendedor NULL) — match por nombre en vendedor_nombre
+    if not rows and (erp_id or nombre_erp):
+        offset = 0
+        while True:
+            q = (
+                sb.table("cc_detalle")
+                .select(
+                    "id_vendedor,vendedor_nombre,cliente_nombre,id_cliente_erp,"
+                    "id_cliente,deuda_total,antiguedad_dias,cantidad_comprobantes,"
+                    "deuda_7_dias,deuda_15_dias,deuda_30_dias,deuda_60_dias,deuda_mas_60_dias"
+                )
+                .eq("id_distribuidor", dist_id)
+                .gt("deuda_total", 0)
+                .is_("id_vendedor", "null")
+            )
+            if snapshot_date:
+                q = q.eq("fecha_snapshot", snapshot_date)
+            batch = q.range(offset, offset + PAGE - 1).execute().data or []
+            rows.extend(
+                r
+                for r in batch
+                if _row_matches_vendor(r, id_vendedor_v2, erp_id, nombre_erp)
+            )
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
 
     if modo == "hoy" and rows:
         rows = _filter_cc_hoy(sb, dist_id, id_vendedor_v2, rows)

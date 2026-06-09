@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/api/api_client.dart';
 import '../../theme/shelfy_tokens.dart';
+import 'models/objetivo_app.dart';
+import 'models/objetivo_detalle.dart';
 import 'objetivos_provider.dart';
 import 'widgets/objetivo_card.dart';
 import 'widgets/objetivo_detalle_sheet.dart';
@@ -26,12 +29,27 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
   Future<void> _abrirDetalle(
     BuildContext context,
     ObjetivosProvider provider,
-    String id,
+    ObjetivoApp objetivo,
   ) async {
     try {
-      final detalle = await provider.fetchDetalle(id);
+      final detalle = await provider.fetchDetalle(objetivo.id);
       if (!context.mounted) return;
       await ObjetivoDetalleSheet.show(context, detalle);
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      if (e.statusCode == 404 || e.statusCode >= 500) {
+        await ObjetivoDetalleSheet.show(
+          context,
+          ObjetivoDetalle.fromListItem(objetivo),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo cargar el detalle: ${e.message}'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } on Exception catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -58,12 +76,12 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                const Icon(Icons.error_outline, size: 48, color: ShelfyTokens.muted),
                 const SizedBox(height: 12),
                 Text(
                   provider.error!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: const TextStyle(color: ShelfyTokens.textSoft),
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
@@ -80,11 +98,11 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.flag_outlined, size: 48, color: Colors.grey),
+                Icon(Icons.flag_outlined, size: 48, color: ShelfyTokens.muted),
                 SizedBox(height: 12),
                 Text(
                   'No tenés objetivos activos',
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                  style: TextStyle(color: ShelfyTokens.textSoft, fontSize: 16),
                 ),
               ],
             ),
@@ -100,7 +118,7 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
               final objetivo = provider.objetivos[index];
               return ObjetivoCard(
                 objetivo: objetivo,
-                onTap: () => _abrirDetalle(context, provider, objetivo.id),
+                onTap: () => _abrirDetalle(context, provider, objetivo),
               );
             },
           ),

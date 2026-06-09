@@ -30,7 +30,9 @@ class _StatsScreenState extends State<StatsScreen> {
     return Consumer<StatsProvider>(
       builder: (context, provider, _) {
         if (provider.loading) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(color: ShelfyTokens.primary),
+          );
         }
 
         if (provider.error != null) {
@@ -38,12 +40,12 @@ class _StatsScreenState extends State<StatsScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                const Icon(Icons.error_outline, size: 48, color: ShelfyTokens.muted),
                 const SizedBox(height: 12),
                 Text(
                   provider.error!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: const TextStyle(color: ShelfyTokens.textSoft),
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
@@ -101,7 +103,7 @@ class _MesActualCard extends StatelessWidget {
     final hasDesglose =
         stats.aprobadas + stats.destacadas + stats.rechazadas + stats.pendientes > 0;
 
-    return Card(
+    return _ShelfyStatCard(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -112,7 +114,7 @@ class _MesActualCard extends StatelessWidget {
               style: Theme.of(context)
                   .textTheme
                   .labelLarge
-                  ?.copyWith(color: Colors.grey[600]),
+                  ?.copyWith(color: ShelfyTokens.muted),
             ),
             const SizedBox(height: 8),
             Text(
@@ -134,7 +136,7 @@ class _MesActualCard extends StatelessWidget {
                 style: Theme.of(context)
                     .textTheme
                     .labelSmall
-                    ?.copyWith(color: Colors.grey),
+                    ?.copyWith(color: ShelfyTokens.muted),
               ),
             ],
             if (hasDesglose) ...[
@@ -147,25 +149,25 @@ class _MesActualCard extends StatelessWidget {
                     _EstadoChip(
                       label: 'Aprobadas',
                       count: stats.aprobadas,
-                      color: Colors.green,
+                      color: ShelfyTokens.success,
                     ),
                   if (stats.destacadas > 0)
                     _EstadoChip(
                       label: 'Destacadas',
                       count: stats.destacadas,
-                      color: Colors.amber[700]!,
+                      color: ShelfyTokens.warning,
                     ),
                   if (stats.rechazadas > 0)
                     _EstadoChip(
                       label: 'Rechazadas',
                       count: stats.rechazadas,
-                      color: Colors.red,
+                      color: ShelfyTokens.error,
                     ),
                   if (stats.pendientes > 0)
                     _EstadoChip(
                       label: 'Pendientes',
                       count: stats.pendientes,
-                      color: Colors.grey,
+                      color: ShelfyTokens.muted,
                     ),
                 ],
               ),
@@ -246,7 +248,7 @@ class _MesAnteriorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return _ShelfyStatCard(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -257,7 +259,7 @@ class _MesAnteriorCard extends StatelessWidget {
               style: Theme.of(context)
                   .textTheme
                   .labelLarge
-                  ?.copyWith(color: Colors.grey[600]),
+                  ?.copyWith(color: ShelfyTokens.muted),
             ),
             const SizedBox(height: 8),
             Row(
@@ -286,7 +288,7 @@ class _MesAnteriorCard extends StatelessWidget {
                 style: Theme.of(context)
                     .textTheme
                     .labelSmall
-                    ?.copyWith(color: Colors.grey),
+                    ?.copyWith(color: ShelfyTokens.muted),
               ),
             ],
           ],
@@ -303,7 +305,7 @@ class _RankingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return _ShelfyStatCard(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -314,7 +316,7 @@ class _RankingCard extends StatelessWidget {
               style: Theme.of(context)
                   .textTheme
                   .labelLarge
-                  ?.copyWith(color: Colors.grey[600]),
+                  ?.copyWith(color: ShelfyTokens.muted),
             ),
             const SizedBox(height: 8),
             Row(
@@ -376,7 +378,7 @@ class _DeltaWidget extends StatelessWidget {
         style: Theme.of(context)
             .textTheme
             .bodyMedium
-            ?.copyWith(color: Colors.grey),
+            ?.copyWith(color: ShelfyTokens.muted),
       );
     }
 
@@ -443,7 +445,7 @@ class _KpisResumenCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return _ShelfyStatCard(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -454,7 +456,7 @@ class _KpisResumenCard extends StatelessWidget {
               style: Theme.of(context)
                   .textTheme
                   .labelLarge
-                  ?.copyWith(color: Colors.grey[600]),
+                  ?.copyWith(color: ShelfyTokens.muted),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -510,7 +512,7 @@ class _KpiChip extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 10,
-              color: Colors.grey[600],
+              color: ShelfyTokens.muted,
             ),
           ),
         ],
@@ -530,7 +532,7 @@ class _VentasMtdCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return _ShelfyStatCard(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -543,7 +545,7 @@ class _VentasMtdCard extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .labelLarge
-                      ?.copyWith(color: Colors.grey[600]),
+                      ?.copyWith(color: ShelfyTokens.muted),
                 ),
                 const Spacer(),
                 if (ventas.periodo.isNotEmpty)
@@ -617,6 +619,27 @@ class _VentasMtdCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Card de stats alineada al tono Shelfy (borde suave, sin sombra Material default).
+class _ShelfyStatCard extends StatelessWidget {
+  final Widget child;
+
+  const _ShelfyStatCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: ShelfyTokens.panel,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+        side: const BorderSide(color: ShelfyTokens.border),
+      ),
+      child: child,
     );
   }
 }

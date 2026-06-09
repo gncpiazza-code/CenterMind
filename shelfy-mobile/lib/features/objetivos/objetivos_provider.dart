@@ -47,7 +47,13 @@ class ObjetivosProvider extends ChangeNotifier {
   /// Obtiene el detalle de un objetivo por ID desde GET /api/vendedor-app/objetivos/{id}.
   /// Lanza [ApiException] si el servidor responde con error.
   Future<ObjetivoDetalle> fetchDetalle(String id) async {
-    final data = await _api.get('/api/vendedor-app/objetivos/$id');
+    final trimmed = id.trim();
+    if (trimmed.isEmpty) {
+      throw const ApiException(statusCode: 400, message: 'ID de objetivo inválido');
+    }
+    final path =
+        '/api/vendedor-app/objetivos/${Uri.encodeComponent(trimmed)}';
+    final data = await _api.get(path);
     return ObjetivoDetalle.fromJson(data);
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/build_info.dart';
 import '../../core/offline/sync_worker.dart';
 import '../../core/offline/upload_queue.dart';
 import '../../shared/widgets/shelfy/shelfy_widgets.dart';
@@ -98,6 +99,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? null
                 : AppBar(
                     title: const ShelfyAppBarTitle(),
+                    actions: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: Center(
+                          child: Text(
+                            '${BuildInfo.versionLabel} · ${BuildInfo.tag}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: ShelfyTokens.muted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     actions: [
                       IconButton(
                         icon: const Icon(Icons.sync_outlined),

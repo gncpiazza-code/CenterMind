@@ -1,3 +1,5 @@
+import 'objetivo_app.dart';
+
 /// Modelo de detalle completo de un objetivo, obtenido al hacer tap en la card.
 class ItemPdv {
   final String idClienteErp;
@@ -136,6 +138,26 @@ class ObjetivoDetalle {
       prorrateo: json['prorrateo'] != null
           ? ProrrateoGrid.fromJson(json['prorrateo'] as Map<String, dynamic>)
           : null,
+    );
+  }
+
+  /// Resumen mínimo desde la lista (fallback si el detalle API falla).
+  factory ObjetivoDetalle.fromListItem(ObjetivoApp app) {
+    final pct = app.valorObjetivo > 0
+        ? (app.valorActual / app.valorObjetivo) * 100
+        : 0.0;
+    return ObjetivoDetalle(
+      id: app.id,
+      tipo: app.tipo,
+      descripcion: app.descripcion,
+      valorObjetivo: app.valorObjetivo,
+      valorActual: app.valorActual,
+      progresoPct: pct,
+      cumplido: app.valorActual >= app.valorObjetivo && app.valorObjetivo > 0,
+      fechaObjetivo: app.fechaObjetivo,
+      recomendaciones: const [
+        'Detalle completo no disponible. Reintentá en unos minutos.',
+      ],
     );
   }
 }

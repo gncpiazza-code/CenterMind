@@ -8,15 +8,19 @@
 curl -Ls "https://get.maestro.mobile.dev" | bash
 ```
 
-## Correr stress de tabs
+## Correr stress de tabs (5 tabs MVP)
 
-1. App instalada y **ya activada** (key pegada).
+Flujo: **Captura → CC → Cartera → Objetivos → Stats** × 3 ciclos.
+
+1. APK **tabaco** instalado (`com.shelfy.shelfy_mobile.tabaco`) y **ya activado** (key pegada).
 2. iPhone conectado o simulador abierto.
 
 ```bash
 cd shelfy-mobile
 maestro test maestro/nav_stress.yaml
 ```
+
+Para otro flavor, cambiar `appId` en `nav_stress.yaml` (ej. `.aloma`, `.real`).
 
 ## Alternativas
 

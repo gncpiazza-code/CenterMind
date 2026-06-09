@@ -312,17 +312,21 @@ def get_objetivo_detalle(
     """
     from fastapi import HTTPException
 
+    oid = (objetivo_id or "").strip()
+    if not oid:
+        return None
+
     try:
         res = (
             sb.table("objetivos")
             .select(_OBJETIVO_DETALLE_COLS)
             .eq("id_distribuidor", dist_id)
-            .eq("id", objetivo_id)
+            .eq("id", oid)
             .limit(1)
             .execute()
         )
     except Exception as e:
-        logger.error(f"get_objetivo_detalle dist={dist_id} obj={objetivo_id}: {e}")
+        logger.error(f"get_objetivo_detalle dist={dist_id} obj={oid}: {e}")
         return None
 
     if not res.data:

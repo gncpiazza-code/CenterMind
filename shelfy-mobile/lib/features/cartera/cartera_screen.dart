@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
 import 'cartera_provider.dart';
 import 'models/cartera_models.dart';
 import 'models/ruta_hoy_model.dart';
@@ -109,12 +110,12 @@ class _CarteraTab extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                  const Icon(Icons.error_outline, size: 48, color: ShelfyTokens.muted),
                   const SizedBox(height: 12),
                   Text(
                     error,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.grey),
+                    style: const TextStyle(color: ShelfyTokens.textSoft),
                   ),
                   const SizedBox(height: 16),
                   FilledButton(
@@ -169,11 +170,11 @@ class _CarteraList extends StatelessWidget {
           padding: EdgeInsets.symmetric(vertical: 48),
           child: Column(
             children: [
-              Icon(Icons.list_alt, size: 48, color: Colors.grey),
+              Icon(Icons.list_alt, size: 48, color: ShelfyTokens.muted),
               SizedBox(height: 12),
               Text(
                 'Sin clientes en esta cartera',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: ShelfyTokens.textSoft),
               ),
             ],
           ),
@@ -191,7 +192,7 @@ class _CarteraList extends StatelessWidget {
             style: Theme.of(context)
                 .textTheme
                 .labelSmall
-                ?.copyWith(color: Colors.grey),
+                ?.copyWith(color: ShelfyTokens.muted),
           ),
         ),
       );

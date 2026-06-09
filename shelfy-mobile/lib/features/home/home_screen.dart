@@ -101,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: const ShelfyAppBarTitle(),
                     actions: [
                       Padding(
-                        padding: const EdgeInsets.only(right: 12),
+                        padding: const EdgeInsets.only(right: 4),
                         child: Center(
                           child: Text(
                             '${BuildInfo.versionLabel} · ${BuildInfo.tag}',
@@ -113,8 +113,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ),
-                    ],
-                    actions: [
                       IconButton(
                         icon: const Icon(Icons.sync_outlined),
                         tooltip: 'Sincronizar pendientes',

@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 9 Jun 2026 (v20 — SHELFYAPP MVP campo ruta: nav 5 tabs + wrappers BE + visor datos)  
+**Última actualización:** 9 Jun 2026 (v21 — fix duplicado vendedor Miguel Muñoz Real Dist Córdoba)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -29,11 +29,11 @@
 
 ## Cambios recientes (máx 5)
 
-1. **SHELFYAPP gaps P2 stats/objetivos (2026-06-09):** Stats integra `/ventas` (bultos/SKU); objetivos detalle +`prorrateo` grid BE + items ruta + recomendaciones paridad bot; APK tabaco rebuild.
-2. **SHELFYAPP perf + nav (2026-06-09):** tab único montado (sin IndexedStack OOM); cache providers `fetch(force)`; cámara `medium` Android / `high` iOS; Maestro nav stress.
-3. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal; espíritu Shelfy tokens; captura 1 pantalla Stack; `pdv/buscar` endpoint.
-4. **Alta Ippolibaz dist 13 (2026-06-09):** registry + tablas `*_d13`; padrón 1111 PDVs.
-5. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` 202 + thread.
+1. **Vendedor duplicado Real Dist (2026-06-09):** merge Miguel Muñoz ERP 5082→5102 (dist 3, Suc. Córdoba); padrón ya no inserta duplicado si cambia código ERP con mismo nombre+sucursal.
+2. **SHELFYAPP P2 campo (2026-06-09):** cámara zoom slider + haptic focus; Maestro 5 tabs (CC·Cartera·Objetivos·Stats); polish tokens Stats/CC/Cartera/Objetivos.
+3. **SHELFYAPP gaps stats/objetivos (2026-06-09):** Stats `/ventas` SKU; objetivos `prorrateo` + recomendaciones bot; APK tabaco rebuild.
+4. **SHELFYAPP perf + nav (2026-06-09):** tab único montado; cache providers; cámara medium/high; Maestro nav stress.
+5. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal; espíritu Shelfy tokens; captura 1 pantalla Stack; `pdv/buscar` endpoint.
 
 ## Guardrails activos
 

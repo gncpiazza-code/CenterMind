@@ -657,8 +657,17 @@ class PadronIngestionService:
             for r in (existing_res.data or [])
             if r.get("id_vendedor_erp") is not None and r.get("id_sucursal")
         }
+        # Mismo nombre + sucursal con ERP distinto → actualizar código, no insertar duplicado
+        existing_by_name_suc: dict[tuple[str, int], int] = {}
+        for r in (existing_res.data or []):
+            name_norm = _norm(r.get("nombre_erp") or "")
+            sid = r.get("id_sucursal")
+            vid = r.get("id_vendedor")
+            if name_norm and sid and vid is not None:
+                existing_by_name_suc.setdefault((name_norm, int(sid)), int(vid))
 
         to_insert = []
+        to_update_erp: list[dict] = []
         skipped_suc = 0
         for (vend_key, erp_suc), nombre in unique.items():
             id_sucursal = suc_map.get(erp_suc)
@@ -667,6 +676,16 @@ class PadronIngestionService:
                 logger.debug(f"[Padrón] Vendedor '{nombre}' (key={vend_key}) sin sucursal mapeada (erp_suc='{erp_suc}'), saltando")
                 continue
             if (vend_key, id_sucursal) not in existing_by_erp:
+                name_key = (_norm(nombre), int(id_sucursal))
+                existing_vid = existing_by_name_suc.get(name_key)
+                if existing_vid is not None:
+                    to_update_erp.append({
+                        "id_vendedor": existing_vid,
+                        "id_vendedor_erp": vend_key,
+                        "nombre_erp": nombre,
+                    })
+                    existing_by_erp[(vend_key, id_sucursal)] = existing_vid
+                    continue
                 to_insert.append({
                     "id_distribuidor": dist_id,
                     "id_sucursal": id_sucursal,
@@ -676,6 +695,18 @@ class PadronIngestionService:
 
         if skipped_suc:
             logger.warning(f"[Padrón] Vendedores saltados por sucursal no mapeada: {skipped_suc}")
+
+        if to_update_erp:
+            for upd in to_update_erp:
+                patch = {
+                    "id_vendedor_erp": upd["id_vendedor_erp"],
+                    "nombre_erp": upd["nombre_erp"],
+                }
+                sb.table(vend_table).update(patch).eq("id_vendedor", upd["id_vendedor"]).execute()
+                sb.table("vendedores_v2").update(patch).eq("id_vendedor", upd["id_vendedor"]).execute()
+            logger.info(
+                f"[Padrón] Vendedores ERP actualizados (sin duplicar por nombre): {len(to_update_erp)}"
+            )
 
         if to_insert:
             # Insertar en lotes para evitar límites de URL/body
@@ -702,7 +733,10 @@ class PadronIngestionService:
             if vk:
                 mapping[(vk, erp_suc_rev)] = r["id_vendedor"]
 
-        logger.info(f"[Padrón] Vendedores: {len(unique)} en Excel, {len(to_insert)} nuevos, {len(mapping)} en mapping final")
+        logger.info(
+            f"[Padrón] Vendedores: {len(unique)} en Excel, {len(to_insert)} nuevos, "
+            f"{len(to_update_erp)} ERP migrados, {len(mapping)} en mapping final"
+        )
         return len(unique), mapping
 
     # ── Paso 3: Rutas ─────────────────────────────────────────────────────────

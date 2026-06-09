@@ -53,6 +53,12 @@ class PendingUploads extends Table {
 
   /// Mensaje de error del último intento fallido (nullable).
   TextColumn get errorMessage => text().named('error_message').nullable()();
+
+  /// ID del distribuidor que generó esta subida (scope de sesión).
+  IntColumn get distId => integer().named('dist_id').nullable()();
+
+  /// ID del vendedor que generó esta subida (scope de sesión).
+  IntColumn get vendorId => integer().named('vendor_id').nullable()();
 }
 
 /// Abre la conexión SQLite en el directorio de documentos de la app.

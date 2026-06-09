@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/config/build_info.dart';
+import '../../core/auth/auth_service.dart';
+import '../../core/offline/bundle_provider.dart';
 import '../../core/offline/sync_worker.dart';
 import '../../core/offline/upload_queue.dart';
 import '../../shared/widgets/shelfy/shelfy_widgets.dart';
@@ -14,6 +15,7 @@ import '../cartera/cartera_screen.dart';
 import '../cuentas/cuentas_provider.dart';
 import '../cuentas/cuentas_screen.dart';
 import '../galeria/galeria_provider.dart';
+import '../galeria/galeria_screen.dart';
 import '../objetivos/objetivos_provider.dart';
 import '../objetivos/objetivos_screen.dart';
 import '../stats/stats_provider.dart';
@@ -35,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _captureTabReady = false; // lazy para evitar OOM iOS en cold start
 
   late HomeTabController _tabController;
+  late BundleProvider _bundleProvider;
   late CaptureProvider _captureProvider;
   late CarteraProvider _carteraProvider;
   late VentasProvider _ventasProvider;
@@ -50,8 +53,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final api = context.read<ApiClient>();
     final db = context.read<ShelfyDatabase>();
+    final session = context.read<AuthService>().currentSession;
     _tabController = HomeTabController();
-    _captureProvider = CaptureProvider(apiClient: api, db: db);
+    _bundleProvider = BundleProvider(api: api);
+    _bundleProvider.init(); // fetch en background; no await para no bloquear
+    _captureProvider = CaptureProvider(
+      apiClient: api,
+      db: db,
+      distId: session?.idDistribuidor,
+      vendorId: session?.idVendedor,
+    );
     _carteraProvider = CarteraProvider(api: api);
     _ventasProvider = VentasProvider(api: api);
     _cuentasProvider = CuentasProvider(api: api);
@@ -69,6 +80,29 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cerrar sesión'),
+        content: const Text('¿Querés salir de tu cuenta?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Salir'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await context.read<AuthService>().logout();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_providersReady) {
@@ -80,6 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<HomeTabController>.value(value: _tabController),
+        ChangeNotifierProvider<BundleProvider>.value(value: _bundleProvider),
         ChangeNotifierProvider<CaptureProvider>.value(value: _captureProvider),
         ChangeNotifierProvider<CarteraProvider>.value(value: _carteraProvider),
         ChangeNotifierProvider<VentasProvider>.value(value: _ventasProvider),
@@ -100,19 +135,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 : AppBar(
                     title: const ShelfyAppBarTitle(),
                     actions: [
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: Center(
-                          child: Text(
-                            '${BuildInfo.versionLabel} · ${BuildInfo.tag}',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: ShelfyTokens.muted,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
                       IconButton(
                         icon: const Icon(Icons.sync_outlined),
                         tooltip: 'Sincronizar pendientes',
@@ -128,6 +150,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         },
                       ),
+                      IconButton(
+                        icon: const Icon(Icons.logout_outlined),
+                        tooltip: 'Cerrar sesión',
+                        onPressed: () => _confirmLogout(context),
+                      ),
                     ],
                   ),
             // Solo monta el tab activo — evita OOM con cámara + múltiples pantallas vivas.
@@ -139,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
               2 => const CarteraScreen(key: ValueKey('tab_cartera')),
               3 => const ObjetivosScreen(key: ValueKey('tab_objetivos')),
               4 => const StatsScreen(key: ValueKey('tab_stats')),
+              5 => const GaleriaScreen(key: ValueKey('tab_galeria')),
               _ => const SizedBox.shrink(),
             },
             bottomNavigationBar: _BottomNav(
@@ -222,6 +250,13 @@ class _BottomNav extends StatelessWidget {
           activeIcon: Icon(Icons.bar_chart),
           label: 'Stats',
           tooltip: 'Estadísticas de rendimiento',
+        ),
+        // Tab 5: Galería
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.photo_library_outlined),
+          activeIcon: Icon(Icons.photo_library),
+          label: 'Galería',
+          tooltip: 'Historial de exhibiciones',
         ),
       ],
     );

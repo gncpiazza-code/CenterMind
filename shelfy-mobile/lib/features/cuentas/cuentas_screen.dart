@@ -380,6 +380,11 @@ class _ClienteCcTile extends StatelessWidget {
                   ),
               ],
             ),
+            // Aging visual: barras proporcionales por bucket de deuda
+            if (cliente.saldo > 0) ...[
+              const SizedBox(height: 8),
+              _AgingBar(cliente: cliente),
+            ],
             if (hasMaps) ...[
               const SizedBox(height: 8),
               GestureDetector(
@@ -439,4 +444,77 @@ class _InfoChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Barra visual de aging: segmentos coloreados proporcionales a cada bucket de deuda.
+class _AgingBar extends StatelessWidget {
+  final ClienteCc cliente;
+
+  const _AgingBar({required this.cliente});
+
+  @override
+  Widget build(BuildContext context) {
+    final buckets = <_Bucket>[
+      _Bucket('≤7d', cliente.deuda7Dias, Colors.green),
+      _Bucket('≤15d', cliente.deuda15Dias, Colors.lightGreen),
+      _Bucket('≤30d', cliente.deuda30Dias, Colors.orange),
+      _Bucket('≤60d', cliente.deuda60Dias, Colors.deepOrange),
+      _Bucket('>60d', cliente.deudaMas60Dias, ShelfyTokens.error),
+    ].where((b) => b.value > 0).toList();
+
+    if (buckets.isEmpty) return const SizedBox.shrink();
+
+    final total = buckets.fold<double>(0, (s, b) => s + b.value);
+    final fmt = NumberFormat.compactCurrency(locale: 'es_AR', symbol: '\$');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Row(
+            children: buckets
+                .map(
+                  (b) => Expanded(
+                    flex: ((b.value / total) * 100).clamp(1, 100).round(),
+                    child: Container(height: 6, color: b.color),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          runSpacing: 2,
+          children: buckets
+              .map(
+                (b) => Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(color: b.color, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      '${b.label} ${fmt.format(b.value)}',
+                      style: const TextStyle(fontSize: 10, color: ShelfyTokens.textSoft),
+                    ),
+                  ],
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _Bucket {
+  final String label;
+  final double value;
+  final Color color;
+  const _Bucket(this.label, this.value, this.color);
 }

@@ -5,8 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
-import '../../shared/widgets/shelfy/shelfy_widgets.dart';
 import '../../theme/shelfy_tokens.dart';
+import '../home/home_tab_controller.dart';
 import 'capture_provider.dart';
 import 'models/pdv_candidate.dart';
 import 'widgets/camera_capture_widget.dart';
@@ -34,7 +34,6 @@ class _CaptureScreenState extends State<CaptureScreen>
   late Animation<Offset> _sheetSlide;
   CaptureProvider? _captureProvider;
   CaptureOverlayPhase? _lastAnimatedPhase;
-  bool _capturing = false;
 
   @override
   void initState() {
@@ -49,7 +48,15 @@ class _CaptureScreenState extends State<CaptureScreen>
     ).animate(CurvedAnimation(parent: _sheetAnim, curve: Curves.easeOutCubic));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _startBackgroundGps();
+      if (!mounted) return;
+      _startBackgroundGps();
+      // Pre-fill search if launched from Cartera CTA
+      final pendingNro =
+          context.read<HomeTabController>().takePendingCapturePdvNro();
+      if (pendingNro != null && pendingNro.isNotEmpty) {
+        _searchController.text = pendingNro;
+        context.read<CaptureProvider>().searchPdv(pendingNro);
+      }
     });
   }
 
@@ -140,26 +147,8 @@ class _CaptureScreenState extends State<CaptureScreen>
                 child: CameraCaptureWidget(
                   key: _cameraKey,
                   onPhotoTaken: provider.onPhotoTaken,
-                  onCapturingChanged: (c) {
-                    if (mounted) setState(() => _capturing = c);
-                  },
-                ),
-              ),
-
-              // Shutter sobre bottom nav (no tapado por el hub)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: kBottomNavigationBarHeight +
-                    MediaQuery.paddingOf(context).bottom +
-                    12,
-                child: Center(
-                  child: ShelfyCaptureShutter(
-                    loading: _capturing,
-                    onTap: provider.phase == CaptureOverlayPhase.uploading
-                        ? null
-                        : () => _cameraKey.currentState?.takePhoto(),
-                  ),
+                  onCapturingChanged: (_) {},
+                  photoCount: provider.photoCount,
                 ),
               ),
 
@@ -170,9 +159,6 @@ class _CaptureScreenState extends State<CaptureScreen>
                     color: Colors.black.withValues(alpha: 0.55),
                   ),
                 ),
-
-              // Z1: Barra superior — GPS status + contador fotos
-              _TopBar(provider: provider),
 
               // Z3: Sheet de overlay con las fases
               Positioned(
@@ -192,98 +178,6 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
         );
       },
-    );
-  }
-}
-
-// ─── Top bar ─────────────────────────────────────────────────────────────────
-
-class _TopBar extends StatelessWidget {
-  final CaptureProvider provider;
-
-  const _TopBar({required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    final photos = provider.photoCount;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            // GPS hint
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.50),
-                  borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (provider.nearbyLoading)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white70,
-                        ),
-                      )
-                    else
-                      Icon(
-                        provider.nearbyPdvs.isNotEmpty
-                            ? Icons.location_on_rounded
-                            : Icons.location_off_rounded,
-                        size: 14,
-                        color: provider.nearbyPdvs.isNotEmpty
-                            ? ShelfyTokens.primary
-                            : Colors.white38,
-                      ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        provider.nearbyLoading
-                            ? 'Buscando PDVs cercanos...'
-                            : provider.nearbyPdvs.isNotEmpty
-                                ? '${provider.nearbyPdvs.length} PDV${provider.nearbyPdvs.length > 1 ? 's' : ''} cerca'
-                                : 'Sin PDVs en 100 m',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Contador de fotos (solo si hay)
-            if (photos > 0) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: ShelfyTokens.primary.withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
-                ),
-                child: Text(
-                  '$photos/$kMaxPhotosPerExhibicion',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }
@@ -504,8 +398,8 @@ class _PostPhotoContent extends StatelessWidget {
           const _SheetHandle(),
           _PhotoStrip(provider: provider),
 
-          // PDVs cercanos como chips
-          if (provider.nearbyPdvs.isNotEmpty) ...[
+          // PDVs cercanos como chips — ocultar si el vendedor ya está buscando por texto
+          if (provider.nearbyPdvs.isNotEmpty && searchController.text.isEmpty) ...[
             const Text(
               'PDVs cercanos',
               style: TextStyle(
@@ -710,25 +604,63 @@ class _PdvSearchField extends StatelessWidget {
           ),
         ],
 
-        // Entrada manual de NRO (solo si no hay resultados y hay texto numérico)
+        // Sin resultados: ofrecer pendiente + entrada manual
         if (controller.text.isNotEmpty &&
             !provider.searchLoading &&
-            provider.searchResults.isEmpty &&
-            RegExp(r'^\d+$').hasMatch(controller.text.trim())) ...[
+            provider.searchResults.isEmpty) ...[
           const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () {
-              final nro = controller.text.trim();
-              controller.clear();
-              provider.confirmManualNro(nro);
-            },
-            icon: const Icon(Icons.add_circle_outline, size: 18),
-            label: Text('Usar NRO ${controller.text.trim()} (no en padrón)'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: ShelfyTokens.primary,
-              side: const BorderSide(color: ShelfyTokens.primary),
+          if (provider.pendienteRegistrado)
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: ShelfyTokens.warning.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+                border: Border.all(color: ShelfyTokens.warning.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.schedule_send_outlined, size: 16, color: ShelfyTokens.warning),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'NRO ${controller.text.trim()} registrado — pendiente de alta en padrón.',
+                      style: const TextStyle(fontSize: 12, color: ShelfyTokens.warning),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            OutlinedButton.icon(
+              onPressed: () {
+                final nro = controller.text.trim();
+                provider.registerPendientePdv(
+                  nro,
+                  lat: provider.currentLat,
+                  lng: provider.currentLng,
+                );
+              },
+              icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+              label: Text('Registrar "${controller.text.trim()}" como pendiente'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ShelfyTokens.warning,
+                side: const BorderSide(color: ShelfyTokens.warning),
+              ),
             ),
-          ),
+            if (RegExp(r'^\d+$').hasMatch(controller.text.trim())) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: () {
+                  final nro = controller.text.trim();
+                  controller.clear();
+                  provider.confirmManualNro(nro);
+                },
+                icon: const Icon(Icons.add_circle_outline, size: 16),
+                label: Text('Usar NRO ${controller.text.trim()} sin verificar'),
+                style: TextButton.styleFrom(foregroundColor: ShelfyTokens.muted),
+              ),
+            ],
+          ],
         ],
       ],
     );
@@ -1149,6 +1081,12 @@ class _DoneContent extends StatelessWidget {
             ),
           ),
 
+          // Resumen rico post-upload (solo si online y summary disponible)
+          if (!isOffline && provider.postUploadSummary != null) ...[
+            const SizedBox(height: 12),
+            _PostUploadRichSummary(summary: provider.postUploadSummary!),
+          ],
+
           const SizedBox(height: 12),
 
           _ShelfyFilledButton(
@@ -1156,6 +1094,99 @@ class _DoneContent extends StatelessWidget {
             label: 'Nueva captura',
             icon: Icons.add_a_photo_outlined,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Post-upload resumen rico ─────────────────────────────────────────────────
+
+class _PostUploadRichSummary extends StatelessWidget {
+  final dynamic summary; // PostUploadSummary
+
+  const _PostUploadRichSummary({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final historial = summary.historialPdv as List;
+    final stats = summary.statsMes;
+    final badge = summary.objetivoBadge;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ShelfyTokens.panel,
+        borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+        border: Border.all(color: ShelfyTokens.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Stats mes
+          Row(
+            children: [
+              const Icon(Icons.bar_chart, size: 14, color: ShelfyTokens.primary),
+              const SizedBox(width: 6),
+              Text(
+                'Mes: ${stats.exhibicionesLogicas} exhibiciones · ${stats.puntos} pts',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: ShelfyTokens.text,
+                ),
+              ),
+            ],
+          ),
+
+          // Objetivo badge
+          if (badge != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.flag_outlined, size: 14, color: ShelfyTokens.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Objetivo ${badge.tipo}: ${badge.progresoPct.toStringAsFixed(0)}%',
+                  style: const TextStyle(fontSize: 12, color: ShelfyTokens.textSoft),
+                ),
+              ],
+            ),
+          ],
+
+          // Últimas visitas PDV
+          if (historial.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Últimas visitas a este PDV',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: ShelfyTokens.muted,
+              ),
+            ),
+            const SizedBox(height: 4),
+            ...historial.take(3).map((h) => Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: ShelfyTokens.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${h.fecha}  ·  ${h.estado}',
+                    style: const TextStyle(fontSize: 11, color: ShelfyTokens.textSoft),
+                  ),
+                ],
+              ),
+            )),
+          ],
         ],
       ),
     );

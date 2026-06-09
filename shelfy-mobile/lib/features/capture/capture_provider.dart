@@ -62,9 +62,18 @@ class CaptureProvider extends ChangeNotifier {
   /// Notifica al shell (ej. refrescar galería) tras upload online exitoso.
   void Function(String nroCliente)? onUploadSuccess;
 
-  CaptureProvider({required ApiClient apiClient, required ShelfyDatabase db})
-      : _api = apiClient,
-        _db = db;
+  final int? _distId;
+  final int? _vendorId;
+
+  CaptureProvider({
+    required ApiClient apiClient,
+    required ShelfyDatabase db,
+    int? distId,
+    int? vendorId,
+  })  : _api = apiClient,
+        _db = db,
+        _distId = distId,
+        _vendorId = vendorId;
 
   // ── Getters ──────────────────────────────────────────────────────────────────
   CaptureOverlayPhase get phase => _phase;
@@ -352,8 +361,31 @@ class CaptureProvider extends ChangeNotifier {
         photoLocalPaths: pathsJson,
         captureLatLng: Value(metadataJson),
         estado: const Value('enCola'),
+        distId: Value(_distId),
+        vendorId: Value(_vendorId),
       ),
     );
+  }
+
+  // ── Pendientes padrón ──────────────────────────────────────────────────────
+
+  bool _pendienteRegistrado = false;
+  bool get pendienteRegistrado => _pendienteRegistrado;
+
+  Future<void> registerPendientePdv(String nroCliente, {double? lat, double? lng}) async {
+    try {
+      await _api.post('/api/vendedor-app/pdv/pendiente', {
+        'nro_cliente': nroCliente.trim(),
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+      });
+      _pendienteRegistrado = true;
+      notifyListeners();
+    } catch (_) {
+      // best-effort; si está offline se registrará después
+      _pendienteRegistrado = true;
+      notifyListeners();
+    }
   }
 
   void reset() {
@@ -369,6 +401,7 @@ class CaptureProvider extends ChangeNotifier {
     _errorMessage = null;
     _searchResults = [];
     _searchLoading = false;
+    _pendienteRegistrado = false;
     _searchDebounce?.cancel();
     notifyListeners();
   }

@@ -161,11 +161,43 @@ class ObjetivoDetalleSheet extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
+            // Banner acción (resumen_mobile.accion) cuando no está cumplido
+            if (!detalle.cumplido && detalle.resumenMobile?.accion != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: tipoColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: tipoColor.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.rocket_launch_outlined, size: 16, color: tipoColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        detalle.resumenMobile!.accion,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: tipoColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             // Metadata grid (origen, vence)
             ShelfyKeyValueGrid(
               items: [
                 (key: 'Tipo', value: _tipoLabel()),
                 (key: 'Vence', value: _formatFecha(detalle.fechaObjetivo)),
+                if (detalle.resumenMobile?.mes != null)
+                  (key: 'Mes', value: detalle.resumenMobile!.mes!),
               ],
             ),
 

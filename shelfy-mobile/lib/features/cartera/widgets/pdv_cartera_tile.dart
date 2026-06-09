@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../../features/home/home_tab_controller.dart';
 import '../../../theme/shelfy_tokens.dart';
 import '../models/cartera_models.dart';
 
@@ -199,6 +201,25 @@ class _PdvFichaSheet extends StatelessWidget {
               _FichaRow(label: 'Alta', value: _formatFecha(pdv.fechaAlta!)),
             if (pdv.fechaUltimaCompra != null && pdv.fechaUltimaCompra!.isNotEmpty)
               _FichaRow(label: 'Última compra', value: _formatFecha(pdv.fechaUltimaCompra!)),
+
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonal(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  context.read<HomeTabController>().goToCaptureWithPdv(pdv.idClienteErp);
+                },
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.camera_alt_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('Registrar exhibición'),
+                  ],
+                ),
+              ),
+            ),
           ],
         );
       },

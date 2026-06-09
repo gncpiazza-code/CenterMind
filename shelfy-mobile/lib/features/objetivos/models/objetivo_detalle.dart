@@ -1,85 +1,44 @@
-import 'objetivo_app.dart';
-
 /// Modelo de detalle completo de un objetivo, obtenido al hacer tap en la card.
 class ItemPdv {
   final String idClienteErp;
   final String nombre;
-  final String? rutaLabel;
 
   const ItemPdv({
     required this.idClienteErp,
     required this.nombre,
-    this.rutaLabel,
   });
 
   factory ItemPdv.fromJson(Map<String, dynamic> json) {
     return ItemPdv(
-      idClienteErp: json['id_cliente_erp']?.toString() ??
-          json['id']?.toString() ??
-          '',
+      idClienteErp: json['id_cliente_erp']?.toString() ?? '',
       nombre: json['nombre'] as String? ?? '',
-      rutaLabel: json['ruta_label'] as String?,
     );
   }
 }
 
-/// Prorrateo lun–sáb servido por BE (core/objetivos_prorrateo.py).
-class ProrrateoGrid {
-  final String label;
-  final double restante;
-  final double metaDiariaFutura;
-  final double avanceVsMeta;
-  final int metaAcumulada;
-  final bool invarianteOk;
-  final List<ProrrateoSemana> semanas;
+/// Campos tipados del campo `resumen_mobile` devuelto por el backend.
+class ResumenMobile {
+  final String titulo;
+  final String accion;
+  final String? tip;
+  final String? mes;
+  final String? origen;
 
-  const ProrrateoGrid({
-    required this.label,
-    required this.restante,
-    required this.metaDiariaFutura,
-    required this.avanceVsMeta,
-    required this.metaAcumulada,
-    required this.invarianteOk,
-    required this.semanas,
+  const ResumenMobile({
+    required this.titulo,
+    required this.accion,
+    this.tip,
+    this.mes,
+    this.origen,
   });
 
-  factory ProrrateoGrid.fromJson(Map<String, dynamic> json) {
-    return ProrrateoGrid(
-      label: json['label'] as String? ?? 'Prorrateo',
-      restante: (json['restante'] as num?)?.toDouble() ?? 0,
-      metaDiariaFutura: (json['meta_diaria_futura'] as num?)?.toDouble() ?? 0,
-      avanceVsMeta: (json['avance_vs_meta'] as num?)?.toDouble() ?? 0,
-      metaAcumulada: (json['meta_acumulada'] as num?)?.toInt() ?? 0,
-      invarianteOk: json['invariante_ok'] as bool? ?? true,
-      semanas: (json['semanas'] as List<dynamic>? ?? [])
-          .map((e) => ProrrateoSemana.fromJson(e as Map<String, dynamic>))
-          .toList(),
-    );
-  }
-}
-
-class ProrrateoSemana {
-  final String label;
-  final int weekPct;
-  final double weekMeta;
-  final double weekAvance;
-  final List<dynamic> celdas;
-
-  const ProrrateoSemana({
-    required this.label,
-    required this.weekPct,
-    required this.weekMeta,
-    required this.weekAvance,
-    required this.celdas,
-  });
-
-  factory ProrrateoSemana.fromJson(Map<String, dynamic> json) {
-    return ProrrateoSemana(
-      label: json['label'] as String? ?? '',
-      weekPct: (json['week_pct'] as num?)?.toInt() ?? 0,
-      weekMeta: (json['week_meta'] as num?)?.toDouble() ?? 0,
-      weekAvance: (json['week_avance'] as num?)?.toDouble() ?? 0,
-      celdas: json['celdas'] as List<dynamic>? ?? [],
+  factory ResumenMobile.fromJson(Map<String, dynamic> json) {
+    return ResumenMobile(
+      titulo: json['titulo'] as String? ?? '',
+      accion: json['accion'] as String? ?? '',
+      tip: json['tip'] as String?,
+      mes: json['mes'] as String?,
+      origen: json['origen'] as String?,
     );
   }
 }
@@ -96,7 +55,7 @@ class ObjetivoDetalle {
   final Map<String, dynamic>? desglose;
   final List<ItemPdv> itemsPdv;
   final List<String> recomendaciones;
-  final ProrrateoGrid? prorrateo;
+  final ResumenMobile? resumenMobile;
 
   const ObjetivoDetalle({
     required this.id,
@@ -110,7 +69,7 @@ class ObjetivoDetalle {
     this.desglose,
     this.itemsPdv = const [],
     this.recomendaciones = const [],
-    this.prorrateo,
+    this.resumenMobile,
   });
 
   factory ObjetivoDetalle.fromJson(Map<String, dynamic> json) {
@@ -122,6 +81,11 @@ class ObjetivoDetalle {
         .map((e) => e as String? ?? '')
         .where((s) => s.isNotEmpty)
         .toList();
+
+    final resumenRaw = json['resumen_mobile'];
+    final resumen = resumenRaw is Map<String, dynamic>
+        ? ResumenMobile.fromJson(resumenRaw)
+        : null;
 
     return ObjetivoDetalle(
       id: json['id']?.toString() ?? '',
@@ -135,29 +99,7 @@ class ObjetivoDetalle {
       desglose: json['desglose'] as Map<String, dynamic>?,
       itemsPdv: pdvList,
       recomendaciones: recList,
-      prorrateo: json['prorrateo'] != null
-          ? ProrrateoGrid.fromJson(json['prorrateo'] as Map<String, dynamic>)
-          : null,
-    );
-  }
-
-  /// Resumen mínimo desde la lista (fallback si el detalle API falla).
-  factory ObjetivoDetalle.fromListItem(ObjetivoApp app) {
-    final pct = app.valorObjetivo > 0
-        ? (app.valorActual / app.valorObjetivo) * 100
-        : 0.0;
-    return ObjetivoDetalle(
-      id: app.id,
-      tipo: app.tipo,
-      descripcion: app.descripcion,
-      valorObjetivo: app.valorObjetivo,
-      valorActual: app.valorActual,
-      progresoPct: pct,
-      cumplido: app.valorActual >= app.valorObjetivo && app.valorObjetivo > 0,
-      fechaObjetivo: app.fechaObjetivo,
-      recomendaciones: const [
-        'Detalle completo no disponible. Reintentá en unos minutos.',
-      ],
+      resumenMobile: resumen,
     );
   }
 }

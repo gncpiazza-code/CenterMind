@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../offline/bundle_cache.dart';
 import '../platform/app_platform.dart';
 import 'secure_storage.dart';
 import 'session_model.dart';
@@ -89,9 +90,10 @@ class AuthService extends ChangeNotifier {
     return session;
   }
 
-  /// Cierra sesión: elimina token del almacenamiento seguro y limpia estado.
+  /// Cierra sesión: elimina token, cache bundle y limpia estado.
   Future<void> logout() async {
     await SecureStorageService.clearSession();
+    await BundleCache.clear();
     _currentSession = null;
     _api.clearAuth();
     notifyListeners();

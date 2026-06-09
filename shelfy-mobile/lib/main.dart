@@ -7,6 +7,7 @@ import 'core/auth/auth_service.dart';
 import 'core/config/app_config.dart';
 import 'core/offline/sync_worker.dart';
 import 'core/offline/upload_queue.dart';
+import 'core/push/vendedor_push_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +25,14 @@ void main() async {
   await authService.initialize();
 
   final syncWorker = SyncWorker(db: db, api: apiClient);
+
+  // 401 global: limpiar sesión para que GoRouter redirija a /activation.
+  apiClient.setUnauthorizedCallback(() => authService.logout());
+
+  // Registrar token FCM si Firebase está configurado (stub por ahora).
+  if (authService.isLoggedIn) {
+    VendedorPushService(apiClient).requestAndRegisterToken();
+  }
 
   runApp(
     // SyncWorker disponible en todo el árbol.

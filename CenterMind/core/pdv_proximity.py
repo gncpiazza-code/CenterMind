@@ -200,7 +200,7 @@ def pdv_buscar_texto(
                 sb.table(t_clientes)
                 .select("id_cliente_erp, nombre_fantasia, nombre_razon_social")
                 .in_("id_ruta", id_rutas)
-                .or_(f"nombre_fantasia.ilike.%{q}%,nombre_razon_social.ilike.%{q}%")
+                .or_(f"nombre_fantasia.ilike.{q}%,nombre_razon_social.ilike.{q}%")
                 .limit(remaining + len(nro_hits))
                 .execute()
             )

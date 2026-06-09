@@ -32,7 +32,18 @@ class ShelfyDatabase extends GeneratedDatabase with _$ShelfyDatabase {
   ShelfyDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(pendingUploads, pendingUploads.distId);
+        await m.addColumn(pendingUploads, pendingUploads.vendorId);
+      }
+    },
+  );
 
   /// Agrega un nuevo upload a la cola.
   Future<int> enqueueUpload(PendingUploadsCompanion entry) =>
@@ -68,6 +79,17 @@ class ShelfyDatabase extends GeneratedDatabase with _$ShelfyDatabase {
         attemptCount: Value(row.attemptCount + 1),
       ),
     );
+  }
+
+  /// Elimina todos los uploads de otros vendedores (purge al cambiar sesión).
+  Future<void> purgeOtherVendors(int distId, int vendorId) async {
+    await (delete(pendingUploads)
+          ..where(
+            (t) =>
+                t.distId.isNotNull() &
+                (t.distId.equals(distId).not() | t.vendorId.equals(vendorId).not()),
+          ))
+        .go();
   }
 
   /// Elimina un upload completado de la cola.
@@ -185,6 +207,20 @@ class $PendingUploadsTable extends PendingUploads
   );
 
   @override
+  late final GeneratedColumn<int> distId = GeneratedColumn<int>(
+    'dist_id', aliasedName, true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+
+  @override
+  late final GeneratedColumn<int> vendorId = GeneratedColumn<int>(
+    'vendor_id', aliasedName, true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+
+  @override
   List<GeneratedColumn> get $columns => [
         id,
         clientUploadId,
@@ -196,6 +232,8 @@ class $PendingUploadsTable extends PendingUploads
         createdAt,
         attemptCount,
         errorMessage,
+        distId,
+        vendorId,
       ];
 
   @override
@@ -276,6 +314,10 @@ class $PendingUploadsTable extends PendingUploads
           .read(DriftSqlType.int, data['${prefix}attempt_count'])!,
       errorMessage: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${prefix}error_message']),
+      distId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${prefix}dist_id']),
+      vendorId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${prefix}vendor_id']),
     );
   }
 
@@ -299,6 +341,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
   final DateTime createdAt;
   final int attemptCount;
   final String? errorMessage;
+  final int? distId;
+  final int? vendorId;
 
   const PendingUpload({
     required this.id,
@@ -311,6 +355,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
     required this.createdAt,
     required this.attemptCount,
     this.errorMessage,
+    this.distId,
+    this.vendorId,
   });
 
   @override
@@ -331,6 +377,12 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
     map['attempt_count'] = Variable<int>(attemptCount);
     if (!nullToAbsent || errorMessage != null) {
       map['error_message'] = Variable<String>(errorMessage);
+    }
+    if (!nullToAbsent || distId != null) {
+      map['dist_id'] = Variable<int>(distId);
+    }
+    if (!nullToAbsent || vendorId != null) {
+      map['vendor_id'] = Variable<int>(vendorId);
     }
     return map;
   }
@@ -353,6 +405,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
       errorMessage: errorMessage == null && nullToAbsent
           ? const Value.absent()
           : Value(errorMessage),
+      distId: distId == null && nullToAbsent ? const Value.absent() : Value(distId),
+      vendorId: vendorId == null && nullToAbsent ? const Value.absent() : Value(vendorId),
     );
   }
 
@@ -372,6 +426,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
       createdAt: serializer.fromJson<DateTime>(json['created_at']),
       attemptCount: serializer.fromJson<int>(json['attempt_count']),
       errorMessage: serializer.fromJson<String?>(json['error_message']),
+      distId: serializer.fromJson<int?>(json['dist_id']),
+      vendorId: serializer.fromJson<int?>(json['vendor_id']),
     );
   }
 
@@ -389,6 +445,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
       'created_at': serializer.toJson<DateTime>(createdAt),
       'attempt_count': serializer.toJson<int>(attemptCount),
       'error_message': serializer.toJson<String?>(errorMessage),
+      'dist_id': serializer.toJson<int?>(distId),
+      'vendor_id': serializer.toJson<int?>(vendorId),
     };
   }
 
@@ -403,6 +461,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
     DateTime? createdAt,
     int? attemptCount,
     Value<String?> errorMessage = const Value.absent(),
+    Value<int?> distId = const Value.absent(),
+    Value<int?> vendorId = const Value.absent(),
   }) =>
       PendingUpload(
         id: id ?? this.id,
@@ -416,6 +476,8 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
         createdAt: createdAt ?? this.createdAt,
         attemptCount: attemptCount ?? this.attemptCount,
         errorMessage: errorMessage.present ? errorMessage.value : this.errorMessage,
+        distId: distId.present ? distId.value : this.distId,
+        vendorId: vendorId.present ? vendorId.value : this.vendorId,
       );
 
   @override
@@ -429,7 +491,9 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
         ..write('estado: $estado, ')
         ..write('createdAt: $createdAt, ')
         ..write('attemptCount: $attemptCount, ')
-        ..write('errorMessage: $errorMessage')
+        ..write('errorMessage: $errorMessage, ')
+        ..write('distId: $distId, ')
+        ..write('vendorId: $vendorId')
         ..write(')'))
       .toString();
 
@@ -437,7 +501,7 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
   int get hashCode => Object.hash(
         id, clientUploadId, nroCliente, tipoPdv,
         photoLocalPaths, captureLatLng, estado, createdAt, attemptCount,
-        errorMessage,
+        errorMessage, distId, vendorId,
       );
 
   @override
@@ -453,7 +517,9 @@ class PendingUpload extends DataClass implements Insertable<PendingUpload> {
           other.estado == estado &&
           other.createdAt == createdAt &&
           other.attemptCount == attemptCount &&
-          other.errorMessage == errorMessage);
+          other.errorMessage == errorMessage &&
+          other.distId == distId &&
+          other.vendorId == vendorId);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -471,6 +537,8 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
   final Value<DateTime> createdAt;
   final Value<int> attemptCount;
   final Value<String?> errorMessage;
+  final Value<int?> distId;
+  final Value<int?> vendorId;
 
   const PendingUploadsCompanion({
     this.id = const Value.absent(),
@@ -483,6 +551,8 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
     this.createdAt = const Value.absent(),
     this.attemptCount = const Value.absent(),
     this.errorMessage = const Value.absent(),
+    this.distId = const Value.absent(),
+    this.vendorId = const Value.absent(),
   });
 
   PendingUploadsCompanion.insert({
@@ -496,6 +566,8 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
     this.createdAt = const Value.absent(),
     this.attemptCount = const Value.absent(),
     this.errorMessage = const Value.absent(),
+    this.distId = const Value.absent(),
+    this.vendorId = const Value.absent(),
   })  : clientUploadId = Value(clientUploadId),
         nroCliente = Value(nroCliente),
         photoLocalPaths = Value(photoLocalPaths);
@@ -537,6 +609,8 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
     Value<DateTime>? createdAt,
     Value<int>? attemptCount,
     Value<String?>? errorMessage,
+    Value<int?>? distId,
+    Value<int?>? vendorId,
   }) {
     return PendingUploadsCompanion(
       id: id ?? this.id,
@@ -549,6 +623,8 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
       createdAt: createdAt ?? this.createdAt,
       attemptCount: attemptCount ?? this.attemptCount,
       errorMessage: errorMessage ?? this.errorMessage,
+      distId: distId ?? this.distId,
+      vendorId: vendorId ?? this.vendorId,
     );
   }
 
@@ -579,6 +655,8 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
     if (errorMessage.present) {
       map['error_message'] = Variable<String>(errorMessage.value);
     }
+    if (distId.present) map['dist_id'] = Variable<int>(distId.value);
+    if (vendorId.present) map['vendor_id'] = Variable<int>(vendorId.value);
     return map;
   }
 
@@ -593,7 +671,9 @@ class PendingUploadsCompanion extends UpdateCompanion<PendingUpload> {
         ..write('estado: $estado, ')
         ..write('createdAt: $createdAt, ')
         ..write('attemptCount: $attemptCount, ')
-        ..write('errorMessage: $errorMessage')
+        ..write('errorMessage: $errorMessage, ')
+        ..write('distId: $distId, ')
+        ..write('vendorId: $vendorId')
         ..write(')'))
       .toString();
 }

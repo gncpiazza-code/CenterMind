@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from core.security import verify_auth, check_dist_permission
 from core.vendedor_app_auth import decode_session_jwt
 from core.pdv_proximity import pdvs_cercanos_cartera, pdv_buscar_texto
+from services.vendedor_pendientes_service import registrar_pdv_pendiente, listar_pdv_pendientes
 from services.vendedor_app_auth_service import (
     activate_key,
     create_vendor_key,
@@ -268,6 +269,75 @@ def get_pdv_buscar(
         raise HTTPException(status_code=500, detail="Error en búsqueda de PDVs")
 
     return {"pdvs": results, "total": len(results)}
+
+
+# ─── Pendientes padrón ────────────────────────────────────────────────────────
+
+
+class PdvPendienteIn(BaseModel):
+    nro_cliente: str
+    notas: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
+@router.post(
+    "/pdv/pendiente",
+    status_code=201,
+    summary="Registrar PDV no encontrado en padrón para seguimiento",
+)
+def post_pdv_pendiente(
+    body: PdvPendienteIn,
+    session: dict = Depends(vendedor_session_dep),
+):
+    """
+    El vendedor reporta un NRO de cliente que no aparece en su cartera/padrón.
+    Queda en estado 'pendiente' hasta que el administrador lo procese.
+    Idempotente: si ya existe un pendiente activo con el mismo NRO no crea duplicado.
+    """
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    device_id = str(session.get("device") or "unknown")
+    try:
+        result = registrar_pdv_pendiente(
+            sb,
+            dist_id=dist_id,
+            id_vendedor_v2=vendor_id,
+            nro_cliente=body.nro_cliente,
+            notas=body.notas,
+            lat=body.lat,
+            lng=body.lng,
+            device_id=device_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"post_pdv_pendiente dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error registrando pendiente")
+    return result
+
+
+@router.get(
+    "/pdv/pendientes",
+    summary="Listar PDVs pendientes del vendedor",
+)
+def get_pdv_pendientes(
+    todos: bool = Query(False, description="Si true, incluye estados sincronizado y rechazado"),
+    session: dict = Depends(vendedor_session_dep),
+):
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+    try:
+        items = listar_pdv_pendientes(
+            sb,
+            dist_id=dist_id,
+            id_vendedor_v2=vendor_id,
+            solo_activos=not todos,
+        )
+    except Exception as e:
+        logger.error(f"get_pdv_pendientes dist={dist_id} vendor={vendor_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error listando pendientes")
+    return {"pendientes": items, "total": len(items)}
 
 
 # ─── Endpoints de datos del vendedor (requieren JWT vendedor_app) ────────────

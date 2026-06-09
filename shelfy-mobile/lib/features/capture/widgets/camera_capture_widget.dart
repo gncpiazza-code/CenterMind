@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -6,22 +7,24 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/utils/device_profile.dart';
-import '../../../../theme/shelfy_tokens.dart';
 import '../capture_provider.dart';
 import '../models/capture_photo.dart';
 
 /// Preview de cámara pro — zoom pinch, tap-to-focus, flash, grilla de encuadre.
-/// Sin galería ni cámara frontal. El shutter vive en [CaptureScreen] sobre el nav.
+/// El shutter está integrado en el widget con un diseño Apple-like.
 class CameraCaptureWidget extends StatefulWidget {
   final void Function(File photo, CapturePhotoMetadata metadata) onPhotoTaken;
   final void Function(bool capturing)? onCapturingChanged;
   final void Function(Future<void> Function() takePhoto)? onCameraReady;
+  /// Número de fotos ya capturadas (para el contador top-left).
+  final int photoCount;
 
   const CameraCaptureWidget({
     super.key,
     required this.onPhotoTaken,
     this.onCapturingChanged,
     this.onCameraReady,
+    this.photoCount = 0,
   });
 
   @override
@@ -41,20 +44,34 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   double _maxZoom = 1.0;
   double _currentZoom = 1.0;
   double _scaleBaseZoom = 1.0;
-  double _prevZoom = 1.0; // Para double-tap toggle
+  double _prevZoom = 1.0;
   Offset? _focusPoint;
-  bool _showGrid = true;
+  bool _showGrid = false; // Off by default — toggle via grid button
+  bool _showZoomIndicator = false;
+  Timer? _zoomIndicatorTimer;
 
   static const _flashModes = [FlashMode.auto, FlashMode.always, FlashMode.off];
 
   @override
   void initState() {
     super.initState();
-    // Retraso breve: evita competir con cold start / permisos en iOS.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (mounted) _initCamera();
     });
+  }
+
+  @override
+  void dispose() {
+    _zoomIndicatorTimer?.cancel();
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      try {
+        controller.dispose();
+      } catch (_) {}
+    }
+    super.dispose();
   }
 
   Future<void> takePhoto() => _takePhoto();
@@ -170,8 +187,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       await controller.setFocusPoint(point);
       await controller.setExposurePoint(point);
       setState(() => _focusPoint = point);
-      HapticFeedback.lightImpact();
-      Future.delayed(const Duration(seconds: 2), () {
+      Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted) setState(() => _focusPoint = null);
       });
     } catch (_) {}
@@ -182,15 +198,23 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     if (controller == null || !controller.value.isInitialized) return;
     final target = (_scaleBaseZoom * scale).clamp(_minZoom, _maxZoom);
     await _setZoom(target);
+    _showZoomBriefly();
+  }
+
+  void _showZoomBriefly() {
+    _zoomIndicatorTimer?.cancel();
+    if (!_showZoomIndicator) setState(() => _showZoomIndicator = true);
+    _zoomIndicatorTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _showZoomIndicator = false);
+    });
   }
 
   Future<void> _setZoom(double target) async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
-    final clamped = target.clamp(_minZoom, _maxZoom);
     try {
-      await controller.setZoomLevel(clamped);
-      if (mounted) setState(() => _currentZoom = clamped);
+      await controller.setZoomLevel(target);
+      if (mounted) setState(() => _currentZoom = target);
     } catch (_) {}
   }
 
@@ -205,11 +229,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
           : (_maxZoom * 0.45).clamp(_minZoom + 1.0, _maxZoom);
       await _setZoom(target);
     }
-  }
-
-  Future<void> _handleDialPreset(double target) async {
-    HapticFeedback.selectionClick();
-    await _setZoom(target);
+    _showZoomBriefly();
   }
 
   void _setCapturing(bool value) {
@@ -224,6 +244,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     if (controller == null || !controller.value.isInitialized || _capturing) return;
 
     _setCapturing(true);
+    HapticFeedback.mediumImpact();
     try {
       final metadata = await CaptureProvider.captureMetadataNow();
       final xfile = await controller.takePicture();
@@ -242,24 +263,19 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   IconData get _flashIcon {
     switch (_flashMode) {
       case FlashMode.always:
-        return Icons.flash_on_rounded;
+        return Icons.bolt;
       case FlashMode.off:
         return Icons.flash_off_rounded;
       default:
-        return Icons.flash_auto_rounded;
+        return Icons.bolt;
     }
   }
 
-  @override
-  void dispose() {
-    final controller = _controller;
-    _controller = null;
-    if (controller != null) {
-      try {
-        controller.dispose();
-      } catch (_) {}
-    }
-    super.dispose();
+  // Flash icon has a yellow tint when ON to indicate it's active
+  Color get _flashIconColor {
+    if (_flashMode == FlashMode.always) return const Color(0xFFFFD60A);
+    if (_flashMode == FlashMode.off) return Colors.white38;
+    return Colors.white;
   }
 
   Widget _buildCoverPreview(CameraController controller) {
@@ -280,8 +296,6 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
           );
         }
 
-        // Tap (focus), double-tap (zoom toggle) y pinch (zoom) en capas separadas.
-        // Un solo GestureDetector con onTapUp + onScale provoca crashes nativos en iOS.
         return ClipRect(
           child: Stack(
             fit: StackFit.expand,
@@ -294,7 +308,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
               ),
               if (_showGrid) const _FramingGrid(),
               if (_focusPoint != null)
-                _FocusRing(point: _focusPoint!, constraints: constraints),
+                _FocusSquare(point: _focusPoint!, constraints: constraints),
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTapUp: (d) => _handleTapFocus(d, constraints),
@@ -353,63 +367,304 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     return Stack(
       fit: StackFit.expand,
       children: [
+        // ── Camera preview (full bleed) ──────────────────────────────────────
         Positioned.fill(child: _buildCoverPreview(controller)),
+
+        // ── Top controls: flash + grid (top-right), photo counter (top-left) ─
         Positioned(
-          top: 56,
-          right: 12,
+          top: 0,
+          left: 0,
+          right: 0,
           child: SafeArea(
-            child: Column(
-              children: [
-                _ToolButton(icon: _flashIcon, onTap: _toggleFlash),
-                const SizedBox(height: 8),
-                _ToolButton(
-                  icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
-                  onTap: () => setState(() => _showGrid = !_showGrid),
-                ),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Photo counter pill — top-left
+                  if (widget.photoCount > 0)
+                    _PhotoCounterPill(count: widget.photoCount),
+                  const Spacer(),
+                  // Flash + flip + grid buttons — top-right
+                  _CameraToolButton(
+                    icon: _flashIcon,
+                    iconColor: _flashIconColor,
+                    onTap: _toggleFlash,
+                  ),
+                  const SizedBox(width: 10),
+                  _CameraToolButton(
+                    icon: _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+                    onTap: () => setState(() => _showGrid = !_showGrid),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        // Zoom dial horizontal — presets glass centrados en bottom
-        if (hasZoom)
+
+        // ── Transient zoom indicator — fades out after 2 s post-pinch ────────
+        if (hasZoom && _showZoomIndicator)
           Positioned(
-            bottom: 110,
+            top: 0,
+            bottom: 0,
             left: 0,
             right: 0,
-            child: _ZoomDial(
-              minZoom: _minZoom,
-              maxZoom: _maxZoom,
-              currentZoom: _currentZoom,
-              onPreset: _handleDialPreset,
+            child: IgnorePointer(
+              child: Center(
+                child: _ZoomBadge(zoom: _currentZoom),
+              ),
             ),
           ),
+
+        // ── Bottom gradient + shutter ─────────────────────────────────────────
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: _BottomShutterArea(
+            capturing: _capturing,
+            onShutter: _takePhoto,
+          ),
+        ),
       ],
     );
   }
 }
 
-class _ToolButton extends StatelessWidget {
+// ─── Photo counter pill ────────────────────────────────────────────────────────
+
+class _PhotoCounterPill extends StatelessWidget {
+  final int count;
+  const _PhotoCounterPill({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Text(
+        '$count/$kMaxPhotosPerExhibicion',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Camera tool button (42 px, semi-transparent) ─────────────────────────────
+
+class _CameraToolButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+  final Color? iconColor;
 
-  const _ToolButton({required this.icon, required this.onTap});
+  const _CameraToolButton({
+    required this.icon,
+    required this.onTap,
+    this.iconColor,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 40,
-        height: 40,
+        width: 42,
+        height: 42,
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.45),
+          color: Colors.black.withValues(alpha: 0.40),
           shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
         ),
-        child: Icon(icon, color: Colors.white, size: 20),
+        child: Icon(icon, color: iconColor ?? Colors.white, size: 20),
       ),
     );
   }
 }
+
+// ─── Transient zoom badge ──────────────────────────────────────────────────────
+
+class _ZoomBadge extends StatelessWidget {
+  final double zoom;
+  const _ZoomBadge({required this.zoom});
+
+  String get _label {
+    if (zoom == zoom.truncateToDouble()) return '${zoom.toInt()}x';
+    return '${zoom.toStringAsFixed(1)}x';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+      ),
+      child: Text(
+        _label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Bottom gradient + native shutter ─────────────────────────────────────────
+
+class _BottomShutterArea extends StatelessWidget {
+  final bool capturing;
+  final VoidCallback onShutter;
+
+  const _BottomShutterArea({required this.capturing, required this.onShutter});
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+    return Container(
+      height: 120 + bottomPad,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0x00000000), // transparent top
+            Color(0xCC000000), // ~80 % black bottom
+          ],
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomPad + 16),
+        child: Center(
+          child: _NativeShutterButton(
+            capturing: capturing,
+            onTap: onShutter,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Apple-style shutter: 72px white filled circle, no Material ripple.
+class _NativeShutterButton extends StatefulWidget {
+  final bool capturing;
+  final VoidCallback onTap;
+
+  const _NativeShutterButton({required this.capturing, required this.onTap});
+
+  @override
+  State<_NativeShutterButton> createState() => _NativeShutterButtonState();
+}
+
+class _NativeShutterButtonState extends State<_NativeShutterButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pressCtrl;
+  late Animation<double> _scaleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _pressCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+      reverseDuration: const Duration(milliseconds: 160),
+    );
+    _scaleAnim = Tween<double>(begin: 1.0, end: 0.88).animate(
+      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pressCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails _) {
+    if (!widget.capturing) _pressCtrl.forward();
+  }
+
+  void _onTapUp(TapUpDetails _) {
+    _pressCtrl.reverse();
+    if (!widget.capturing) widget.onTap();
+  }
+
+  void _onTapCancel() => _pressCtrl.reverse();
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      child: AnimatedBuilder(
+        animation: _scaleAnim,
+        builder: (_, child) => Transform.scale(scale: _scaleAnim.value, child: child),
+        child: Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.capturing ? Colors.white.withValues(alpha: 0.55) : Colors.white,
+            // Subtle inner shadow via nested containers
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: widget.capturing
+              ? const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                )
+              : Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      width: 1,
+                    ),
+                    // Inner shadow effect via a slightly darker inner circle
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 4,
+                        spreadRadius: -1,
+                        offset: Offset.zero,
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Framing grid ──────────────────────────────────────────────────────────────
 
 class _FramingGrid extends StatelessWidget {
   const _FramingGrid();
@@ -438,99 +693,65 @@ class _GridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _FocusRing extends StatelessWidget {
+// ─── Focus square (Apple-style, fades in 600 ms) ──────────────────────────────
+
+class _FocusSquare extends StatefulWidget {
   final Offset point;
   final BoxConstraints constraints;
 
-  const _FocusRing({required this.point, required this.constraints});
+  const _FocusSquare({required this.point, required this.constraints});
+
+  @override
+  State<_FocusSquare> createState() => _FocusSquareState();
+}
+
+class _FocusSquareState extends State<_FocusSquare>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    // Appear quickly, linger, then fade out
+    _opacity = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 10),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 60),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(_ctrl);
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    const size = 50.0;
     return Positioned(
-      left: point.dx * constraints.maxWidth - 28,
-      top: point.dy * constraints.maxHeight - 28,
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          border: Border.all(color: ShelfyTokens.primary, width: 2),
-          borderRadius: BorderRadius.circular(6),
+      left: widget.point.dx * widget.constraints.maxWidth - size / 2,
+      top: widget.point.dy * widget.constraints.maxHeight - size / 2,
+      child: IgnorePointer(
+        child: FadeTransition(
+          opacity: _opacity,
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white, width: 1.5),
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Zoom dial glass — presets horizontales: min · 1x · 2x · max
-// ---------------------------------------------------------------------------
-
-class _ZoomDial extends StatelessWidget {
-  final double minZoom;
-  final double maxZoom;
-  final double currentZoom;
-  final void Function(double) onPreset;
-
-  const _ZoomDial({
-    required this.minZoom,
-    required this.maxZoom,
-    required this.currentZoom,
-    required this.onPreset,
-  });
-
-  List<double> _presets() {
-    final presets = <double>{minZoom, 1.0};
-    if (maxZoom >= 2.0) presets.add(2.0);
-    presets.add(maxZoom);
-    return presets.toList()..sort();
-  }
-
-  String _label(double v) {
-    if (v == v.truncateToDouble()) return '${v.toInt()}x';
-    return '${v.toStringAsFixed(1)}x';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final presets = _presets();
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.50),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: presets.asMap().entries.map((e) {
-            final preset = e.value;
-            final isActive = (currentZoom - preset).abs() < 0.15;
-            return GestureDetector(
-              onTap: () => onPreset(preset),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                margin: EdgeInsets.only(left: e.key > 0 ? 4 : 0),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? ShelfyTokens.primary.withValues(alpha: 0.85)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  _label(preset),
-                  style: TextStyle(
-                    color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.7),
-                    fontSize: 13,
-                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}

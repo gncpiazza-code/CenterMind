@@ -30,8 +30,14 @@ class ApiClient {
   final String? _baseUrlOverride;
   String? _jwt;
   String? _deviceId;
+  void Function()? _onUnauthorized;
 
   ApiClient({String? baseUrl}) : _baseUrlOverride = baseUrl;
+
+  /// Registra callback que se invoca cuando el servidor responde 401.
+  void setUnauthorizedCallback(void Function() callback) {
+    _onUnauthorized = callback;
+  }
 
   String get baseUrl => _baseUrl;
 
@@ -110,6 +116,13 @@ class ApiClient {
       throw ApiException(
         statusCode: 500,
         message: 'Respuesta JSON inválida del servidor',
+      );
+    }
+    if (response.statusCode == 401) {
+      _onUnauthorized?.call();
+      throw const ApiException(
+        statusCode: 401,
+        message: 'Sesión expirada. Reactivá tu cuenta con la clave sapp_...',
       );
     }
     Map<String, dynamic>? errorBody;

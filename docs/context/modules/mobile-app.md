@@ -20,11 +20,12 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 
 **Futuro supervisores:** flavor o gate por rol JWT (`supervisor`) — mapa/galería read-only, sin captura obligatoria; reutilizar tokens Shelfy y API `/api/vendedor-app/*` con permisos ampliados.
 
-## Nav (MVP — 5 tabs directos)
+## Nav (v1 — 6 tabs directos)
 
-- **5 tabs:** `CaptureScreen`(0) | `CuentasScreen`(1) | `CarteraScreen`(2) | `ObjetivosScreen`(3) | `StatsScreen`(4)
+- **6 tabs:** `CaptureScreen`(0) | `CuentasScreen`(1) | `CarteraScreen`(2) | `ObjetivosScreen`(3) | `StatsScreen`(4) | `GaleriaScreen`(5)
 - Tab inicial: **Captura** (índice 0) — lazy camera mount ~350 ms para evitar SIGKILL iOS
-- Hub Más deprecado en MVP — `more_screen.dart` existe pero fuera de nav; galería acceso futuro
+- `HomeTabController.goToCaptureWithPdv(nro)` — navega a tab 0 con PDV pre-cargado (desde Cartera CTA)
+- Hub Más deprecado — `more_screen.dart` fuera de nav
 - **SERVIR, NO COCINAR** — app solo fetch→parse→render; cero lógica de negocio en Dart
 
 ## Identidad visual (Oleada 3 — 2026-06-09)
@@ -37,12 +38,16 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 - **AppBar:** `ShelfyAppBarTitle` con logo asset (no texto "SHELFYAPP")
 - **Regla:** cero `Colors.*` hardcodeados — siempre `ShelfyTokens.*`
 
-## Cámara pro (Oleada 3 — 2026-06-09)
+## Cámara Apple-like (Auditor 2026-06-09)
 
-- **Double-tap:** toggle zoom 1x ↔ previo (o 45% max si sin historial)
-- **Zoom dial:** pills glass centradas en bottom — presets min·1x·2x·max; activo en violeta
-- **Gestos:** pinch continuo + single-tap focus + double-tap toggle
-- **Haptic:** `HapticFeedback.lightImpact()` en double-tap; `selectionClick()` en dial preset
+- **Shutter:** 72px círculo blanco, `GestureDetector` (no Material ripple), scale 0.88 en press
+- **Controles:** flash + flip + grid en 42px círculos semitransparentes (negro 40%) top-right
+- **Grid:** desactivada por defecto, toggleable
+- **Zoom:** pinch + badge transitorio que desaparece a los 2s; sin dial permanente
+- **Bottom area:** gradiente oscuro 80% negro ~120px — shutter centrado, UI mínima
+- **Focus:** cuadrado redondeado 50px blanco que fade-out en 600ms (Apple-style)
+- **Counter:** pill "N/6" top-left, solo visible si hay fotos
+- **Oleada 3 (herencia):** double-tap toggle zoom, haptic en presets
 
 ## Captura (Oleada 2)
 
@@ -58,12 +63,30 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 - **addExtraPhoto()** en `CaptureProvider` — colapsa sheet volviendo a `live` con `_addingExtraPhoto=true`; el shutter agrega la foto y vuelve a `confirmPdv` sin resetear PDV
 - Botón "Agregar otra foto" en fase `confirmPdv` wired a `provider.addExtraPhoto()`
 
-## API vendedor-app (nuevos endpoints 2026-06-09)
+## Offline bundle (Auditor 2026-06-09)
 
-- `GET /estadisticas/resumen?meses=YYYY-MM` → `aggregate_kpis_vendedor` (7 KPIs: pdvs, altas, exhibiciones, compradores, bultos, cobertura_pct, objetivos_pct)
-- Cartera JSON: +`fecha_alta`, `nombre_fantasia`, `nombre_razon_social` en cada PDV
-- Objetivos detalle: +`recomendaciones[]`, +`prorrateo` (grid lun–sáb), +`items_pdv[]` con ruta (paridad `cmd_objetivos`)
-- Stats tab: `/stats/full` + `/estadisticas/resumen` + `/ventas` (desglose bultos por SKU)
+- **`BundleCache`** (`lib/core/offline/bundle_cache.dart`): TTL 24h, archivo `shelfy_bundle_cache.json`
+- **`BundleProvider`** (`lib/core/offline/bundle_provider.dart`): init() carga cache → fetch en background silencioso
+- **Logout** limpia cache via `BundleCache.clear()`
+- **Slices:** `carteraHoy`, `objetivos`, `stats`, `exhibicionesRecientes`
+
+## PDV — prefix estricto + pendientes padrón (Auditor 2026-06-09)
+
+- **`pdv_buscar_texto`**: NRO y nombre usan `{q}%` (prefix), nunca `%{q}%` (contains)
+- **`POST /pdv/pendiente`**: registra NRO fuera de cartera → tabla `vendedor_pdv_pendientes`; SQL: `20260609_vendedor_pdv_pendientes.sql`
+- **`GET /pdv/pendientes`**: lista pendientes del vendedor JWT
+- **UI Captura**: si NRO no en cartera → botón "Registrar como pendiente" + "Usar NRO manual sin verificar"
+
+## Push FCM (stub 2026-06-09)
+
+- **Backend:** `POST /device-token` wired; tablas en `20260607_vendedor_app_settings_push.sql` (pendiente aplicar)
+- **Flutter:** `lib/core/push/vendedor_push_service.dart` — stub; activar añadiendo `firebase_messaging` + credenciales
+
+## API vendedor-app (endpoints históricos)
+
+- `GET /estadisticas/resumen?meses=YYYY-MM` → 7 KPIs
+- Cartera JSON: +`fecha_alta`, `nombre_fantasia`, `nombre_razon_social`
+- Objetivos detalle: +`recomendaciones[]` + `resumen_mobile` (titulo, accion, tip, mes, origen)
 
 ## Invariantes
 

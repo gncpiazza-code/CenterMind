@@ -210,7 +210,8 @@ class ShelfyChip extends StatelessWidget {
 
 // ─── ShelfyCaptureShutter ──────────────────────────────────────────────────────
 
-/// Botón shutter de cámara con identidad Shelfy: anillo blanco + halo violeta.
+/// Botón shutter Apple-like: 72 px círculo blanco sin ripple Material.
+/// Mantiene compatibilidad con código que aún lo invoca desde fuera del widget de cámara.
 class ShelfyCaptureShutter extends StatefulWidget {
   final VoidCallback? onTap;
   final bool loading;
@@ -227,64 +228,89 @@ class ShelfyCaptureShutter extends StatefulWidget {
 
 class _ShelfyCaptureShutterState extends State<ShelfyCaptureShutter>
     with SingleTickerProviderStateMixin {
-  late AnimationController _pulseCtrl;
-  late Animation<double> _pulseAnim;
+  late AnimationController _pressCtrl;
+  late Animation<double> _scaleAnim;
 
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(
+    _pressCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.6, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+      duration: const Duration(milliseconds: 80),
+      reverseDuration: const Duration(milliseconds: 160),
+    );
+    _scaleAnim = Tween<double>(begin: 1.0, end: 0.88).animate(
+      CurvedAnimation(parent: _pressCtrl, curve: Curves.easeOut),
     );
   }
 
   @override
   void dispose() {
-    _pulseCtrl.dispose();
+    _pressCtrl.dispose();
     super.dispose();
   }
+
+  void _onTapDown(TapDownDetails _) {
+    if (!widget.loading && widget.onTap != null) _pressCtrl.forward();
+  }
+
+  void _onTapUp(TapUpDetails _) {
+    _pressCtrl.reverse();
+    if (!widget.loading) widget.onTap?.call();
+  }
+
+  void _onTapCancel() => _pressCtrl.reverse();
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: widget.loading ? null : widget.onTap,
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
       child: AnimatedBuilder(
-        animation: _pulseAnim,
-        builder: (_, _) => Container(
-          width: 80,
-          height: 80,
+        animation: _scaleAnim,
+        builder: (_, child) => Transform.scale(scale: _scaleAnim.value, child: child),
+        child: Container(
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
+            color: widget.loading ? Colors.white.withValues(alpha: 0.55) : Colors.white,
             boxShadow: [
               BoxShadow(
-                color: ShelfyTokens.primary.withValues(alpha: _pulseAnim.value * 0.45),
-                blurRadius: 20,
-                spreadRadius: 4,
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 4),
-              color: widget.loading
-                  ? Colors.white.withValues(alpha: 0.3)
-                  : ShelfyTokens.primary.withValues(alpha: 0.85),
-            ),
-            child: widget.loading
-                ? const Padding(
-                    padding: EdgeInsets.all(22),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
+          child: widget.loading
+              ? const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                )
+              : Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white,
+                    border: Border.all(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      width: 1,
                     ),
-                  )
-                : const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 30),
-          ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 4,
+                        spreadRadius: -1,
+                        offset: Offset.zero,
+                      ),
+                    ],
+                  ),
+                ),
         ),
       ),
     );

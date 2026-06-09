@@ -1,5 +1,52 @@
 // Modelos de datos para las estadísticas de rendimiento del vendedor.
 
+/// Desglose de un artículo en ventas MTD.
+class BultosItem {
+  final String articulo;
+  final String? codArticulo;
+  final double bultos;
+
+  BultosItem({
+    required this.articulo,
+    this.codArticulo,
+    required this.bultos,
+  });
+
+  factory BultosItem.fromJson(Map<String, dynamic> json) {
+    return BultosItem(
+      articulo: json['articulo'] as String? ?? '',
+      codArticulo: json['cod_articulo'] as String?,
+      bultos: (json['bultos'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+/// Ventas MTD con snapshot, totales y desglose SKU.
+class VentasData {
+  final String snapshotLabel;
+  final double totalBultos;
+  final int totalFacturas;
+  final List<BultosItem> bultosDesglose;
+
+  VentasData({
+    required this.snapshotLabel,
+    required this.totalBultos,
+    required this.totalFacturas,
+    required this.bultosDesglose,
+  });
+
+  factory VentasData.fromJson(Map<String, dynamic> json) {
+    return VentasData(
+      snapshotLabel: json['snapshot_label'] as String? ?? '',
+      totalBultos: (json['total_bultos'] as num?)?.toDouble() ?? 0.0,
+      totalFacturas: (json['total_facturas'] as num?)?.toInt() ?? 0,
+      bultosDesglose: (json['bultos_desglose'] as List<dynamic>? ?? [])
+          .map((e) => BultosItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// 7 KPIs del vendedor desde /estadisticas/resumen → aggregate_kpis_vendedor.
 class KpisResumen {
   final int pdvs;

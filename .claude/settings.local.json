@@ -45,7 +45,21 @@
       "Bash(git *)",
       "Bash(awk 'NR>=2215 && NR<=2500' /Users/ignaciopiazza/Desktop/CenterMind/shelfy-frontend/src/components/admin/TabSupervision.tsx)",
       "mcp__plugin_vercel_vercel__list_deployments",
-      "Bash(vercel ls *)"
+      "Bash(vercel ls *)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-ace6b765eac32a875/CenterMind/services/vendedor_stats_service.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/vendedor_stats_service.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-ace6b765eac32a875/CenterMind/services/vendedor_ranking_service.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/vendedor_ranking_service.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-ace6b765eac32a875/CenterMind/services/vendedor_cartera_service.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/vendedor_cartera_service.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-ace6b765eac32a875/CenterMind/services/vendedor_objetivos_service.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/vendedor_objetivos_service.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-ace6b765eac32a875/CenterMind/routers/vendedor_app.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/routers/vendedor_app.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-abac09bb3e9fcd4b1/CenterMind/migrations/20260607_vendedor_app_settings_push.sql /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/migrations/20260607_vendedor_app_settings_push.sql)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-abac09bb3e9fcd4b1/CenterMind/routers/app_settings.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/routers/app_settings.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-abac09bb3e9fcd4b1/CenterMind/services/vendedor_push_service.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/vendedor_push_service.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-abac09bb3e9fcd4b1/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py)",
+      "Bash(cp /Users/ignaciopiazza/Desktop/CenterMind/.claude/worktrees/agent-abac09bb3e9fcd4b1/CenterMind/core/lifespan.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/core/lifespan.py)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter pub *)",
+      "Bash(flutter build *)",
+      "Bash(dart compile *)"
     ]
   }
 }

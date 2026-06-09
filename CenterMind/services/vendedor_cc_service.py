@@ -157,9 +157,18 @@ def get_cc_vendedor(
             "deuda_30_dias": round(float(r.get("deuda_30_dias") or 0), 2),
             "deuda_60_dias": round(float(r.get("deuda_60_dias") or 0), 2),
             "deuda_mas_60_dias": round(float(r.get("deuda_mas_60_dias") or 0), 2),
+            # Geo + FUC — enriquecido abajo
+            "latitud": None,
+            "longitud": None,
+            "domicilio": None,
+            "localidad": None,
+            "fecha_ultima_compra": None,
         }
         for r in sorted(rows, key=lambda x: float(x.get("deuda_total") or 0), reverse=True)
     ]
+
+    # Enriquecer con geo + FUC desde clientes_pdv_v2
+    _enrich_cc_geo(sb, dist_id, clientes)
 
     return {
         "modo": modo,
@@ -168,6 +177,46 @@ def get_cc_vendedor(
         "total_clientes": len(clientes),
         "clientes": clientes,
     }
+
+
+def _enrich_cc_geo(sb: Client, dist_id: int, clientes: list[dict]) -> None:
+    """Agrega latitud, longitud, domicilio, localidad, fecha_ultima_compra a cada cliente CC."""
+    from core.helpers import tenant_table_name
+    erp_ids = [c["id_cliente_erp"] for c in clientes if c["id_cliente_erp"]]
+    if not erp_ids:
+        return
+    pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+    geo_map: dict[str, dict] = {}
+    PAGE = 500
+    # Batch in chunks to avoid query limits
+    for start in range(0, len(erp_ids), PAGE):
+        chunk = erp_ids[start : start + PAGE]
+        try:
+            batch = (
+                sb.table(pdv_table)
+                .select("id_cliente_erp,latitud,longitud,domicilio,localidad,fecha_ultima_compra")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_erp", chunk)
+                .execute().data or []
+            )
+            for r in batch:
+                k = str(r.get("id_cliente_erp") or "").strip()
+                if k and k not in geo_map:
+                    geo_map[k] = r
+        except Exception:
+            pass
+    for c in clientes:
+        geo = geo_map.get(c["id_cliente_erp"], {})
+        for f in ("latitud", "longitud"):
+            raw = geo.get(f)
+            try:
+                c[f] = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                c[f] = None
+        c["domicilio"] = (geo.get("domicilio") or "").strip() or None
+        c["localidad"] = (geo.get("localidad") or "").strip() or None
+        fuc = (geo.get("fecha_ultima_compra") or "")
+        c["fecha_ultima_compra"] = fuc[:10] if fuc else None
 
 
 def _filter_cc_hoy(sb: Client, dist_id: int, id_vendedor_v2: int, rows: list[dict]) -> list[dict]:

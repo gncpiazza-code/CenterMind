@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
-import '../ventas/models/ventas_response.dart';
 import 'models/stats_models.dart';
 
 /// ChangeNotifier que gestiona las estadísticas del vendedor.
@@ -14,7 +13,7 @@ class StatsProvider extends ChangeNotifier {
 
   StatsData? statsData;
   KpisResumen? kpisResumen;
-  VentasResponse? ventasData;
+  VentasData? ventasData;
   bool loading = false;
   String? error;
 
@@ -35,7 +34,7 @@ class StatsProvider extends ChangeNotifier {
 
       statsData = StatsData.fromJson(results[0] as Map<String, dynamic>);
       kpisResumen = KpisResumen.fromJson(results[1] as Map<String, dynamic>);
-      ventasData = VentasResponse.fromJson(results[2] as Map<String, dynamic>);
+      ventasData = VentasData.fromJson(results[2] as Map<String, dynamic>);
     } on ApiException catch (e) {
       error = e.message;
     } catch (_) {

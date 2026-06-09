@@ -407,6 +407,317 @@ class ShelfySnapshotLabel extends StatelessWidget {
   }
 }
 
+// ─── ShelfySectionHeader ─────────────────────────────────────────────────────
+
+/// Encabezado de sección: icono + título + subtítulo opcional.
+class ShelfySectionHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final IconData? icon;
+
+  const ShelfySectionHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (icon != null) ...[
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: ShelfyTokens.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(ShelfyTokens.radiusSm),
+            ),
+            child: Icon(icon, size: 16, color: ShelfyTokens.primary),
+          ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: ShelfyTokens.text,
+                ),
+              ),
+              if (subtitle != null)
+                Text(
+                  subtitle!,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: ShelfyTokens.muted,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── ShelfyHeroMetric ─────────────────────────────────────────────────────────
+
+/// Métrica hero: número grande + label + delta opcional.
+class ShelfyHeroMetric extends StatelessWidget {
+  final String value;
+  final String label;
+  final String? delta;
+  final bool deltaPositive;
+
+  const ShelfyHeroMetric({
+    super.key,
+    required this.value,
+    required this.label,
+    this.delta,
+    this.deltaPositive = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              value,
+              style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: ShelfyTokens.primary,
+                    letterSpacing: -1,
+                  ),
+            ),
+            if (delta != null) ...[
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      deltaPositive ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 13,
+                      color: deltaPositive ? ShelfyTokens.success : ShelfyTokens.error,
+                    ),
+                    Text(
+                      delta!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: deltaPositive ? ShelfyTokens.success : ShelfyTokens.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            color: ShelfyTokens.textSoft,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── ShelfyProgressRow ────────────────────────────────────────────────────────
+
+/// Fila con label + barra proporcional + valor. Ideal para top SKUs.
+class ShelfyProgressRow extends StatelessWidget {
+  final String label;
+  final double ratio; // 0.0–1.0
+  final String valueLabel;
+  final Color? barColor;
+
+  const ShelfyProgressRow({
+    super.key,
+    required this.label,
+    required this.ratio,
+    required this.valueLabel,
+    this.barColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = barColor ?? ShelfyTokens.primary;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: ShelfyTokens.textSoft,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                valueLabel,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: ShelfyTokens.text,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: ratio.clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: ShelfyTokens.border,
+              valueColor: AlwaysStoppedAnimation<Color>(color.withValues(alpha: 0.85)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── ShelfyKeyValueGrid ───────────────────────────────────────────────────────
+
+/// Grid 2 columnas de pares clave-valor (máx 4 items).
+class ShelfyKeyValueGrid extends StatelessWidget {
+  final List<({String key, String value})> items;
+
+  const ShelfyKeyValueGrid({super.key, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    for (var i = 0; i < items.length; i += 2) {
+      final left = items[i];
+      final right = i + 1 < items.length ? items[i + 1] : null;
+      rows.add(
+        Row(
+          children: [
+            Expanded(child: _KVCell(label: left.key, value: left.value)),
+            if (right != null)
+              Expanded(child: _KVCell(label: right.key, value: right.value))
+            else
+              const Expanded(child: SizedBox.shrink()),
+          ],
+        ),
+      );
+      if (i + 2 < items.length) rows.add(const SizedBox(height: 10));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
+  }
+}
+
+class _KVCell extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _KVCell({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 10, color: ShelfyTokens.muted),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: ShelfyTokens.text,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── ShelfyInsightList ────────────────────────────────────────────────────────
+
+/// Lista de recomendaciones/insights con icono leading. No lista plana.
+class ShelfyInsightList extends StatelessWidget {
+  final List<String> items;
+  final IconData leadingIcon;
+  final Color? iconColor;
+
+  const ShelfyInsightList({
+    super.key,
+    required this.items,
+    this.leadingIcon = Icons.lightbulb_outline,
+    this.iconColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = iconColor ?? ShelfyTokens.warning;
+    return Column(
+      children: items.map((item) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(ShelfyTokens.radiusSm),
+                ),
+                child: Icon(leadingIcon, size: 14, color: color),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  item,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: ShelfyTokens.textSoft,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
 // ─── ShelfyAppBarTitle ────────────────────────────────────────────────────────
 
 /// Título del AppBar con logo Shelfy compacto.

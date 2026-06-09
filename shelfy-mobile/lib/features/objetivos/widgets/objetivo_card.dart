@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../theme/shelfy_tokens.dart';
 import '../models/objetivo_app.dart';
 
 /// Tarjeta que muestra un objetivo activo del vendedor.
@@ -13,13 +14,13 @@ class ObjetivoCard extends StatelessWidget {
   Color _tipoColor() {
     switch (objetivo.tipo) {
       case 'exhibicion':
-        return Colors.blue;
+        return ShelfyTokens.primary;
       case 'compradores':
-        return Colors.teal;
+        return ShelfyTokens.primary2;
       case 'ruteo_alteo':
-        return Colors.orange;
+        return ShelfyTokens.warning;
       default:
-        return Colors.indigo;
+        return ShelfyTokens.accent;
     }
   }
 
@@ -50,7 +51,11 @@ class ObjetivoCard extends StatelessWidget {
         desc.startsWith('🎯') ||
         desc.startsWith('📋') ||
         desc.startsWith('🔔') ||
-        desc.contains('Objetivo de') && desc.contains('\n') && desc.length > 120;
+        desc.startsWith('🚀') ||
+        desc.contains('<b>') ||
+        desc.contains('<code>') ||
+        desc.contains('/objetivos') ||
+        (desc.contains('Objetivo de') && desc.contains('\n') && desc.length > 120);
   }
 
   @override
@@ -103,7 +108,7 @@ class ObjetivoCard extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .labelSmall
-                      ?.copyWith(color: Colors.grey[600]),
+                      ?.copyWith(color: ShelfyTokens.muted),
                 ),
               ],
             ),
@@ -129,9 +134,9 @@ class ObjetivoCard extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: progress,
                       minHeight: 8,
-                      backgroundColor: Colors.grey[200],
+                      backgroundColor: ShelfyTokens.border,
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        superado ? Colors.green : tipoColor,
+                        superado ? ShelfyTokens.success : tipoColor,
                       ),
                     ),
                   ),
@@ -143,7 +148,7 @@ class ObjetivoCard extends StatelessWidget {
                       : '${objetivo.valorAprobados}/${objetivo.valorObjetivo}',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: superado ? Colors.green : null,
+                        color: superado ? ShelfyTokens.success : null,
                       ),
                 ),
               ],

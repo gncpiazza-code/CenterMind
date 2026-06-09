@@ -27,12 +27,22 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 - Hub Más deprecado en MVP — `more_screen.dart` existe pero fuera de nav; galería acceso futuro
 - **SERVIR, NO COCINAR** — app solo fetch→parse→render; cero lógica de negocio en Dart
 
-## Identidad visual (Oleada 2)
+## Identidad visual (Oleada 3 — 2026-06-09)
 
 - **Tokens:** `lib/theme/shelfy_tokens.dart` — `ShelfyTokens.primary` (#a855f7) como color base
 - **Tema:** `buildTenantTheme()` usa violeta Shelfy por defecto (no `#6C63FF`)
-- **Shared widgets:** `lib/shared/widgets/shelfy/shelfy_widgets.dart` — `ShelfyGlassPanel`, `ShelfyPrimaryButton`, `ShelfyChip`, `ShelfyCaptureShutter`, `ShelfyPdvSuggestionTile`, `ShelfyAppBarTitle`
+- **Shared widgets:** `lib/shared/widgets/shelfy/shelfy_widgets.dart`:
+  - `ShelfyGlassPanel`, `ShelfyPrimaryButton`, `ShelfyChip`, `ShelfyCaptureShutter`, `ShelfyPdvSuggestionTile`, `ShelfySnapshotLabel`, `ShelfyAppBarTitle`
+  - Nuevos Oleada 3: `ShelfySectionHeader`, `ShelfyHeroMetric`, `ShelfyProgressRow`, `ShelfyKeyValueGrid`, `ShelfyInsightList`
 - **AppBar:** `ShelfyAppBarTitle` con logo asset (no texto "SHELFYAPP")
+- **Regla:** cero `Colors.*` hardcodeados — siempre `ShelfyTokens.*`
+
+## Cámara pro (Oleada 3 — 2026-06-09)
+
+- **Double-tap:** toggle zoom 1x ↔ previo (o 45% max si sin historial)
+- **Zoom dial:** pills glass centradas en bottom — presets min·1x·2x·max; activo en violeta
+- **Gestos:** pinch continuo + single-tap focus + double-tap toggle
+- **Haptic:** `HapticFeedback.lightImpact()` en double-tap; `selectionClick()` en dial preset
 
 ## Captura (Oleada 2)
 
@@ -69,10 +79,34 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 
 Services: `vendedor_stats`, `vendedor_ranking`, `vendedor_cartera`, `vendedor_galeria`, `vendedor_ventas`, `vendedor_cc`, `vendedor_objetivos`, `vendedor_bundle`, `vendedor_push`
 
+## CC enrich (Oleada 3 — 2026-06-09)
+
+- **BE** `vendedor_cc_service.py` → `_enrich_cc_geo()`: join `clientes_pdv_v2` por `id_cliente_erp`
+- **Campos nuevos** en `clientes[]`: `latitud`, `longitud`, `domicilio`, `localidad`, `fecha_ultima_compra`
+- **FE** `ClienteCc.mapsUrl()`: preferencia coords → fallback dirección → `null`
+- **UI:** chip "ÚC: DD/MM/YYYY" + chip "Antigüedad X d" + link "Ver en Google Maps" (url_launcher)
+- **`url_launcher: ^6.3.0`** agregado a pubspec
+
+## Objetivos UI (Oleada 3 — 2026-06-09)
+
+- `_esTelegramPayload()` extendido: cubre `<b>`, `<code>`, `🚀`, `/objetivos`
+- Sheet de detalle: Hero progress → Recomendaciones (`ShelfyInsightList`) → Desglose → PDVs → descripción libre
+- `objetivo_card.dart` y `objetivo_detalle_sheet.dart`: colores por tipo → `ShelfyTokens.*`
+- **BE** `get_objetivo_detalle`: campo `resumen_mobile` (titulo, origen, mes, meta_label, accion, tip)
+
+## Stats ventas (Oleada 3 — 2026-06-09)
+
+- `StatsProvider` llama `/ventas` + `VentasData` model
+- Hero `ShelfyHeroMetric` bultos MTD + conteo facturas
+- Top 5 SKUs `ShelfyProgressRow` proporcional + "Ver N más" expandible
+- KPI grid 2 columnas (no Wrap caótico)
+- `_EstadoChip` grid 2col (no Wrap)
+
 ## Contratos JSON (clave)
 
-- CC (`/cc`): `snapshot_label`, `nombre_display`, `saldo`, `dias_vencido`, aging buckets `deuda_7/15/30/60/mas_60_dias`
-- Ventas (`/ventas`): `snapshot_label`, `nombre_display`, `bultos_desglose[]`, `top_compradores[]`
+- CC (`/cc`): `snapshot_label`, `nombre_display`, `saldo`, `dias_vencido`, aging buckets `deuda_7/15/30/60/mas_60_dias`, + `latitud`, `longitud`, `domicilio`, `localidad`, `fecha_ultima_compra`
+- Ventas (`/ventas`): `snapshot_label`, `total_bultos`, `total_facturas`, `bultos_desglose[]`, `top_compradores[]`
+- Objetivos detalle (`/objetivos/{id}`): +`recomendaciones[]`, +`resumen_mobile{titulo, origen, mes, meta_label, accion, tip}`
 - Cartera (`/cartera`): patrón canónico snapshot-first (referencia)
 
 ## Portal

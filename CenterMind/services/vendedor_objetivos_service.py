@@ -385,6 +385,28 @@ def get_objetivo_detalle(
         desglose,
     )
 
+    # resumen_mobile: campos tipados — Flutter solo pinta, nunca parsea descripcion
+    _tipo_labels = {
+        "exhibicion": "Exhibición", "compradores": "Compradores",
+        "ruteo_alteo": "Alteo", "alteo": "Alteo",
+    }
+    _tipo_acciones = {
+        "exhibicion": "Registrá exhibiciones",
+        "compradores": "Sumá compradores",
+        "ruteo_alteo": "Completá altas en PDVs",
+    }
+    mes_ref = (o.get("mes_referencia") or "")[:7]
+    origen_str = (o.get("origen") or "").strip() or None
+    resumen_mobile = {
+        "titulo": _tipo_labels.get(tipo_str, tipo_str.capitalize()),
+        "origen": origen_str,
+        "mes": mes_ref or None,
+        "meta_label": f"{valor_actual} de {valor_objetivo}",
+        "progreso_pct": progreso_pct,
+        "accion": _tipo_acciones.get(tipo_str, "Completá el objetivo"),
+        "tip": recomendaciones[0] if recomendaciones else None,
+    }
+
     return {
         "id": o.get("id"),
         "tipo": tipo_str,
@@ -396,8 +418,8 @@ def get_objetivo_detalle(
         "progreso_pct": progreso_pct,
         "cumplido": cumplido,
         "lanzado_at": o.get("lanzado_at"),
-        "origen": (o.get("origen") or "").strip() or None,
-        "mes_referencia": (o.get("mes_referencia") or "")[:7] or None,
+        "origen": origen_str,
+        "mes_referencia": mes_ref or None,
         "nombre_vendedor": (o.get("nombre_vendedor") or "").strip() or None,
         "tasa_pendientes": o.get("tasa_pendientes"),
         "progreso_diario_updated_at": o.get("progreso_diario_updated_at"),
@@ -406,4 +428,5 @@ def get_objetivo_detalle(
         "items_pdv": items_pdv,
         "prorrateo": prorrateo,
         "recomendaciones": recomendaciones,
+        "resumen_mobile": resumen_mobile,
     }

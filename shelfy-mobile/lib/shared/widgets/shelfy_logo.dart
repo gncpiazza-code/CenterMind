@@ -11,7 +11,8 @@ class ShelfyLogo extends StatelessWidget {
     this.showLabel = false,
   });
 
-  static const _assetPath = 'assets/branding/shelfy_launcher.png';
+  static const assetPath = 'assets/branding/shelfy_launcher.png';
+  static const _assetPath = assetPath;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +28,7 @@ class ShelfyLogo extends StatelessWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Icon(
+            errorBuilder: (_, _, _) => Icon(
               Icons.store_rounded,
               size: size,
               color: theme.colorScheme.primary,

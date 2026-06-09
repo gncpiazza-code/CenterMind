@@ -6,6 +6,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/config/app_config.dart';
 import '../../shared/widgets/loading_overlay.dart';
 import '../../shared/widgets/shelfy_logo.dart';
+import '../../theme/shelfy_tokens.dart';
 
 /// Pantalla de activación de dispositivo por API key.
 /// El vendedor recibe la key de su supervisor e ingresa aquí la primera vez.
@@ -100,6 +101,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
     return Scaffold(
+      backgroundColor: ShelfyTokens.bg,
       resizeToAvoidBottomInset: true,
       body: LoadingOverlay(
         isLoading: _isLoading,

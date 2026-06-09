@@ -4,23 +4,23 @@ import 'package:provider/provider.dart';
 import '../../core/api/api_client.dart';
 import '../../core/offline/sync_worker.dart';
 import '../../core/offline/upload_queue.dart';
+import '../../shared/widgets/shelfy/shelfy_widgets.dart';
+import '../../theme/shelfy_tokens.dart';
 import '../capture/capture_provider.dart';
 import '../capture/capture_screen.dart';
 import '../cartera/cartera_provider.dart';
 import '../cartera/cartera_screen.dart';
 import '../cuentas/cuentas_provider.dart';
-import '../cuentas/cuentas_screen.dart';
 import '../galeria/galeria_provider.dart';
-import '../galeria/galeria_screen.dart';
 import '../objetivos/objetivos_provider.dart';
-import '../objetivos/objetivos_screen.dart';
 import '../stats/stats_provider.dart';
 import '../stats/stats_screen.dart';
 import '../ventas/ventas_provider.dart';
-import '../ventas/ventas_screen.dart';
 import 'home_tab_controller.dart';
+import 'more_screen.dart';
 
-/// Shell de navegación principal con BottomNavigationBar (7 tabs).
+/// Shell de navegación principal con BottomNavigationBar de 4 tabs.
+/// Tabs: Captura · Cartera · Stats · Más (hub animado → Ventas/Cuentas/Objetivos/Galería).
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -78,61 +78,50 @@ class _HomeScreenState extends State<HomeScreen> {
         ChangeNotifierProvider<CuentasProvider>.value(value: _cuentasProvider),
         ChangeNotifierProvider<StatsProvider>.value(value: _statsProvider),
         ChangeNotifierProvider<ObjetivosProvider>.value(
-          value: _objetivosProvider,
-        ),
+            value: _objetivosProvider),
         ChangeNotifierProvider<GaleriaProvider>.value(value: _galeriaProvider),
       ],
       child: ListenableBuilder(
         listenable: _tabController,
         builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          title: const _TenantLogo(),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.sync_outlined),
-              tooltip: 'Sincronizar pendientes',
-              onPressed: () {
-                context.read<SyncWorker>().syncNow();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Sincronizando exhibiciones pendientes...'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-          ],
+          appBar: AppBar(
+            title: const ShelfyAppBarTitle(),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.sync_outlined),
+                tooltip: 'Sincronizar pendientes',
+                onPressed: () {
+                  context.read<SyncWorker>().syncNow();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Sincronizando exhibiciones pendientes...'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          body: IndexedStack(
+            index: _tabController.selectedIndex,
+            children: const [
+              CaptureScreen(), // 0
+              CarteraScreen(), // 1
+              StatsScreen(),   // 2
+              MoreScreen(),    // 3 — hub animado
+            ],
+          ),
+          bottomNavigationBar: _BottomNav(
+            selectedIndex: _tabController.selectedIndex,
+            onTap: (index) => _tabController.goToTab(index),
+          ),
         ),
-        body: IndexedStack(
-          index: _tabController.selectedIndex,
-          children: const [
-            CaptureScreen(),    // 0
-            CarteraScreen(),    // 1
-            VentasScreen(),     // 2
-            CuentasScreen(),    // 3
-            StatsScreen(),      // 4
-            ObjetivosScreen(),  // 5
-            GaleriaScreen(),    // 6
-          ],
-        ),
-        bottomNavigationBar: _BottomNav(
-          selectedIndex: _tabController.selectedIndex,
-          onTap: (index) {
-            if (index == 6 &&
-                _tabController.pendingGaleriaClienteErp == null) {
-              _galeriaProvider.fetchClientes();
-            }
-            _tabController.goToTab(index);
-          },
-        ),
-      ),
       ),
     );
   }
 }
 
-/// BottomNavigationBar con 7 tabs (tipo fixed) — Captura, Cartera, Ventas,
-/// Cuentas, Stats, Objetivos, Galería.
+/// BottomNavigationBar con 4 tabs: Captura, Cartera, Stats, Más.
 class _BottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onTap;
@@ -147,9 +136,12 @@ class _BottomNav extends StatelessWidget {
       currentIndex: selectedIndex,
       onTap: onTap,
       type: BottomNavigationBarType.fixed,
-      selectedFontSize: 10,
-      unselectedFontSize: 9,
-      iconSize: 22,
+      selectedFontSize: 11,
+      unselectedFontSize: 10,
+      iconSize: 24,
+      selectedItemColor: ShelfyTokens.primary,
+      unselectedItemColor: ShelfyTokens.muted,
+      backgroundColor: ShelfyTokens.panel,
       items: [
         // Tab 0: Captura
         BottomNavigationBarItem(
@@ -179,40 +171,19 @@ class _BottomNav extends StatelessWidget {
           label: 'Cartera',
           tooltip: 'Ver clientes de tu ruta',
         ),
-        // Tab 2: Ventas
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.receipt_long_outlined),
-          activeIcon: Icon(Icons.receipt_long),
-          label: 'Ventas',
-          tooltip: 'Ventas del mes',
-        ),
-        // Tab 3: Cuentas
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.account_balance_wallet_outlined),
-          activeIcon: Icon(Icons.account_balance_wallet),
-          label: 'Cuentas',
-          tooltip: 'Cuentas corrientes',
-        ),
-        // Tab 4: Stats
+        // Tab 2: Stats
         const BottomNavigationBarItem(
           icon: Icon(Icons.bar_chart_outlined),
           activeIcon: Icon(Icons.bar_chart),
           label: 'Stats',
           tooltip: 'Estadísticas de rendimiento',
         ),
-        // Tab 5: Objetivos
+        // Tab 3: Más
         const BottomNavigationBarItem(
-          icon: Icon(Icons.flag_outlined),
-          activeIcon: Icon(Icons.flag),
-          label: 'Objetivos',
-          tooltip: 'Mis objetivos activos',
-        ),
-        // Tab 6: Galería
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.photo_library_outlined),
-          activeIcon: Icon(Icons.photo_library),
-          label: 'Galería',
-          tooltip: 'Historial de exhibiciones por cliente',
+          icon: Icon(Icons.grid_view_outlined),
+          activeIcon: Icon(Icons.grid_view),
+          label: 'Más',
+          tooltip: 'Ventas, Cuentas, Objetivos, Galería',
         ),
       ],
     );
@@ -227,28 +198,3 @@ class _BottomNav extends StatelessWidget {
   }
 }
 
-class _TenantLogo extends StatelessWidget {
-  const _TenantLogo();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.store_rounded,
-          color: Theme.of(context).appBarTheme.foregroundColor,
-          size: 22,
-        ),
-        const SizedBox(width: 8),
-        const Text(
-          'SHELFYAPP',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
-        ),
-      ],
-    );
-  }
-}

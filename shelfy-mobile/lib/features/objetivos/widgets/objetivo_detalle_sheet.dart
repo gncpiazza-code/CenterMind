@@ -71,8 +71,6 @@ class ObjetivoDetalleSheet extends StatelessWidget {
         : 0.0;
 
     final descRaw = detalle.descripcion;
-    final mostrarDesc =
-        descRaw != null && descRaw.isNotEmpty && !_esTelegramPayload(descRaw);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.55,
@@ -148,9 +146,11 @@ class ObjetivoDetalleSheet extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Descripción
-            if (mostrarDesc) ...[
+            if (descRaw != null &&
+                descRaw.isNotEmpty &&
+                !_esTelegramPayload(descRaw)) ...[
               Text(
-                descRaw!,
+                descRaw,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 14),

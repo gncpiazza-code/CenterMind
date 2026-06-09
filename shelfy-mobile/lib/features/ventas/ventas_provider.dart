@@ -1,7 +1,4 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/api/api_client.dart';
 import 'models/ventas_response.dart';
@@ -16,10 +13,6 @@ class VentasProvider extends ChangeNotifier {
   VentasResponse? ventasData;
   bool loading = false;
   String? error;
-
-  bool downloadingPdf = false;
-  String? pdfError;
-  String? pdfPath;
 
   /// Obtiene las ventas desde GET /api/vendedor-app/ventas?modo=mtd.
   Future<void> fetch({String modo = 'mtd'}) async {
@@ -36,32 +29,6 @@ class VentasProvider extends ChangeNotifier {
       error = 'Error al cargar las ventas';
     } finally {
       loading = false;
-      notifyListeners();
-    }
-  }
-
-  /// Descarga el PDF de ventas, lo guarda en tmp y retorna la ruta local.
-  Future<String?> downloadPdf() async {
-    downloadingPdf = true;
-    pdfError = null;
-    pdfPath = null;
-    notifyListeners();
-
-    try {
-      final bytes = await _api.getBytes('/api/vendedor-app/ventas/pdf');
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/ventas_mtd.pdf');
-      await file.writeAsBytes(bytes);
-      pdfPath = file.path;
-      return file.path;
-    } on ApiException catch (e) {
-      pdfError = e.message;
-      return null;
-    } catch (_) {
-      pdfError = 'Error al descargar el PDF';
-      return null;
-    } finally {
-      downloadingPdf = false;
       notifyListeners();
     }
   }

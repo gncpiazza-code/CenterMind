@@ -84,13 +84,15 @@ class _CuentasList extends StatelessWidget {
         _ModoToggle(),
         const SizedBox(height: 16),
 
-        // 2. Header totales
+        // 2. Snapshot label
+        if (data.snapshotLabel.isNotEmpty) ...[
+          _SnapshotLabel(label: data.snapshotLabel),
+          const SizedBox(height: 8),
+        ],
+
+        // 3. Header totales
         _CcHeader(data: data),
         const SizedBox(height: 16),
-
-        // 3. Botón PDF
-        _PdfDownloadButton(),
-        const SizedBox(height: 20),
 
         // 4. Lista clientes
         if (data.clientes.isEmpty)
@@ -258,54 +260,26 @@ class _CcHeader extends StatelessWidget {
   }
 }
 
-class _PdfDownloadButton extends StatelessWidget {
-  const _PdfDownloadButton();
+class _SnapshotLabel extends StatelessWidget {
+  final String label;
 
-  Future<void> _onPressed(BuildContext context) async {
-    final provider = context.read<CuentasProvider>();
-    final path = await provider.downloadPdf();
-    if (!context.mounted) return;
-
-    if (path != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('PDF descargado correctamente'),
-          action: SnackBarAction(
-            label: 'OK',
-            onPressed: () {},
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(provider.pdfError ?? 'Error al descargar el PDF'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
+  const _SnapshotLabel({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CuentasProvider>(
-      builder: (context, provider, _) {
-        return OutlinedButton.icon(
-          onPressed:
-              provider.downloadingPdf ? null : () => _onPressed(context),
-          icon: provider.downloadingPdf
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.picture_as_pdf_outlined),
-          label: Text(
-            provider.downloadingPdf ? 'Descargando...' : 'Descargar PDF',
-          ),
-        );
-      },
+    return Row(
+      children: [
+        Icon(
+          Icons.access_time_outlined,
+          size: 13,
+          color: Colors.grey[500],
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+        ),
+      ],
     );
   }
 }

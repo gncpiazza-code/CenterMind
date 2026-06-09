@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shelfy_mobile/app.dart';
@@ -38,11 +37,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
+    // 4 tabs: Captura, Cartera, Stats, Más
     expect(find.byType(HomeScreen), findsOneWidget);
     expect(find.text('Captura'), findsOneWidget);
     expect(find.text('Cartera'), findsOneWidget);
     expect(find.text('Stats'), findsOneWidget);
-    expect(find.text('Objetivos'), findsOneWidget);
+    expect(find.text('Más'), findsOneWidget);
 
     await tester.tap(find.text('Cartera'));
     await tester.pump();
@@ -53,9 +53,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    await tester.tap(find.text('Objetivos'));
+    await tester.tap(find.text('Más'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // Hub Más debe mostrar sus 4 destinos
+    expect(find.text('Ventas'), findsOneWidget);
+    expect(find.text('Cuentas'), findsOneWidget);
 
     await tester.tap(find.text('Captura'));
     await tester.pump();

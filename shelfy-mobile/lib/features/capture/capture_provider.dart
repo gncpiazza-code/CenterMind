@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,14 +18,15 @@ import 'models/post_upload_summary.dart';
 /// Máximo de fotos permitidas por exhibición.
 const int kMaxPhotosPerExhibicion = 6;
 
-/// Pasos del flujo de captura (cámara primero, PDV después de la foto).
-enum CaptureStep {
-  camera,
-  pdvConfirm,
-  manualInput,
-  ingresoChoice,
-  uploading,
-  success,
+/// Fases del overlay de captura — controlan el sheet, NO la ruta de navegación.
+/// La cámara siempre está activa en Z0; el sheet cambia de contenido.
+enum CaptureOverlayPhase {
+  live,       // Sin fotos aún — hint GPS · "Apuntá y capturá"
+  postPhoto,  // Tras 1ª foto — chips PDV cercanos o campo búsqueda
+  confirmPdv, // PDV elegido — resumen + "Otra foto"
+  ingreso,    // PDV confirmado — con/sin ingreso
+  uploading,  // Subiendo — barra progreso (cámara atenuada, no oculta)
+  done,       // OK / cola — banner éxito · sheet colapsa → live
 }
 
 /// ChangeNotifier que gestiona el estado completo del flujo de captura.
@@ -32,16 +34,19 @@ class CaptureProvider extends ChangeNotifier {
   final ApiClient _api;
   final ShelfyDatabase _db;
 
-  CaptureStep _currentStep = CaptureStep.camera;
+  CaptureOverlayPhase _phase = CaptureOverlayPhase.live;
   PdvCandidate? _selectedPdv;
-  PdvCandidate? _detectedPdv;
+
+  /// Lista de PDVs cercanos (radio 100 m).
+  List<PdvCandidate> _nearbyPdvs = [];
+
+  /// Resultados de búsqueda por texto.
+  List<PdvCandidate> _searchResults = [];
+  bool _searchLoading = false;
+  Timer? _searchDebounce;
+
   String? _manualNro;
-
-  /// Fotos capturadas solo desde cámara in-app (con metadatos).
   List<CapturePhoto> _photos = [];
-
-  /// Si true, al tomar foto se agrega a la sesión sin reiniciar flujo PDV.
-  bool _appendingPhoto = false;
 
   String? _selectedTipo;
   bool _isUploading = false;
@@ -60,25 +65,18 @@ class CaptureProvider extends ChangeNotifier {
       : _api = apiClient,
         _db = db;
 
-  CaptureStep get currentStep => _currentStep;
+  // ── Getters ──────────────────────────────────────────────────────────────────
+  CaptureOverlayPhase get phase => _phase;
   PdvCandidate? get selectedPdv => _selectedPdv;
-  PdvCandidate? get detectedPdv => _detectedPdv;
-  String? get manualNro => _manualNro;
-  bool get appendingPhoto => _appendingPhoto;
+  List<PdvCandidate> get nearbyPdvs => List.unmodifiable(_nearbyPdvs);
+  List<PdvCandidate> get searchResults => List.unmodifiable(_searchResults);
+  bool get searchLoading => _searchLoading;
 
   List<CapturePhoto> get photos => List.unmodifiable(_photos);
-
   List<File> get photoFiles => _photos.map((p) => p.file).toList();
-
   int get photoCount => _photos.length;
-
-  bool get canAddMorePhotos =>
-      _photos.length < kMaxPhotosPerExhibicion &&
-      _currentStep != CaptureStep.camera &&
-      _currentStep != CaptureStep.uploading &&
-      _currentStep != CaptureStep.success;
-
   bool get hasPhotos => _photos.isNotEmpty;
+  bool get canAddMorePhotos => _photos.length < kMaxPhotosPerExhibicion;
 
   String? get selectedTipo => _selectedTipo;
   bool get isUploading => _isUploading;
@@ -95,9 +93,11 @@ class CaptureProvider extends ChangeNotifier {
   }
 
   String get pdvDisplayName =>
-      _selectedPdv?.nombreDisplay ??
-      _detectedPdv?.nombreDisplay ??
-      (_manualNro != null ? 'NRO: $_manualNro' : '');
+      _selectedPdv?.nombreDisplay.isNotEmpty == true
+          ? _selectedPdv!.nombreDisplay
+          : (_manualNro != null ? 'NRO: $_manualNro' : '');
+
+  // ── GPS / PDVs cercanos ────────────────────────────────────────────────────
 
   Future<void> refreshNearbyPdvs({required double lat, required double lng}) async {
     _currentLat = lat;
@@ -107,15 +107,14 @@ class CaptureProvider extends ChangeNotifier {
 
     try {
       final list = await _api.getList(
-        '/api/vendedor-app/pdv/cercanos?lat=$lat&lng=$lng&radio=150',
+        '/api/vendedor-app/pdv/cercanos?lat=$lat&lng=$lng&radio=100',
       );
-      final candidates = list
+      _nearbyPdvs = list
           .cast<Map<String, dynamic>>()
           .map(PdvCandidate.fromJson)
           .toList();
-      _detectedPdv = candidates.isNotEmpty ? candidates.first : null;
     } catch (_) {
-      _detectedPdv = null;
+      _nearbyPdvs = [];
     } finally {
       _nearbyLoading = false;
       notifyListeners();
@@ -123,49 +122,68 @@ class CaptureProvider extends ChangeNotifier {
   }
 
   void onGpsUnavailable() {
-    _detectedPdv = null;
+    _nearbyPdvs = [];
     notifyListeners();
   }
 
-  /// Registra foto tomada desde cámara in-app con metadatos de auditoría.
+  // ── Búsqueda por texto (debounce 300 ms) ──────────────────────────────────
+
+  void searchPdv(String query) {
+    _searchDebounce?.cancel();
+    final q = query.trim();
+    if (q.isEmpty) {
+      _searchResults = [];
+      _searchLoading = false;
+      notifyListeners();
+      return;
+    }
+    _searchLoading = true;
+    notifyListeners();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final list = await _api.getList(
+          '/api/vendedor-app/pdv/buscar?q=${Uri.encodeQueryComponent(q)}&limit=8',
+        );
+        _searchResults = list
+            .cast<Map<String, dynamic>>()
+            .map(PdvCandidate.fromJson)
+            .toList();
+      } catch (_) {
+        _searchResults = [];
+      } finally {
+        _searchLoading = false;
+        notifyListeners();
+      }
+    });
+  }
+
+  void clearSearch() {
+    _searchDebounce?.cancel();
+    _searchResults = [];
+    _searchLoading = false;
+    notifyListeners();
+  }
+
+  // ── Eventos de foto ────────────────────────────────────────────────────────
+
   void onPhotoTaken(File file, CapturePhotoMetadata metadata) {
     final photo = CapturePhoto(file: file, metadata: metadata);
 
-    if (_appendingPhoto) {
+    if (_phase == CaptureOverlayPhase.confirmPdv && hasPhotos) {
+      // Agregar foto extra sin resetear PDV
       if (_photos.length >= kMaxPhotosPerExhibicion) return;
       _photos = [..._photos, photo];
-      _appendingPhoto = false;
-      _currentStep = CaptureStep.ingresoChoice;
-      if (_selectedPdv != null || (_manualNro != null && _manualNro!.isNotEmpty)) {
-        _currentStep = CaptureStep.ingresoChoice;
-      } else if (_detectedPdv != null) {
-        _currentStep = CaptureStep.pdvConfirm;
-      } else {
-        _currentStep = CaptureStep.manualInput;
-      }
       notifyListeners();
       return;
     }
 
+    // Primera foto de la sesión
     _photos = [photo];
     _selectedPdv = null;
     _manualNro = null;
     _selectedTipo = null;
     _errorMessage = null;
-
-    if (_detectedPdv != null) {
-      _currentStep = CaptureStep.pdvConfirm;
-    } else {
-      _currentStep = CaptureStep.manualInput;
-    }
-    notifyListeners();
-  }
-
-  /// Abre cámara para agregar otra foto (sin galería).
-  void startAppendPhoto() {
-    if (!canAddMorePhotos) return;
-    _appendingPhoto = true;
-    _currentStep = CaptureStep.camera;
+    _phase = CaptureOverlayPhase.postPhoto;
     notifyListeners();
   }
 
@@ -175,41 +193,44 @@ class CaptureProvider extends ChangeNotifier {
     updated.removeAt(index);
     _photos = updated;
     if (_photos.isEmpty) {
-      _appendingPhoto = false;
-      _currentStep = CaptureStep.camera;
+      _phase = CaptureOverlayPhase.live;
     }
     notifyListeners();
   }
 
-  void confirmDetectedPdv() {
-    final pdv = _detectedPdv;
-    if (pdv == null) {
-      _currentStep = CaptureStep.manualInput;
-    } else {
-      _selectedPdv = pdv;
-      _manualNro = null;
-      _currentStep = CaptureStep.ingresoChoice;
-    }
-    notifyListeners();
-  }
+  // ── Selección de PDV ──────────────────────────────────────────────────────
 
-  void rejectDetectedPdv() {
-    _selectedPdv = null;
+  void selectPdv(PdvCandidate pdv) {
+    _selectedPdv = pdv;
     _manualNro = null;
-    _currentStep = CaptureStep.manualInput;
+    _phase = CaptureOverlayPhase.confirmPdv;
+    clearSearch();
     notifyListeners();
   }
 
   void confirmManualNro(String nro) {
     _manualNro = nro.trim();
     _selectedPdv = null;
-    _currentStep = CaptureStep.ingresoChoice;
+    _phase = CaptureOverlayPhase.ingreso;
+    clearSearch();
+    notifyListeners();
+  }
+
+  void confirmPdv() {
+    _phase = CaptureOverlayPhase.ingreso;
+    notifyListeners();
+  }
+
+  void backToPostPhoto() {
+    _selectedPdv = null;
+    _manualNro = null;
+    _phase = CaptureOverlayPhase.postPhoto;
+    clearSearch();
     notifyListeners();
   }
 
   void selectIngreso({required bool conIngreso}) {
-    _selectedTipo =
-        conIngreso ? 'Comercio con Ingreso' : 'Comercio sin Ingreso';
+    _selectedTipo = conIngreso ? 'Comercio con Ingreso' : 'Comercio sin Ingreso';
     submit();
   }
 
@@ -219,10 +240,12 @@ class CaptureProvider extends ChangeNotifier {
     _manualNro = null;
     _selectedTipo = null;
     _errorMessage = null;
-    _appendingPhoto = false;
-    _currentStep = CaptureStep.camera;
+    _phase = CaptureOverlayPhase.live;
+    clearSearch();
     notifyListeners();
   }
+
+  // ── Upload ─────────────────────────────────────────────────────────────────
 
   CaptureSessionMetadata _buildSessionMetadata() {
     return CaptureSessionMetadata(
@@ -237,7 +260,7 @@ class CaptureProvider extends ChangeNotifier {
 
     _isUploading = true;
     _errorMessage = null;
-    _currentStep = CaptureStep.uploading;
+    _phase = CaptureOverlayPhase.uploading;
     notifyListeners();
 
     try {
@@ -250,11 +273,11 @@ class CaptureProvider extends ChangeNotifier {
         await _enqueueOffline();
         _lastResult = null;
         _postUploadSummary = null;
-        _currentStep = CaptureStep.success;
+        _phase = CaptureOverlayPhase.done;
       }
     } catch (e) {
       _errorMessage = e is ApiException ? e.message : e.toString();
-      _currentStep = CaptureStep.ingresoChoice;
+      _phase = CaptureOverlayPhase.ingreso;
     } finally {
       _isUploading = false;
       notifyListeners();
@@ -284,22 +307,20 @@ class CaptureProvider extends ChangeNotifier {
 
     if (_lastResult!.exhibicionIds.isEmpty) {
       throw const ApiException(
-        statusCode: 500,
+        statusCode: 422,
         message:
             'El servidor no registró las fotos. Verificá la conexión e intentá de nuevo.',
       );
     }
 
     _fetchPostUploadSummary(nroCliente);
-    _currentStep = CaptureStep.success;
+    _phase = CaptureOverlayPhase.done;
     onUploadSuccess?.call(nroCliente);
   }
 
   Future<void> _fetchPostUploadSummary(String nroCliente) async {
     try {
-      final json = await _api.get(
-        '/api/vendedor-app/post-upload/$nroCliente',
-      );
+      final json = await _api.get('/api/vendedor-app/post-upload/$nroCliente');
       _postUploadSummary = PostUploadSummary.fromJson(json);
       notifyListeners();
     } catch (_) {
@@ -325,7 +346,7 @@ class CaptureProvider extends ChangeNotifier {
   }
 
   void reset() {
-    _currentStep = CaptureStep.camera;
+    _phase = CaptureOverlayPhase.live;
     _selectedPdv = null;
     _manualNro = null;
     _photos = [];
@@ -334,11 +355,20 @@ class CaptureProvider extends ChangeNotifier {
     _lastResult = null;
     _postUploadSummary = null;
     _errorMessage = null;
-    _appendingPhoto = false;
+    _searchResults = [];
+    _searchLoading = false;
+    _searchDebounce?.cancel();
     notifyListeners();
   }
 
-  /// Metadatos GPS al instante de disparar la cámara.
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  // ── Metadatos GPS al disparar ──────────────────────────────────────────────
+
   static Future<CapturePhotoMetadata> captureMetadataNow() async {
     final capturedAt = DateTime.now().toUtc();
     try {

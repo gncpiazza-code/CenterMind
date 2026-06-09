@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 9 Jun 2026 (v16 — alta Ippolibaz dist 13)  
+**Última actualización:** 9 Jun 2026 (v18 — SHELFYAPP Oleada 2: fix upload P0 + espíritu Shelfy + captura 1 pantalla)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -29,12 +29,11 @@
 
 ## Cambios recientes (máx 5)
 
-1. **Alta Ippolibaz dist 13 (2026-06-09):** registry + CHESS vault + tablas `*_d13`; padrón 1111 PDVs; CC 3 filas; guardrail CC permite primer bootstrap sin snapshot previo.
-2. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` responde 202 + thread (mismo patrón padrón); evita 524/502 Cloudflare en uploads RPA.
-2. **RPA padrón ENGINES (2026-06-08):** catch-up sin falsos stale si Supabase falla; lock con timeout; reintentos reporteador; informe ventas 09:45 AR (evita choque 09:38 catch-up).
-3. **Mapa supervisión perf v2 (2026-06-08):** pines en Zustand + engine TanStack Query, `SupervisionMapView` aislado, marker clustering Google Maps, sync key incremental.
-4. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo por zona/Crear Rutas, capas `mapa_capas_planificacion`, fix pin exhibición 30d (`tiene_exhibicion_reciente`).
-5. **Tenants doc (2026-06-08):** catálogo 7 dist — ver `docs/context/modules/tenants.md`.
+1. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal (`ensure_mobile_integrante` antes del RPC, `telegram_user_id` sintético, HTTP 422 si vacío); espíritu Shelfy (`shelfy_tokens.dart` + shared widgets + AppBar logo + violeta por defecto); captura 1 pantalla (Stack único, `CaptureOverlayPhase`, glass sheet, flash, radio 100 m); `pdv/buscar` endpoint nuevo; `flutter analyze` 0 errors.
+2. **SHELFYAPP polish (2026-06-09):** snapshot-first CC+ventas (nombre_display fix, aging buckets, bultos/top compradores); hub Más animado (4 tabs, stagger); `flutter analyze` 0 warnings código.
+3. **Alta Ippolibaz dist 13 (2026-06-09):** registry + CHESS vault + tablas `*_d13`; padrón 1111 PDVs; CC 3 filas; guardrail CC permite primer bootstrap sin snapshot previo.
+4. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` responde 202 + thread; evita 524/502 Cloudflare en uploads RPA.
+5. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo/Rutas, capas planificación, fix pin exhibición 30d.
 
 ## Guardrails activos
 

@@ -28,6 +28,23 @@ def _get_vendor_erp_id(sb: Client, dist_id: int, id_vendedor_v2: int) -> str | N
     return None
 
 
+def _fetch_latest_cc_snapshot_date(sb: Client, dist_id: int) -> str | None:
+    """Retorna la fecha_snapshot más reciente en cc_detalle para este distribuidor."""
+    try:
+        rows = (
+            sb.table("cc_detalle")
+            .select("fecha_snapshot")
+            .eq("id_distribuidor", dist_id)
+            .not_.is_("fecha_snapshot", "null")
+            .order("fecha_snapshot", desc=True)
+            .limit(1)
+            .execute().data or []
+        )
+        return rows[0]["fecha_snapshot"] if rows else None
+    except Exception:
+        return None
+
+
 def get_cc_vendedor(
     sb: Client,
     dist_id: int,
@@ -35,10 +52,14 @@ def get_cc_vendedor(
     modo: str = "general",
 ) -> dict:
     """
-    CC del vendedor filtrado a sus clientes.
+    CC del vendedor filtrado a sus clientes, solo snapshot más reciente.
     modo='hoy': solo clientes de la ruta de hoy. modo='general': todo.
     """
+    from core.bot_snapshot_meta import resolve_snapshot_label
+
     erp_id = _get_vendor_erp_id(sb, dist_id, id_vendedor_v2)
+    snapshot_date = _fetch_latest_cc_snapshot_date(sb, dist_id)
+    snapshot_label = resolve_snapshot_label(sb, dist_id, "cc")
 
     PAGE = 1000
     offset = 0
@@ -54,6 +75,8 @@ def get_cc_vendedor(
             .eq("id_distribuidor", dist_id)
             .gt("deuda_total", 0)
         )
+        if snapshot_date:
+            q = q.eq("fecha_snapshot", snapshot_date)
         if erp_id:
             q = q.eq("id_vendedor", erp_id)
         batch = q.range(offset, offset + PAGE - 1).execute().data or []
@@ -69,16 +92,22 @@ def get_cc_vendedor(
     clientes = [
         {
             "id_cliente_erp": str(r.get("id_cliente_erp") or ""),
-            "nombre": str(r.get("cliente_nombre") or "").strip(),
+            "nombre_display": str(r.get("cliente_nombre") or "").strip(),
             "saldo": round(float(r.get("deuda_total") or 0), 2),
             "dias_vencido": int(r.get("antiguedad_dias") or 0),
             "cantidad_comprobantes": int(r.get("cantidad_comprobantes") or 0),
+            "deuda_7_dias": round(float(r.get("deuda_7_dias") or 0), 2),
+            "deuda_15_dias": round(float(r.get("deuda_15_dias") or 0), 2),
+            "deuda_30_dias": round(float(r.get("deuda_30_dias") or 0), 2),
+            "deuda_60_dias": round(float(r.get("deuda_60_dias") or 0), 2),
+            "deuda_mas_60_dias": round(float(r.get("deuda_mas_60_dias") or 0), 2),
         }
         for r in sorted(rows, key=lambda x: float(x.get("deuda_total") or 0), reverse=True)
     ]
 
     return {
         "modo": modo,
+        "snapshot_label": snapshot_label,
         "total_saldo": round(total_saldo, 2),
         "total_clientes": len(clientes),
         "clientes": clientes,

@@ -80,17 +80,31 @@ class _VentasList extends StatelessWidget {
       children: [
         // 1. Selector de período (solo MTD por ahora)
         _PeriodPill(periodo: data.periodo),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
 
-        // 2. Header: totales MTD
+        // 2. Snapshot label
+        if (data.snapshotLabel.isNotEmpty) ...[
+          _SnapshotLabel(label: data.snapshotLabel),
+          const SizedBox(height: 12),
+        ],
+
+        // 3. Header: totales MTD
         _VentasHeader(data: data),
         const SizedBox(height: 16),
 
-        // 3. Botón descargar PDF
-        _PdfDownloadButton(),
-        const SizedBox(height: 20),
+        // 4. Desglose bultos (expandible)
+        if (data.bultosDesglose.isNotEmpty) ...[
+          _BultosDesgloseSection(items: data.bultosDesglose),
+          const SizedBox(height: 12),
+        ],
 
-        // 4. Lista de PDVs
+        // 5. Top compradores (expandible)
+        if (data.topCompradores.isNotEmpty) ...[
+          _TopCompradoresSection(items: data.topCompradores),
+          const SizedBox(height: 16),
+        ],
+
+        // 6. Lista de PDVs
         if (data.porPdv.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
@@ -209,62 +223,114 @@ class _VentasHeader extends StatelessWidget {
   }
 }
 
-class _PdfDownloadButton extends StatelessWidget {
-  const _PdfDownloadButton();
+class _SnapshotLabel extends StatelessWidget {
+  final String label;
 
-  Future<void> _onPressed(BuildContext context) async {
-    final provider = context.read<VentasProvider>();
-    final path = await provider.downloadPdf();
-    if (!context.mounted) return;
-
-    if (path != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('PDF descargado correctamente'),
-          action: SnackBarAction(
-            label: 'Abrir',
-            onPressed: () => _openFile(context, path),
-          ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(provider.pdfError ?? 'Error al descargar el PDF'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _openFile(BuildContext context, String path) {
-    // path_provider garantiza que el archivo existe en el directorio temp.
-    // En iOS/Android usamos la URI nativa vía url_launcher si estuviera
-    // disponible; como no está en pubspec, mostramos la ruta.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('PDF guardado en: $path')),
-    );
-  }
+  const _SnapshotLabel({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<VentasProvider>(
-      builder: (context, provider, _) {
-        return OutlinedButton.icon(
-          onPressed: provider.downloadingPdf ? null : () => _onPressed(context),
-          icon: provider.downloadingPdf
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.picture_as_pdf_outlined),
-          label: Text(
-            provider.downloadingPdf ? 'Descargando...' : 'Descargar PDF',
-          ),
-        );
-      },
+    return Row(
+      children: [
+        Icon(Icons.access_time_outlined, size: 13, color: Colors.grey[500]),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+        ),
+      ],
+    );
+  }
+}
+
+class _BultosDesgloseSection extends StatelessWidget {
+  final List<BultosDesglose> items;
+
+  const _BultosDesgloseSection({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ExpansionTile(
+        leading: const Icon(Icons.inventory_2_outlined),
+        title: const Text(
+          'Desglose bultos',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        children: items
+            .map(
+              (b) => ListTile(
+                dense: true,
+                title: Text(
+                  b.articulo,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                trailing: Text(
+                  '${b.bultos}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _TopCompradoresSection extends StatelessWidget {
+  final List<TopComprador> items;
+
+  const _TopCompradoresSection({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ExpansionTile(
+        leading: const Icon(Icons.leaderboard_outlined),
+        title: const Text(
+          'Top compradores',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        children: items
+            .map(
+              (c) => ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  radius: 12,
+                  backgroundColor:
+                      Theme.of(context).colorScheme.primaryContainer,
+                  child: Text(
+                    '${c.rank}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color:
+                          Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  c.nombreCliente,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                subtitle: Text(
+                  '#${c.idClienteErp}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+                trailing: Text(
+                  '${c.totalBultos} bts',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      ),
     );
   }
 }

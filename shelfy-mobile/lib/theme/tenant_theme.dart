@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'shelfy_tokens.dart';
 
 /// Construye el ThemeData del tenant a partir del JSON de branding.
 ///
 /// El objeto [branding] puede incluir:
-/// - `primary_color`: string hex ej. "#6C63FF"
+/// - `primary_color`: string hex ej. "#a855f7"
 /// - `secondary_color`: string hex opcional
 /// - `font_family`: nombre de fuente opcional
 ThemeData buildTenantTheme(Map<String, dynamic>? branding) {
+  // Tenant override mezcla sobre violeta Shelfy; fallback = violeta Shelfy (no azul genérico)
   final primaryColor = _parseColor(branding?['primary_color']) ??
-      const Color(0xFF6C63FF);
+      ShelfyTokens.primary;
   final secondaryColor = _parseColor(branding?['secondary_color']) ??
       primaryColor.withValues(alpha: 0.7);
 
@@ -21,6 +23,7 @@ ThemeData buildTenantTheme(Map<String, dynamic>? branding) {
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
+    scaffoldBackgroundColor: ShelfyTokens.bg,
     appBarTheme: AppBarTheme(
       backgroundColor: primaryColor,
       foregroundColor: Colors.white,

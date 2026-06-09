@@ -23,7 +23,7 @@ from core.exhibicion_aggregate import (
     aggregate_exhibicion_counts_vendor_scope,
     EXHIBICION_ROW_COLS,
 )
-from core.vendedor_app_auth import ensure_mobile_integrante
+from core.vendedor_app_auth import ensure_mobile_integrante, _mobile_telegram_user_id
 
 logger = logging.getLogger("ShelfyAPI")
 
@@ -233,8 +233,8 @@ def process_exhibicion_upload(
 
     1. Verifica idempotencia por client_upload_id.
     2. Inserta fila en upload_queue con estado='processing'.
-    3. Llama a fn_bot_registrar_exhibicion por cada foto.
-    4. Asegura integrante sintético en integrantes_grupo.
+    3. Asegura integrante sintético ANTES del RPC (fn_bot_registrar_exhibicion espera telegram_user_id).
+    4. Llama a fn_bot_registrar_exhibicion por cada foto con telegram_user_id sintético.
     5. Actualiza source='mobile_app', coordenadas y client_upload_id en exhibiciones.
     6. Actualiza upload_queue a estado='done'.
     7. Calcula stats post-upload (vendor scope).
@@ -292,7 +292,17 @@ def process_exhibicion_upload(
         # No bloquear el flujo si la tabla no existe aún (pendiente migración)
         logger.warning(f"process_exhibicion_upload insert queue failed (ignorando): {e}")
 
-    # ── 3. Llamar RPC por cada foto ───────────────────────────────────────────
+    # ── 3. Asegurar integrante sintético ANTES del RPC ───────────────────────
+    # fn_bot_registrar_exhibicion espera p_vendedor_id = telegram_user_id
+    # (lookup por integrantes_grupo). El integrante debe existir ANTES de llamar al RPC.
+    try:
+        ensure_mobile_integrante(sb, dist_id, id_vendedor_v2, device_id)
+    except Exception as e:
+        logger.warning(f"process_exhibicion_upload ensure_mobile_integrante pre-RPC: {e}")
+
+    tg_user_id = _mobile_telegram_user_id(device_id, id_vendedor_v2)
+
+    # ── 4. Llamar RPC por cada foto ───────────────────────────────────────────
     exhibicion_ids: list[int] = []
     for photo_url in photo_urls:
         if not photo_url:
@@ -300,7 +310,7 @@ def process_exhibicion_upload(
         rpc_result = _call_rpc_registrar_exhibicion(
             sb=sb,
             dist_id=dist_id,
-            vendedor_id=id_vendedor_v2,
+            vendedor_id=tg_user_id,
             nro_cliente=nro_cliente,
             tipo_pdv=tipo_pdv,
             drive_link=photo_url,
@@ -316,13 +326,14 @@ def process_exhibicion_upload(
                 f"{rpc_result.get('error')}"
             )
 
-    # ── 4. Asegurar integrante sintético ──────────────────────────────────────
-    try:
-        ensure_mobile_integrante(sb, dist_id, id_vendedor_v2, device_id)
-    except Exception as e:
-        logger.warning(f"process_exhibicion_upload ensure_mobile_integrante: {e}")
+    # Fallar explícitamente si el RPC no registró ninguna exhibición
+    if not exhibicion_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="El servidor no pudo registrar la exhibición. Verificá que el PDV esté en tu cartera e intentá de nuevo.",
+        )
 
-    # ── 5. Actualizar exhibiciones: source, coords, client_upload_id ──────────
+    # ── 5. Actualizar exhibiciones: source, coords, client_upload_id ─────────
     ex_table = tenant_table_name("exhibiciones", dist_id)
     update_payload: dict = {
         "source": "mobile_app",

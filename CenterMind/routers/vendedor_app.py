@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from core.security import verify_auth, check_dist_permission
 from core.vendedor_app_auth import decode_session_jwt
-from core.pdv_proximity import pdvs_cercanos_cartera
+from core.pdv_proximity import pdvs_cercanos_cartera, pdv_buscar_texto
 from services.vendedor_app_auth_service import (
     activate_key,
     create_vendor_key,
@@ -238,6 +238,34 @@ def get_pdvs_cercanos(
     except Exception as e:
         logger.error(f"get_pdvs_cercanos vendor={id_vendedor} dist={id_distribuidor}: {e}")
         raise HTTPException(status_code=500, detail="Error consultando PDVs cercanos")
+
+    return {"pdvs": results, "total": len(results)}
+
+
+@router.get(
+    "/pdv/buscar",
+    summary="Autocompletado de PDVs por NRO o nombre",
+)
+def get_pdv_buscar(
+    q: str = Query(..., min_length=1, max_length=100, description="Prefijo NRO o texto nombre"),
+    limit: int = Query(8, ge=1, le=20, description="Máximo de resultados"),
+    session: dict = Depends(vendedor_session_dep),
+):
+    """Busca PDVs de la cartera del vendedor por prefijo de id_cliente_erp o nombre (ilike)."""
+    id_distribuidor: int = int(session["dist"])
+    id_vendedor: int = int(session["vendor"])
+
+    try:
+        results = pdv_buscar_texto(
+            sb,
+            dist_id=id_distribuidor,
+            id_vendedor=id_vendedor,
+            query=q,
+            limit=limit,
+        )
+    except Exception as e:
+        logger.error(f"get_pdv_buscar vendor={id_vendedor} dist={id_distribuidor} q={q!r}: {e}")
+        raise HTTPException(status_code=500, detail="Error en búsqueda de PDVs")
 
     return {"pdvs": results, "total": len(results)}
 

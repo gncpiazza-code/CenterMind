@@ -155,3 +155,72 @@ def pdvs_cercanos_cartera(
     # Ordenar por distancia
     cercanos.sort(key=lambda x: x["distancia_m"])
     return cercanos
+
+
+def pdv_buscar_texto(
+    sb,
+    dist_id: int,
+    id_vendedor: int,
+    query: str,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """
+    Busca PDVs de la cartera del vendedor por prefijo de NRO o nombre (ilike).
+
+    Resultado: [{id_cliente_erp, nombre_fantasia, nombre_razon_social, nombre_display, en_cartera}]
+    """
+    q = query.strip()
+    if not q:
+        return []
+
+    t_rutas = tenant_table_name("rutas_v2", dist_id)
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+
+    id_rutas = _fetch_rutas_para_vendedor(sb, t_rutas, id_vendedor)
+    if not id_rutas:
+        return []
+
+    try:
+        # Buscar por NRO exacto primero
+        nro_res = (
+            sb.table(t_clientes)
+            .select("id_cliente_erp, nombre_fantasia, nombre_razon_social")
+            .in_("id_ruta", id_rutas)
+            .ilike("id_cliente_erp", f"{q}%")
+            .limit(limit)
+            .execute()
+        )
+        nro_hits = nro_res.data or []
+
+        # Completar con búsqueda en nombre si hay cupo
+        remaining = limit - len(nro_hits)
+        nombre_hits: list[dict] = []
+        if remaining > 0:
+            nombre_res = (
+                sb.table(t_clientes)
+                .select("id_cliente_erp, nombre_fantasia, nombre_razon_social")
+                .in_("id_ruta", id_rutas)
+                .or_(f"nombre_fantasia.ilike.%{q}%,nombre_razon_social.ilike.%{q}%")
+                .limit(remaining + len(nro_hits))
+                .execute()
+            )
+            seen = {r["id_cliente_erp"] for r in nro_hits}
+            for r in (nombre_res.data or []):
+                if r["id_cliente_erp"] not in seen and len(nombre_hits) < remaining:
+                    nombre_hits.append(r)
+                    seen.add(r["id_cliente_erp"])
+
+        results = []
+        for row in nro_hits + nombre_hits:
+            results.append({
+                "id_cliente_erp": row.get("id_cliente_erp"),
+                "nombre_fantasia": row.get("nombre_fantasia") or "",
+                "nombre_razon_social": row.get("nombre_razon_social") or "",
+                "nombre_display": _pdv_display_name(row),
+                "en_cartera": True,
+            })
+        return results[:limit]
+
+    except Exception as e:
+        logger.warning(f"pdv_buscar_texto dist={dist_id} vendor={id_vendedor} q={q!r}: {e}")
+        return []

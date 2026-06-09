@@ -1,14 +1,23 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
 import '../home/home_tab_controller.dart';
 import 'capture_provider.dart';
-import 'models/post_upload_summary.dart';
+import 'models/pdv_candidate.dart';
 import 'widgets/camera_capture_widget.dart';
 
-/// Pantalla de captura: cámara abierta por defecto, PDV después de la foto.
+/// Pantalla de captura — un solo Scaffold/Stack.
+///
+/// Estructura:
+///   Z0  Cámara siempre visible de fondo
+///   Z1  Barra superior: GPS status + foto counter
+///   Z2  (usado por CameraCaptureWidget para shutter)
+///   Z3  ShelfyGlassPanel deslizable — todo el flujo PDV/ingreso/éxito
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
 
@@ -16,18 +25,31 @@ class CaptureScreen extends StatefulWidget {
   State<CaptureScreen> createState() => _CaptureScreenState();
 }
 
-class _CaptureScreenState extends State<CaptureScreen> {
-  final TextEditingController _manualNroController = TextEditingController();
+class _CaptureScreenState extends State<CaptureScreen>
+    with SingleTickerProviderStateMixin {
+  final TextEditingController _searchController = TextEditingController();
+  late AnimationController _sheetAnim;
+  late Animation<Offset> _sheetSlide;
 
   @override
   void initState() {
     super.initState();
+    _sheetAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _sheetSlide = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _sheetAnim, curve: Curves.easeOutCubic));
+
     WidgetsBinding.instance.addPostFrameCallback((_) => _startBackgroundGps());
   }
 
   @override
   void dispose() {
-    _manualNroController.dispose();
+    _searchController.dispose();
+    _sheetAnim.dispose();
     super.dispose();
   }
 
@@ -35,26 +57,21 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final provider = context.read<CaptureProvider>();
     try {
       var status = await Permission.locationWhenInUse.status;
-      if (status.isDenied) {
-        status = await Permission.locationWhenInUse.request();
-      }
+      if (status.isDenied) status = await Permission.locationWhenInUse.request();
       if (!status.isGranted) {
         provider.onGpsUnavailable();
         return;
       }
-
       if (!await Geolocator.isLocationServiceEnabled()) {
         provider.onGpsUnavailable();
         return;
       }
-
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           timeLimit: Duration(seconds: 12),
         ),
       );
-
       if (mounted) {
         await provider.refreshNearbyPdvs(
           lat: position.latitude,
@@ -66,104 +83,277 @@ class _CaptureScreenState extends State<CaptureScreen> {
     }
   }
 
+  void _resetAndRefresh() {
+    _searchController.clear();
+    context.read<CaptureProvider>().reset();
+    _startBackgroundGps();
+  }
+
+  void _openGaleria(CaptureProvider provider) {
+    final nro = provider.nroCliente;
+    context.read<HomeTabController>().goToTab(
+          6,
+          openGaleriaClienteErp: nro.isNotEmpty ? nro : null,
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<CaptureProvider>(
       builder: (context, provider, _) {
-        switch (provider.currentStep) {
-          case CaptureStep.camera:
-            return _buildCameraStep(context, provider);
-          case CaptureStep.pdvConfirm:
-            return _buildPdvConfirm(context, provider);
-          case CaptureStep.manualInput:
-            return _buildManualInput(context, provider);
-          case CaptureStep.ingresoChoice:
-            return _buildIngresoChoice(context, provider);
-          case CaptureStep.uploading:
-            return _buildUploading();
-          case CaptureStep.success:
-            return _buildSuccess(context, provider);
+        // Controlar visibilidad del sheet según fase
+        final showSheet = provider.phase != CaptureOverlayPhase.live;
+        if (showSheet) {
+          _sheetAnim.forward();
+        } else {
+          _sheetAnim.reverse();
         }
-      },
-    );
-  }
 
-  Widget _buildCameraStep(BuildContext context, CaptureProvider provider) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          CameraCaptureWidget(
-            onPhotoTaken: provider.onPhotoTaken,
-          ),
-          if (provider.appendingPhoto)
-            SafeArea(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Material(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      child: Text(
-                        'Foto ${provider.photoCount + 1}/$kMaxPhotosPerExhibicion',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                    ),
+        return Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            children: [
+              // Z0: Cámara siempre activa
+              Positioned.fill(
+                child: CameraCaptureWidget(
+                  onPhotoTaken: provider.onPhotoTaken,
+                ),
+              ),
+
+              // Atenuar cámara durante upload
+              if (provider.phase == CaptureOverlayPhase.uploading)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.55),
+                  ),
+                ),
+
+              // Z1: Barra superior — GPS status + contador fotos
+              _TopBar(provider: provider),
+
+              // Z3: Sheet de overlay con las fases
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: SlideTransition(
+                  position: _sheetSlide,
+                  child: _OverlaySheet(
+                    provider: provider,
+                    searchController: _searchController,
+                    onReset: _resetAndRefresh,
+                    onOpenGaleria: () => _openGaleria(provider),
                   ),
                 ),
               ),
-            ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  if (provider.nearbyLoading)
-                    const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white70,
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Top bar ─────────────────────────────────────────────────────────────────
+
+class _TopBar extends StatelessWidget {
+  final CaptureProvider provider;
+
+  const _TopBar({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final photos = provider.photoCount;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            // GPS hint
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.50),
+                  borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (provider.nearbyLoading)
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      )
+                    else
+                      Icon(
+                        provider.nearbyPdvs.isNotEmpty
+                            ? Icons.location_on_rounded
+                            : Icons.location_off_rounded,
+                        size: 14,
+                        color: provider.nearbyPdvs.isNotEmpty
+                            ? ShelfyTokens.primary
+                            : Colors.white38,
                       ),
-                    )
-                  else if (provider.detectedPdv != null)
-                    Expanded(
+                    const SizedBox(width: 6),
+                    Flexible(
                       child: Text(
-                        'PDV cercano: ${provider.detectedPdv!.nombreDisplay}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        provider.nearbyLoading
+                            ? 'Buscando PDVs cercanos...'
+                            : provider.nearbyPdvs.isNotEmpty
+                                ? '${provider.nearbyPdvs.length} PDV${provider.nearbyPdvs.length > 1 ? 's' : ''} cerca'
+                                : 'Sin PDVs en 100 m',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    )
-                  else
-                    const Expanded(
-                      child: Text(
-                        'Sin PDV detectado — ingresarás el NRO al capturar',
-                        style: TextStyle(color: Colors.white54, fontSize: 12),
-                      ),
                     ),
-                ],
+                  ],
+                ),
               ),
             ),
+
+            // Contador de fotos (solo si hay)
+            if (photos > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: ShelfyTokens.primary.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+                ),
+                child: Text(
+                  '$photos/$kMaxPhotosPerExhibicion',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Sheet de overlay ─────────────────────────────────────────────────────────
+
+class _OverlaySheet extends StatelessWidget {
+  final CaptureProvider provider;
+  final TextEditingController searchController;
+  final VoidCallback onReset;
+  final VoidCallback onOpenGaleria;
+
+  const _OverlaySheet({
+    required this.provider,
+    required this.searchController,
+    required this.onReset,
+    required this.onOpenGaleria,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(ShelfyTokens.radiusXl),
+      ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: ShelfyTokens.panelBlur,
+          sigmaY: ShelfyTokens.panelBlur,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: ShelfyTokens.panel.withValues(alpha: ShelfyTokens.panelOpacity),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(ShelfyTokens.radiusXl),
+            ),
+            border: const Border(
+              top: BorderSide(color: ShelfyTokens.border),
+            ),
           ),
-        ],
+          child: SafeArea(
+            top: false,
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: _sheetContent(context),
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  // ────────────────────────────────────────────────────────────────
-  // Galería de miniaturas de fotos capturadas con botón "×" y contador
-  // ────────────────────────────────────────────────────────────────
+  Widget _sheetContent(BuildContext context) {
+    switch (provider.phase) {
+      case CaptureOverlayPhase.postPhoto:
+        return _PostPhotoContent(
+          provider: provider,
+          searchController: searchController,
+          onBack: () => provider.backToCamera(),
+        );
+      case CaptureOverlayPhase.confirmPdv:
+        return _ConfirmPdvContent(
+          provider: provider,
+          onBack: provider.backToPostPhoto,
+        );
+      case CaptureOverlayPhase.ingreso:
+        return _IngresoContent(provider: provider);
+      case CaptureOverlayPhase.uploading:
+        return const _UploadingContent();
+      case CaptureOverlayPhase.done:
+        return _DoneContent(
+          provider: provider,
+          onReset: onReset,
+          onOpenGaleria: onOpenGaleria,
+        );
+      case CaptureOverlayPhase.live:
+        return const SizedBox.shrink();
+    }
+  }
+}
 
-  Widget _buildPhotoStrip(CaptureProvider provider) {
+// ─── Handle visual ────────────────────────────────────────────────────────────
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(top: 10, bottom: 8),
+        decoration: BoxDecoration(
+          color: ShelfyTokens.border,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Miniatura de fotos capturadas ────────────────────────────────────────────
+
+class _PhotoStrip extends StatelessWidget {
+  final CaptureProvider provider;
+
+  const _PhotoStrip({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
     final photos = provider.photoFiles;
     if (photos.isEmpty) return const SizedBox.shrink();
 
@@ -174,33 +364,23 @@ class _CaptureScreenState extends State<CaptureScreen> {
           children: [
             Text(
               '${provider.photoCount}/$kMaxPhotosPerExhibicion fotos',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: provider.photoCount >= kMaxPhotosPerExhibicion
-                        ? Colors.orange
-                        : null,
-                  ),
-            ),
-            const Spacer(),
-            if (provider.canAddMorePhotos)
-              TextButton.icon(
-                onPressed: () => provider.startAppendPhoto(),
-                icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                label: const Text('Otra foto (cámara)'),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: provider.photoCount >= kMaxPhotosPerExhibicion
+                    ? ShelfyTokens.warning
+                    : ShelfyTokens.textSoft,
               ),
+            ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         SizedBox(
-          height: 80,
+          height: 72,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: photos.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            separatorBuilder: (_, _) => const SizedBox(width: 6),
             itemBuilder: (context, index) {
               return Stack(
                 children: [
@@ -208,33 +388,27 @@ class _CaptureScreenState extends State<CaptureScreen> {
                     borderRadius: BorderRadius.circular(8),
                     child: Image.file(
                       photos[index],
-                      width: 80,
-                      height: 80,
+                      width: 72,
+                      height: 72,
                       fit: BoxFit.cover,
                     ),
                   ),
-                  // Botón "×" para eliminar la foto
                   Positioned(
                     top: 2,
                     right: 2,
                     child: GestureDetector(
                       onTap: () => provider.removePhoto(index),
                       child: Container(
-                        width: 22,
-                        height: 22,
-                        decoration: const BoxDecoration(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.black54,
+                          color: Colors.black.withValues(alpha: 0.55),
                         ),
-                        child: const Icon(
-                          Icons.close,
-                          size: 14,
-                          color: Colors.white,
-                        ),
+                        child: const Icon(Icons.close, size: 12, color: Colors.white),
                       ),
                     ),
                   ),
-                  // Indicador de foto principal (primera)
                   if (index == 0)
                     Positioned(
                       bottom: 2,
@@ -243,15 +417,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
-                          color: Colors.black45,
+                          color: Colors.black.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
                           'Principal',
                           style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold),
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -260,131 +435,464 @@ class _CaptureScreenState extends State<CaptureScreen> {
             },
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
       ],
     );
   }
+}
 
-  Widget _buildPdvConfirm(BuildContext context, CaptureProvider provider) {
-    final pdv = provider.detectedPdv!;
-    return _buildSheetScaffold(
-      context,
-      title: '¿Es este PDV?',
+// ─── Fase postPhoto ───────────────────────────────────────────────────────────
+
+class _PostPhotoContent extends StatelessWidget {
+  final CaptureProvider provider;
+  final TextEditingController searchController;
+  final VoidCallback onBack;
+
+  const _PostPhotoContent({
+    required this.provider,
+    required this.searchController,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildPhotoStrip(provider),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.store_rounded),
-              title: Text(
-                pdv.nombreDisplay,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                'NRO: ${pdv.idClienteErp} · ${pdv.distanciaM.toStringAsFixed(0)} m',
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: provider.confirmDetectedPdv,
-            child: const Text('Sí, es correcto'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: provider.rejectDetectedPdv,
-            child: const Text('No, ingresar otro NRO'),
-          ),
-          TextButton(
-            onPressed: provider.backToCamera,
-            child: const Text('Volver a tomar foto'),
-          ),
-        ],
-      ),
-    );
-  }
+          const _SheetHandle(),
+          _PhotoStrip(provider: provider),
 
-  Widget _buildManualInput(BuildContext context, CaptureProvider provider) {
-    return _buildSheetScaffold(
-      context,
-      title: 'Ingresá el NRO de cliente',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildPhotoStrip(provider),
-          TextField(
-            controller: _manualNroController,
-            keyboardType: TextInputType.number,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Número de cliente ERP',
-              hintText: 'Ej: 1234',
-              prefixIcon: Icon(Icons.numbers),
-              border: OutlineInputBorder(),
+          // PDVs cercanos como chips
+          if (provider.nearbyPdvs.isNotEmpty) ...[
+            const Text(
+              'PDVs cercanos',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: ShelfyTokens.textSoft,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: () {
-              final nro = _manualNroController.text.trim();
-              if (nro.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Ingresá un número válido')),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: provider.nearbyPdvs.take(5).map((pdv) {
+                return _PdvNearbyChip(
+                  pdv: pdv,
+                  onTap: () => provider.selectPdv(pdv),
                 );
-                return;
-              }
-              provider.confirmManualNro(nro);
-            },
-            child: const Text('Continuar'),
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+          ],
+
+          // Campo de búsqueda
+          _PdvSearchField(
+            controller: searchController,
+            provider: provider,
           ),
+
+          // Botón volver
+          const SizedBox(height: 8),
           TextButton(
-            onPressed: provider.backToCamera,
+            onPressed: onBack,
             child: const Text('Volver a tomar foto'),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildIngresoChoice(BuildContext context, CaptureProvider provider) {
-    return _buildSheetScaffold(
-      context,
-      title: 'Tipo de visita',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.store_outlined),
-            title: Text(provider.pdvDisplayName),
-            subtitle: Text('NRO: ${provider.nroCliente}'),
+class _PdvNearbyChip extends StatelessWidget {
+  final PdvCandidate pdv;
+  final VoidCallback onTap;
+
+  const _PdvNearbyChip({required this.pdv, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: ShelfyTokens.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+          border: Border.all(
+            color: ShelfyTokens.primary.withValues(alpha: 0.35),
           ),
-          const SizedBox(height: 8),
-          _buildPhotoStrip(provider),
-          FilledButton.icon(
-            // Botón deshabilitado si no hay fotos (mínimo 1 requerido)
-            onPressed: (provider.isUploading || !provider.hasPhotos)
-                ? null
-                : () => provider.selectIngreso(conIngreso: true),
-            icon: const Icon(Icons.login),
-            label: const Text('Comercio con ingreso'),
-          ),
-          const SizedBox(height: 10),
-          FilledButton.tonalIcon(
-            onPressed: (provider.isUploading || !provider.hasPhotos)
-                ? null
-                : () => provider.selectIngreso(conIngreso: false),
-            icon: const Icon(Icons.storefront_outlined),
-            label: const Text('Comercio sin ingreso'),
-          ),
-          if (provider.errorMessage != null) ...[
-            const SizedBox(height: 16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
             Text(
-              provider.errorMessage!,
-              style: const TextStyle(color: Colors.red),
+              pdv.nombreDisplay.isNotEmpty ? pdv.nombreDisplay : 'NRO ${pdv.idClienteErp}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: ShelfyTokens.text,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              '${pdv.distanciaM.toStringAsFixed(0)} m · NRO ${pdv.idClienteErp}',
+              style: const TextStyle(fontSize: 10, color: ShelfyTokens.primary),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PdvSearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final CaptureProvider provider;
+
+  const _PdvSearchField({
+    required this.controller,
+    required this.provider,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: controller,
+          onChanged: provider.searchPdv,
+          keyboardType: TextInputType.text,
+          textInputAction: TextInputAction.search,
+          style: const TextStyle(fontSize: 14, color: ShelfyTokens.text),
+          decoration: InputDecoration(
+            hintText: 'Buscar por NRO o nombre de PDV...',
+            hintStyle: const TextStyle(color: ShelfyTokens.muted, fontSize: 13),
+            prefixIcon: const Icon(Icons.search, color: ShelfyTokens.primary, size: 20),
+            suffixIcon: provider.searchLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: ShelfyTokens.primary,
+                      ),
+                    ),
+                  )
+                : controller.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18, color: ShelfyTokens.muted),
+                        onPressed: () {
+                          controller.clear();
+                          provider.clearSearch();
+                        },
+                      )
+                    : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+              borderSide: const BorderSide(color: ShelfyTokens.border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+              borderSide: const BorderSide(
+                color: ShelfyTokens.primary,
+                width: 1.5,
+              ),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
+          ),
+        ),
+
+        // Resultados de búsqueda
+        if (provider.searchResults.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Container(
+            decoration: BoxDecoration(
+              color: ShelfyTokens.panel,
+              borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+              border: Border.all(color: ShelfyTokens.border),
+            ),
+            constraints: const BoxConstraints(maxHeight: 240),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: provider.searchResults.length,
+              separatorBuilder: (_, _) => const Divider(
+                height: 1,
+                indent: 16,
+                endIndent: 16,
+              ),
+              itemBuilder: (context, i) {
+                final pdv = provider.searchResults[i];
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(
+                    Icons.store_outlined,
+                    size: 18,
+                    color: ShelfyTokens.primary,
+                  ),
+                  title: Text(
+                    pdv.nombreDisplay.isNotEmpty
+                        ? pdv.nombreDisplay
+                        : 'NRO ${pdv.idClienteErp}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: ShelfyTokens.text,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'NRO ${pdv.idClienteErp}'
+                    '${pdv.nombreRazonSocial.isNotEmpty ? ' · ${pdv.nombreRazonSocial}' : ''}',
+                    style: const TextStyle(fontSize: 11, color: ShelfyTokens.muted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () {
+                    controller.clear();
+                    provider.selectPdv(pdv);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+
+        // Entrada manual de NRO (solo si no hay resultados y hay texto numérico)
+        if (controller.text.isNotEmpty &&
+            !provider.searchLoading &&
+            provider.searchResults.isEmpty &&
+            RegExp(r'^\d+$').hasMatch(controller.text.trim())) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () {
+              final nro = controller.text.trim();
+              controller.clear();
+              provider.confirmManualNro(nro);
+            },
+            icon: const Icon(Icons.add_circle_outline, size: 18),
+            label: Text('Usar NRO ${controller.text.trim()} (no en padrón)'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: ShelfyTokens.primary,
+              side: const BorderSide(color: ShelfyTokens.primary),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Fase confirmPdv ──────────────────────────────────────────────────────────
+
+class _ConfirmPdvContent extends StatelessWidget {
+  final CaptureProvider provider;
+  final VoidCallback onBack;
+
+  const _ConfirmPdvContent({required this.provider, required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    final pdv = provider.selectedPdv!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _SheetHandle(),
+          _PhotoStrip(provider: provider),
+
+          // Resumen PDV seleccionado
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ShelfyTokens.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+              border: Border.all(
+                color: ShelfyTokens.primary.withValues(alpha: 0.25),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: ShelfyTokens.primary.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.store_rounded,
+                    color: ShelfyTokens.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pdv.nombreDisplay.isNotEmpty
+                            ? pdv.nombreDisplay
+                            : 'NRO ${pdv.idClienteErp}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: ShelfyTokens.text,
+                        ),
+                      ),
+                      Text(
+                        'NRO ${pdv.idClienteErp}'
+                        '${pdv.distanciaM > 0 ? ' · ${pdv.distanciaM.toStringAsFixed(0)} m' : ''}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: ShelfyTokens.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Otra foto (si hay cupo)
+          if (provider.canAddMorePhotos)
+            OutlinedButton.icon(
+              onPressed: () {},
+              icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+              label: const Text('Agregar otra foto'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ShelfyTokens.primary,
+                side: const BorderSide(color: ShelfyTokens.primary),
+              ),
+            ),
+          if (provider.canAddMorePhotos) const SizedBox(height: 8),
+
+          _ShelfyFilledButton(
+            onPressed: provider.confirmPdv,
+            label: 'Confirmar PDV',
+            icon: Icons.check_rounded,
+          ),
+
+          const SizedBox(height: 6),
+          TextButton(
+            onPressed: onBack,
+            child: const Text('Elegir otro PDV'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Fase ingreso ─────────────────────────────────────────────────────────────
+
+class _IngresoContent extends StatelessWidget {
+  final CaptureProvider provider;
+
+  const _IngresoContent({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _SheetHandle(),
+
+          // Nombre del PDV
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(
+              Icons.store_outlined,
+              color: ShelfyTokens.primary,
+            ),
+            title: Text(
+              provider.pdvDisplayName.isNotEmpty
+                  ? provider.pdvDisplayName
+                  : 'NRO: ${provider.nroCliente}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: ShelfyTokens.text,
+              ),
+            ),
+            subtitle: Text(
+              'NRO ${provider.nroCliente}',
+              style: const TextStyle(fontSize: 12, color: ShelfyTokens.muted),
+            ),
+          ),
+
+          _PhotoStrip(provider: provider),
+
+          const Text(
+            'Tipo de visita',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: ShelfyTokens.textSoft,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          _IngresoOptionButton(
+            icon: Icons.login_rounded,
+            label: 'Comercio con ingreso',
+            subtitle: 'Entraste al local',
+            onPressed: provider.isUploading || !provider.hasPhotos
+                ? null
+                : () => provider.selectIngreso(conIngreso: true),
+            primary: true,
+          ),
+          const SizedBox(height: 8),
+          _IngresoOptionButton(
+            icon: Icons.storefront_outlined,
+            label: 'Comercio sin ingreso',
+            subtitle: 'Solo exterior / vitrina',
+            onPressed: provider.isUploading || !provider.hasPhotos
+                ? null
+                : () => provider.selectIngreso(conIngreso: false),
+            primary: false,
+          ),
+
+          if (provider.errorMessage != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: ShelfyTokens.error.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+                border: Border.all(
+                  color: ShelfyTokens.error.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Text(
+                provider.errorMessage!,
+                style: const TextStyle(color: ShelfyTokens.error, fontSize: 13),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 6),
           TextButton(
             onPressed: provider.backToCamera,
             child: const Text('Cancelar y retomar foto'),
@@ -393,508 +901,269 @@ class _CaptureScreenState extends State<CaptureScreen> {
       ),
     );
   }
+}
 
-  Widget _buildSheetScaffold(
-    BuildContext context, {
-    required String title,
-    required Widget child,
-  }) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: child,
-      ),
-    );
-  }
+class _IngresoOptionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final VoidCallback? onPressed;
+  final bool primary;
 
-  Widget _buildUploading() {
-    return const Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  const _IngresoOptionButton({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.onPressed,
+    required this.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return GestureDetector(
+      onTap: onPressed,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: primary
+              ? (enabled
+                  ? ShelfyTokens.primary
+                  : ShelfyTokens.primary.withValues(alpha: 0.4))
+              : (enabled
+                  ? ShelfyTokens.primary.withValues(alpha: 0.07)
+                  : ShelfyTokens.primary.withValues(alpha: 0.03)),
+          borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+          border: primary
+              ? null
+              : Border.all(
+                  color: enabled
+                      ? ShelfyTokens.primary.withValues(alpha: 0.4)
+                      : ShelfyTokens.border,
+                ),
+          boxShadow: primary && enabled
+              ? [
+                  BoxShadow(
+                    color: ShelfyTokens.primary.withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  )
+                ]
+              : null,
+        ),
+        child: Row(
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 20),
-            Text(
-              'Enviando exhibición...',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+            Icon(
+              icon,
+              color: primary
+                  ? Colors.white
+                  : (enabled ? ShelfyTokens.primary : ShelfyTokens.muted),
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: primary
+                          ? Colors.white
+                          : (enabled ? ShelfyTokens.text : ShelfyTokens.muted),
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: primary
+                          ? Colors.white.withValues(alpha: 0.8)
+                          : (enabled
+                              ? ShelfyTokens.textSoft
+                              : ShelfyTokens.muted),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  // ────────────────────────────────────────────────────────────────
-  // Pantalla de éxito con BottomSheet de confirmación rica
-  // ────────────────────────────────────────────────────────────────
+// ─── Fase uploading ───────────────────────────────────────────────────────────
 
-  Widget _buildSuccess(BuildContext context, CaptureProvider provider) {
-    final result = provider.lastResult;
-    final isOffline = result == null;
+class _UploadingContent extends StatelessWidget {
+  const _UploadingContent();
 
-    // Mostrar el bottom sheet rico cuando los datos están disponibles.
-    // Se hace con addPostFrameCallback para evitar setState durante build.
-    if (!isOffline && provider.postUploadSummary != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _showRichConfirmationSheet(context, provider);
-        }
-      });
-    }
-
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                isOffline
-                    ? Icons.schedule_send_outlined
-                    : Icons.check_circle_outline,
-                size: 80,
-                color: isOffline ? Colors.orange : Colors.green,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                isOffline ? 'Guardado sin conexión' : '¡Exhibición registrada!',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                isOffline
-                    ? 'Se enviará automáticamente al recuperar conexión.'
-                    : 'Total del mes: ${result.statsSummary.exhibicionesLogicas} exhibiciones lógicas.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey, fontSize: 15),
-              ),
-              // Loading indicator mientras se cargan los datos del post-upload
-              if (!isOffline && provider.postUploadSummary == null) ...[
-                const SizedBox(height: 24),
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Cargando resumen...',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-              const SizedBox(height: 32),
-              if (!isOffline) ...[
-                OutlinedButton.icon(
-                  onPressed: () => _openGaleria(context, provider),
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('Ver en galería'),
-                ),
-                const SizedBox(height: 12),
-              ],
-              FilledButton.icon(
-                onPressed: () {
-                  _manualNroController.clear();
-                  provider.reset();
-                  _startBackgroundGps();
-                },
-                icon: const Icon(Icons.add_a_photo_outlined),
-                label: const Text('Nueva captura'),
-              ),
-            ],
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SheetHandle(),
+          SizedBox(height: 8),
+          LinearProgressIndicator(
+            color: ShelfyTokens.primary,
+            backgroundColor: ShelfyTokens.border,
           ),
-        ),
+          SizedBox(height: 12),
+          Text(
+            'Enviando exhibición...',
+            style: TextStyle(
+              fontSize: 14,
+              color: ShelfyTokens.textSoft,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
-  }
-
-  /// Muestra el BottomSheet de confirmación rica con historial PDV,
-  /// stats del mes y badge de objetivo (si existe).
-  void _showRichConfirmationSheet(
-      BuildContext context, CaptureProvider provider) {
-    final summary = provider.postUploadSummary;
-    if (summary == null) return;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _RichConfirmationSheet(
-        summary: summary,
-        pdvName: provider.pdvDisplayName,
-        nroCliente: provider.nroCliente,
-        onCapturarOtro: () {
-          Navigator.of(context).pop();
-          _manualNroController.clear();
-          provider.reset();
-          _startBackgroundGps();
-        },
-        onVerStats: () {
-          Navigator.of(context).pop();
-          _manualNroController.clear();
-          provider.reset();
-        },
-        onVerGaleria: () {
-          Navigator.of(context).pop();
-          _openGaleria(context, provider);
-          _manualNroController.clear();
-          provider.reset();
-          _startBackgroundGps();
-        },
-      ),
-    );
-  }
-
-  void _openGaleria(BuildContext context, CaptureProvider provider) {
-    final nro = provider.nroCliente;
-    context.read<HomeTabController>().goToTab(
-          6,
-          openGaleriaClienteErp: nro.isNotEmpty ? nro : null,
-        );
   }
 }
 
-// ────────────────────────────────────────────────────────────────
-// Widget del BottomSheet de confirmación rica post-upload
-// ────────────────────────────────────────────────────────────────
+// ─── Fase done ────────────────────────────────────────────────────────────────
 
-class _RichConfirmationSheet extends StatelessWidget {
-  final PostUploadSummary summary;
-  final String pdvName;
-  final String nroCliente;
-  final VoidCallback onCapturarOtro;
-  final VoidCallback onVerStats;
-  final VoidCallback onVerGaleria;
+class _DoneContent extends StatelessWidget {
+  final CaptureProvider provider;
+  final VoidCallback onReset;
+  final VoidCallback onOpenGaleria;
 
-  const _RichConfirmationSheet({
-    required this.summary,
-    required this.pdvName,
-    required this.nroCliente,
-    required this.onCapturarOtro,
-    required this.onVerStats,
-    required this.onVerGaleria,
+  const _DoneContent({
+    required this.provider,
+    required this.onReset,
+    required this.onOpenGaleria,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final result = provider.lastResult;
+    final isOffline = result == null;
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      minChildSize: 0.4,
-      maxChildSize: 0.92,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              // Handle
-              Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 4),
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.onSurfaceVariant.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _SheetHandle(),
+
+          // Banner éxito
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isOffline
+                  ? ShelfyTokens.warning.withValues(alpha: 0.1)
+                  : ShelfyTokens.success.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+              border: Border.all(
+                color: isOffline
+                    ? ShelfyTokens.warning.withValues(alpha: 0.3)
+                    : ShelfyTokens.success.withValues(alpha: 0.3),
               ),
-              Expanded(
-                child: ListView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                  children: [
-                    // Header con check verde
-                    Row(
-                      children: [
-                        const Icon(Icons.check_circle,
-                            color: Colors.green, size: 32),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '¡Exhibición registrada!',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                pdvName.isNotEmpty
-                                    ? pdvName
-                                    : 'NRO: $nroCliente',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Badge estadísticas del mes
-                    _StatsBadge(
-                      exhibicionesLogicas: summary.statsMes.exhibicionesLogicas,
-                      puntos: summary.statsMes.puntos,
-                    ),
-
-                    // Badge objetivo (si existe)
-                    if (summary.objetivoBadge != null) ...[
-                      const SizedBox(height: 12),
-                      _ObjetivoBadgeWidget(badge: summary.objetivoBadge!),
-                    ],
-
-                    const SizedBox(height: 20),
-
-                    // Historial del PDV
-                    if (summary.historialPdv.isNotEmpty) ...[
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isOffline
+                      ? Icons.schedule_send_outlined
+                      : Icons.check_circle_rounded,
+                  color: isOffline ? ShelfyTokens.warning : ShelfyTokens.success,
+                  size: 28,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        'Historial de este PDV',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
+                        isOffline
+                            ? 'Guardado sin conexión'
+                            : '¡Exhibición registrada!',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: isOffline
+                              ? ShelfyTokens.warning
+                              : ShelfyTokens.success,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      ...summary.historialPdv
-                          .take(5)
-                          .map((item) => _HistorialRow(item: item)),
+                      Text(
+                        isOffline
+                            ? 'Se enviará al recuperar conexión.'
+                            : 'Total mes: ${result.statsSummary.exhibicionesLogicas} exhibiciones lógicas.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: ShelfyTokens.textSoft,
+                        ),
+                      ),
                     ],
-
-                    const SizedBox(height: 28),
-
-                    // Botones de acción
-                    FilledButton.icon(
-                      onPressed: onCapturarOtro,
-                      icon: const Icon(Icons.add_a_photo_outlined),
-                      label: const Text('Capturar otro PDV'),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: onVerGaleria,
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Ver en galería'),
-                    ),
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: onVerStats,
-                      icon: const Icon(Icons.bar_chart_outlined),
-                      label: const Text('Ver mis stats'),
-                    ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          _ShelfyFilledButton(
+            onPressed: onReset,
+            label: 'Nueva captura',
+            icon: Icons.add_a_photo_outlined,
+          ),
+
+          if (!isOffline) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: onOpenGaleria,
+              icon: const Icon(Icons.photo_library_outlined, size: 18),
+              label: const Text('Ver en galería'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ShelfyTokens.primary,
+                side: const BorderSide(color: ShelfyTokens.primary),
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Badge con exhibiciones lógicas y puntos del mes.
-class _StatsBadge extends StatelessWidget {
-  final int exhibicionesLogicas;
-  final int puntos;
-
-  const _StatsBadge(
-      {required this.exhibicionesLogicas, required this.puntos});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _StatItem(
-            label: 'Exhibiciones',
-            value: '$exhibicionesLogicas',
-            icon: Icons.storefront_outlined,
-          ),
-          Container(
-            width: 1,
-            height: 36,
-            color: theme.colorScheme.onPrimaryContainer.withOpacity(0.2),
-          ),
-          _StatItem(
-            label: 'Puntos',
-            value: '$puntos',
-            icon: Icons.star_outline_rounded,
-          ),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _StatItem extends StatelessWidget {
+// ─── Button helper ────────────────────────────────────────────────────────────
+
+class _ShelfyFilledButton extends StatelessWidget {
+  final VoidCallback? onPressed;
   final String label;
-  final String value;
   final IconData icon;
 
-  const _StatItem(
-      {required this.label, required this.value, required this.icon});
+  const _ShelfyFilledButton({
+    required this.onPressed,
+    required this.label,
+    required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onPrimaryContainer;
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: theme.textTheme.titleLarge
-              ?.copyWith(fontWeight: FontWeight.bold, color: color),
+    return FilledButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        backgroundColor: ShelfyTokens.primary,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 48),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
         ),
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(color: color),
-        ),
-      ],
-    );
-  }
-}
-
-/// Badge de progreso de objetivo activo.
-class _ObjetivoBadgeWidget extends StatelessWidget {
-  final ObjetivoBadge badge;
-
-  const _ObjetivoBadgeWidget({required this.badge});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final pct = (badge.progresoPct / 100).clamp(0.0, 1.0);
-    final color = pct >= 1.0
-        ? Colors.green
-        : pct >= 0.7
-            ? Colors.orange
-            : theme.colorScheme.primary;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        border: Border.all(
-            color: theme.colorScheme.outlineVariant, width: 1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.flag_outlined, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                'Objetivo ${badge.tipo}',
-                style: theme.textTheme.labelMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              Text(
-                '${badge.progresoPct.toStringAsFixed(1)}%',
-                style: theme.textTheme.labelMedium?.copyWith(
-                    color: color, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: pct,
-              minHeight: 8,
-              backgroundColor:
-                  theme.colorScheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Fila del historial de visitas al PDV.
-class _HistorialRow extends StatelessWidget {
-  final HistorialPdvItem item;
-
-  const _HistorialRow({required this.item});
-
-  static Color _colorForEstado(String estado) {
-    switch (estado.toLowerCase()) {
-      case 'destacado':
-        return Colors.purple;
-      case 'aprobado':
-        return Colors.green;
-      case 'rechazado':
-        return Colors.red;
-      default:
-        return Colors.orange;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _colorForEstado(item.estado);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              item.fecha,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              item.estado,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

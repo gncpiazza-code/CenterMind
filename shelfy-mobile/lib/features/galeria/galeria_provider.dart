@@ -29,7 +29,8 @@ class GaleriaProvider extends ChangeNotifier {
   }
 
   /// Carga la lista de clientes con exhibiciones.
-  Future<void> fetchClientes() async {
+  Future<void> fetchClientes({bool force = false}) async {
+    if (!force && clientes.isNotEmpty) return;
     loadingClientes = true;
     errorClientes = null;
     notifyListeners();
@@ -74,7 +75,7 @@ class GaleriaProvider extends ChangeNotifier {
 
   /// Refresca la lista y opcionalmente precarga el timeline de un PDV.
   Future<void> refreshAfterUpload(String idClienteErp) async {
-    await fetchClientes();
+    await fetchClientes(force: true);
     final normalized = idClienteErp.trim();
     if (normalized.isEmpty) return;
     final match = clientes.where((c) => c.idClienteErp == normalized);

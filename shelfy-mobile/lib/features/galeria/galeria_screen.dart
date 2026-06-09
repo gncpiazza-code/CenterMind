@@ -20,13 +20,17 @@ class GaleriaScreen extends StatefulWidget {
 }
 
 class _GaleriaScreenState extends State<GaleriaScreen> {
-  late HomeTabController _shell;
+  HomeTabController? _shell;
+  bool _shellListenerAttached = false;
 
   @override
-  void initState() {
-    super.initState();
-    _shell = context.read<HomeTabController>();
-    _shell.addListener(_onTabChanged);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_shellListenerAttached) return;
+    final shell = context.read<HomeTabController>();
+    _shell = shell;
+    shell.addListener(_onTabChanged);
+    _shellListenerAttached = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<GaleriaProvider>().fetchClientes();
@@ -36,20 +40,28 @@ class _GaleriaScreenState extends State<GaleriaScreen> {
 
   @override
   void dispose() {
-    _shell.removeListener(_onTabChanged);
+    _shell?.removeListener(_onTabChanged);
     super.dispose();
+  }
+
+  bool get _isGaleriaHubActive {
+    final shell = _shell;
+    if (shell == null) return false;
+    return shell.selectedIndex == 3 && shell.moreSubScreenIndex == 3;
   }
 
   void _onTabChanged() {
     if (!mounted) return;
-    if (context.read<HomeTabController>().selectedIndex == 6) {
+    if (_isGaleriaHubActive) {
       _maybeOpenPendingCliente();
     }
   }
 
   Future<void> _maybeOpenPendingCliente() async {
-    if (_shell.selectedIndex != 6) return;
-    final pending = _shell.takePendingGaleriaCliente();
+    if (!_isGaleriaHubActive) return;
+    final shell = _shell;
+    if (shell == null) return;
+    final pending = shell.takePendingGaleriaCliente();
     if (pending == null || pending.isEmpty) return;
 
     final galeria = context.read<GaleriaProvider>();
@@ -97,7 +109,7 @@ class _GaleriaScreenState extends State<GaleriaScreen> {
             _ViewToggleBar(
               viewMode: provider.viewMode,
               onChanged: (mode) => provider.setViewMode(mode),
-              onRefresh: () => provider.fetchClientes(),
+              onRefresh: () => provider.fetchClientes(force: true),
             ),
 
             // Contenido

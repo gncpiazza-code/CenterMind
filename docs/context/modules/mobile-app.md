@@ -2,6 +2,24 @@
 
 Directorio: `shelfy-mobile/lib/features/` — **4 tabs** (Captura·Cartera·Stats·Más).
 
+## Estrategia plataforma
+
+| Audiencia | Plataforma | Prioridad |
+|-----------|------------|-----------|
+| **Vendedores** (hoy) | Android gama baja | P0 — fluidez, RAM, red lenta |
+| **Supervisores** (futuro) | iOS + portal | P1 — módulo aparte / rol `supervisor` en app |
+
+**Reglas de performance (obligatorias):**
+
+- **Un tab montado** — no `IndexedStack` con cámara + 4 pantallas (OOM iOS/Android).
+- **Cámara:** `DeviceProfile.cameraPreset` → `medium` Android, `high` iOS; liberar `CameraController` al salir de Captura.
+- **Providers en memoria** — `fetch(force: false)` reutiliza cache al volver a un tab; pull-to-refresh usa `force: true`.
+- **Offline:** cola upload Drift + sync badge en tab Captura.
+- **QA Android:** Windows worker `flutter build apk --flavor tabaco` + Maestro `maestro/nav_stress.yaml`.
+- **QA iOS:** Mac `/testmobile` device o simulador.
+
+**Futuro supervisores:** flavor o gate por rol JWT (`supervisor`) — mapa/galería read-only, sin captura obligatoria; reutilizar tokens Shelfy y API `/api/vendedor-app/*` con permisos ampliados.
+
 ## Nav
 
 - **4 tabs:** `CaptureScreen` | `CarteraScreen` | `StatsScreen` | `MoreScreen`

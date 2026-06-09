@@ -155,6 +155,7 @@ class ApiClient {
       if (decoded is List) return decoded;
       if (decoded is Map<String, dynamic>) {
         return (decoded['items'] as List<dynamic>?) ??
+            (decoded['objetivos'] as List<dynamic>?) ??
             (decoded['pdvs'] as List<dynamic>?) ??
             [];
       }

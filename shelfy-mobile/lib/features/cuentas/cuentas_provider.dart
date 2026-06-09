@@ -12,14 +12,21 @@ class CuentasProvider extends ChangeNotifier {
 
   CcResponse? ccData;
   bool loading = false;
+  bool hasLoaded = false;
   String? error;
 
   String _modo = 'general';
   String get modo => _modo;
+  final Map<String, CcResponse> _cacheByModo = {};
 
   /// Obtiene las cuentas corrientes desde GET /api/vendedor-app/cc?modo=...
-  Future<void> fetch({String modo = 'general'}) async {
+  Future<void> fetch({String modo = 'general', bool force = false}) async {
     _modo = modo;
+    if (!force && _cacheByModo.containsKey(modo)) {
+      ccData = _cacheByModo[modo];
+      notifyListeners();
+      return;
+    }
     loading = true;
     error = null;
     notifyListeners();
@@ -27,12 +34,14 @@ class CuentasProvider extends ChangeNotifier {
     try {
       final data = await _api.get('/api/vendedor-app/cc?modo=$modo');
       ccData = CcResponse.fromJson(data);
+      _cacheByModo[modo] = ccData!;
     } on ApiException catch (e) {
       error = e.message;
     } catch (_) {
       error = 'Error al cargar las cuentas corrientes';
     } finally {
       loading = false;
+      hasLoaded = true;
       notifyListeners();
     }
   }

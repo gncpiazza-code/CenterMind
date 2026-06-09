@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
 import 'objetivos_provider.dart';
 import 'widgets/objetivo_card.dart';
 import 'widgets/objetivo_detalle_sheet.dart';
@@ -46,8 +47,10 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
   Widget build(BuildContext context) {
     return Consumer<ObjetivosProvider>(
       builder: (context, provider, _) {
-        if (provider.loading) {
-          return const Center(child: CircularProgressIndicator());
+        if (!provider.hasLoaded || provider.loading) {
+          return const Center(
+            child: CircularProgressIndicator(color: ShelfyTokens.primary),
+          );
         }
 
         if (provider.error != null) {
@@ -64,7 +67,7 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
-                  onPressed: () => context.read<ObjetivosProvider>().fetch(),
+                  onPressed: () => context.read<ObjetivosProvider>().fetch(force: true),
                   child: const Text('Reintentar'),
                 ),
               ],
@@ -89,7 +92,7 @@ class _ObjetivosScreenState extends State<ObjetivosScreen> {
         }
 
         return RefreshIndicator(
-          onRefresh: () => context.read<ObjetivosProvider>().fetch(),
+          onRefresh: () => context.read<ObjetivosProvider>().fetch(force: true),
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: provider.objetivos.length,

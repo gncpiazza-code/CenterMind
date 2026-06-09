@@ -12,10 +12,12 @@ class VentasProvider extends ChangeNotifier {
 
   VentasResponse? ventasData;
   bool loading = false;
+  bool hasLoaded = false;
   String? error;
 
   /// Obtiene las ventas desde GET /api/vendedor-app/ventas?modo=mtd.
-  Future<void> fetch({String modo = 'mtd'}) async {
+  Future<void> fetch({String modo = 'mtd', bool force = false}) async {
+    if (!force && ventasData != null) return;
     loading = true;
     error = null;
     notifyListeners();
@@ -29,6 +31,7 @@ class VentasProvider extends ChangeNotifier {
       error = 'Error al cargar las ventas';
     } finally {
       loading = false;
+      hasLoaded = true;
       notifyListeners();
     }
   }

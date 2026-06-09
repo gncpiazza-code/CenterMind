@@ -15,7 +15,8 @@ class StatsProvider extends ChangeNotifier {
   String? error;
 
   /// Obtiene las estadísticas desde GET /api/vendedor-app/stats/full.
-  Future<void> fetch() async {
+  Future<void> fetch({bool force = false}) async {
+    if (!force && statsData != null) return;
     loading = true;
     error = null;
     notifyListeners();

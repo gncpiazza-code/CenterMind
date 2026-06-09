@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../../shared/widgets/shelfy/shelfy_widgets.dart';
 import '../../theme/shelfy_tokens.dart';
 import '../home/home_tab_controller.dart';
 import 'capture_provider.dart';
@@ -28,8 +29,13 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
+  final GlobalKey<CameraCaptureWidgetState> _cameraKey =
+      GlobalKey<CameraCaptureWidgetState>();
   late AnimationController _sheetAnim;
   late Animation<Offset> _sheetSlide;
+  CaptureProvider? _captureProvider;
+  CaptureOverlayPhase? _lastAnimatedPhase;
+  bool _capturing = false;
 
   @override
   void initState() {
@@ -43,17 +49,49 @@ class _CaptureScreenState extends State<CaptureScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _sheetAnim, curve: Curves.easeOutCubic));
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startBackgroundGps());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _startBackgroundGps();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<CaptureProvider>();
+    if (_captureProvider != provider) {
+      _captureProvider?.removeListener(_onProviderPhaseChanged);
+      _captureProvider = provider;
+      provider.addListener(_onProviderPhaseChanged);
+      _syncSheetToPhase(provider.phase);
+    }
+  }
+
+  void _onProviderPhaseChanged() {
+    if (!mounted) return;
+    _syncSheetToPhase(_captureProvider?.phase);
+  }
+
+  void _syncSheetToPhase(CaptureOverlayPhase? phase) {
+    if (phase == null || _lastAnimatedPhase == phase) return;
+    _lastAnimatedPhase = phase;
+    final showSheet = phase != CaptureOverlayPhase.live;
+    if (showSheet) {
+      _sheetAnim.forward();
+    } else {
+      _sheetAnim.reverse();
+    }
   }
 
   @override
   void dispose() {
+    _captureProvider?.removeListener(_onProviderPhaseChanged);
     _searchController.dispose();
     _sheetAnim.dispose();
     super.dispose();
   }
 
   Future<void> _startBackgroundGps() async {
+    if (!mounted) return;
     final provider = context.read<CaptureProvider>();
     try {
       var status = await Permission.locationWhenInUse.status;
@@ -91,9 +129,8 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   void _openGaleria(CaptureProvider provider) {
     final nro = provider.nroCliente;
-    context.read<HomeTabController>().goToTab(
-          6,
-          openGaleriaClienteErp: nro.isNotEmpty ? nro : null,
+    context.read<HomeTabController>().openGaleriaHub(
+          clienteErp: nro.isNotEmpty ? nro : null,
         );
   }
 
@@ -101,22 +138,36 @@ class _CaptureScreenState extends State<CaptureScreen>
   Widget build(BuildContext context) {
     return Consumer<CaptureProvider>(
       builder: (context, provider, _) {
-        // Controlar visibilidad del sheet según fase
-        final showSheet = provider.phase != CaptureOverlayPhase.live;
-        if (showSheet) {
-          _sheetAnim.forward();
-        } else {
-          _sheetAnim.reverse();
-        }
-
         return Scaffold(
           backgroundColor: Colors.black,
           body: Stack(
+            fit: StackFit.expand,
             children: [
-              // Z0: Cámara siempre activa
+              // Z0: Cámara a pantalla completa (solo con tab activo)
               Positioned.fill(
                 child: CameraCaptureWidget(
+                  key: _cameraKey,
                   onPhotoTaken: provider.onPhotoTaken,
+                  onCapturingChanged: (c) {
+                    if (mounted) setState(() => _capturing = c);
+                  },
+                ),
+              ),
+
+              // Shutter sobre bottom nav (no tapado por el hub)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: kBottomNavigationBarHeight +
+                    MediaQuery.paddingOf(context).bottom +
+                    12,
+                child: Center(
+                  child: ShelfyCaptureShutter(
+                    loading: _capturing,
+                    onTap: provider.phase == CaptureOverlayPhase.uploading
+                        ? null
+                        : () => _cameraKey.currentState?.takePhoto(),
+                  ),
                 ),
               ),
 

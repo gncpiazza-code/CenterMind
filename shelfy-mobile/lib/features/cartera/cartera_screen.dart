@@ -119,7 +119,7 @@ class _CarteraTab extends StatelessWidget {
                   const SizedBox(height: 16),
                   FilledButton(
                     onPressed: () =>
-                        context.read<CarteraProvider>().fetchCartera(mode),
+                        context.read<CarteraProvider>().fetchCartera(mode, force: true),
                     child: const Text('Reintentar'),
                   ),
                 ],
@@ -134,9 +134,9 @@ class _CarteraTab extends StatelessWidget {
 
         return RefreshIndicator(
           onRefresh: () async {
-            await context.read<CarteraProvider>().fetchCartera(mode);
+            await context.read<CarteraProvider>().fetchCartera(mode, force: true);
             if (mode == 'hoy') {
-              await context.read<CarteraProvider>().fetchRutaHoy();
+              await context.read<CarteraProvider>().fetchRutaHoy(force: true);
             }
           },
           child: _CarteraList(

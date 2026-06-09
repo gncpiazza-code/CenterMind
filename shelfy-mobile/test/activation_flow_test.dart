@@ -31,7 +31,7 @@ void main() {
           ChangeNotifierProvider<AuthService>.value(value: auth),
           Provider<SyncWorker>.value(value: syncWorker),
         ],
-        child: ShelfyApp(authService: auth, db: db),
+        child: ShelfyApp(authService: auth, db: db, syncWorker: syncWorker),
       ),
     );
     await tester.pump();
@@ -44,9 +44,7 @@ void main() {
     expect(find.text('Stats'), findsOneWidget);
     expect(find.text('Más'), findsOneWidget);
 
-    await tester.tap(find.text('Cartera'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    // Tab default: Cartera (cold start sin cámara)
     expect(find.text('Hoy'), findsOneWidget);
 
     await tester.tap(find.text('Stats'));
@@ -62,7 +60,8 @@ void main() {
 
     await tester.tap(find.text('Captura'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 400)); // captureTabReady
+    await tester.pump(const Duration(milliseconds: 450)); // init cámara diferida
     expect(find.text('Abriendo cámara...'), findsOneWidget);
   });
 }

@@ -45,7 +45,7 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
-                  onPressed: () => context.read<StatsProvider>().fetch(),
+                  onPressed: () => context.read<StatsProvider>().fetch(force: true),
                   child: const Text('Reintentar'),
                 ),
               ],
@@ -59,7 +59,7 @@ class _StatsScreenState extends State<StatsScreen> {
         }
 
         return RefreshIndicator(
-          onRefresh: () => context.read<StatsProvider>().fetch(),
+          onRefresh: () => context.read<StatsProvider>().fetch(force: true),
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [

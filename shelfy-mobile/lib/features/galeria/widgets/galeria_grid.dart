@@ -21,7 +21,7 @@ class GaleriaGrid extends StatelessWidget {
         if (provider.errorClientes != null) {
           return _ErrorState(
             message: provider.errorClientes!,
-            onRetry: () => provider.fetchClientes(),
+            onRetry: () => provider.fetchClientes(force: true),
           );
         }
 
@@ -30,7 +30,7 @@ class GaleriaGrid extends StatelessWidget {
         }
 
         return RefreshIndicator(
-          onRefresh: () => provider.fetchClientes(),
+          onRefresh: () => provider.fetchClientes(force: true),
           child: GridView.builder(
             padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

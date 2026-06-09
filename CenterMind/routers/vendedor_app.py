@@ -629,7 +629,7 @@ def get_ruta_hoy(session: dict = Depends(vendedor_session_dep)):
 
 @router.get("/objetivos/{objetivo_id}", summary="Detalle de un objetivo específico")
 def get_objetivo_by_id(
-    objetivo_id: int,
+    objetivo_id: str,
     session: dict = Depends(vendedor_session_dep),
 ):
     dist_id = int(session["dist"])

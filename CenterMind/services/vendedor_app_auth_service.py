@@ -51,7 +51,7 @@ def _fetch_key_row(sb, key_id: int) -> dict | None:
 def _fetch_branding(sb, id_distribuidor: int) -> dict:
     """Retorna mobile_branding del distribuidor con defaults razonables."""
     defaults: dict[str, Any] = {
-        "primary_color": "#1A56DB",
+        "primary_color": "#a855f7",
         "logo_url": None,
         "app_name": "Shelfy",
         "accent_color": "#7C3AED",

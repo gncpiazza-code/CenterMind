@@ -1,0 +1,36 @@
+# Stress de navegación entre tabs — requiere app ya activada (sesión válida).
+# Uso: maestro test maestro/nav_stress.yaml
+# iPhone físico o simulador con SHELFYAPP instalada.
+
+appId: com.shelfy.shelfyMobile
+
+---
+- launchApp:
+    stopApp: false
+
+- extendedWaitUntil:
+    visible: "Captura"
+    timeout: 30000
+
+# 3 ciclos: Captura → Cartera → Stats → Más → Captura
+- repeat:
+    times: 3
+    commands:
+      - tapOn: "Cartera"
+      - waitForAnimationToEnd
+      - tapOn: "Stats"
+      - waitForAnimationToEnd
+      - tapOn: "Más"
+      - waitForAnimationToEnd
+      - tapOn: "Captura"
+      - waitForAnimationToEnd
+
+# Hub Más: abrir Ventas y volver
+- tapOn: "Más"
+- tapOn: "Ventas"
+- waitForAnimationToEnd
+- back
+- waitForAnimationToEnd
+
+- tapOn: "Captura"
+- waitForAnimationToEnd

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
 import 'models/ventas_response.dart';
 import 'ventas_provider.dart';
 
-/// Pantalla de ventas MTD del vendedor.
+/// Ventas MTD — solo volumen (bultos + unidades). Sin importes en app móvil.
 class VentasScreen extends StatefulWidget {
   const VentasScreen({super.key});
 
@@ -26,8 +26,10 @@ class _VentasScreenState extends State<VentasScreen> {
   Widget build(BuildContext context) {
     return Consumer<VentasProvider>(
       builder: (context, provider, _) {
-        if (provider.loading) {
-          return const Center(child: CircularProgressIndicator());
+        if (!provider.hasLoaded || provider.loading) {
+          return const Center(
+            child: CircularProgressIndicator(color: ShelfyTokens.primary),
+          );
         }
 
         if (provider.error != null) {
@@ -35,16 +37,13 @@ class _VentasScreenState extends State<VentasScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.grey),
+                const Icon(Icons.error_outline, size: 48, color: ShelfyTokens.muted),
                 const SizedBox(height: 12),
-                Text(
-                  provider.error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
+                Text(provider.error!, textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 FilledButton(
-                  onPressed: () => context.read<VentasProvider>().fetch(),
+                  onPressed: () =>
+                      context.read<VentasProvider>().fetch(force: true),
                   child: const Text('Reintentar'),
                 ),
               ],
@@ -52,13 +51,10 @@ class _VentasScreenState extends State<VentasScreen> {
           );
         }
 
-        final data = provider.ventasData;
-        if (data == null) {
-          return const SizedBox.shrink();
-        }
-
+        final data = provider.ventasData!;
         return RefreshIndicator(
-          onRefresh: () => context.read<VentasProvider>().fetch(),
+          color: ShelfyTokens.primary,
+          onRefresh: () => context.read<VentasProvider>().fetch(force: true),
           child: _VentasList(data: data),
         );
       },
@@ -73,45 +69,32 @@ class _VentasList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fmt = NumberFormat.currency(locale: 'es_AR', symbol: '\$');
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // 1. Selector de período (solo MTD por ahora)
         _PeriodPill(periodo: data.periodo),
         const SizedBox(height: 8),
-
-        // 2. Snapshot label
         if (data.snapshotLabel.isNotEmpty) ...[
           _SnapshotLabel(label: data.snapshotLabel),
           const SizedBox(height: 12),
         ],
-
-        // 3. Header: totales MTD
         _VentasHeader(data: data),
         const SizedBox(height: 16),
-
-        // 4. Desglose bultos (expandible)
         if (data.bultosDesglose.isNotEmpty) ...[
           _BultosDesgloseSection(items: data.bultosDesglose),
           const SizedBox(height: 12),
         ],
-
-        // 5. Top compradores (expandible)
         if (data.topCompradores.isNotEmpty) ...[
           _TopCompradoresSection(items: data.topCompradores),
           const SizedBox(height: 16),
         ],
-
-        // 6. Lista de PDVs
         if (data.porPdv.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Text(
                 'Sin ventas registradas en este período',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: ShelfyTokens.muted),
               ),
             ),
           )
@@ -120,13 +103,11 @@ class _VentasList extends StatelessWidget {
             'Detalle por PDV',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: ShelfyTokens.primary,
                 ),
           ),
           const SizedBox(height: 8),
-          ...data.porPdv
-              .map((pdv) => _PdvVentasTile(pdv: pdv, fmt: fmt))
-              .toList(),
+          ...data.porPdv.map((pdv) => _PdvVentasTile(pdv: pdv)),
         ],
       ],
     );
@@ -135,42 +116,34 @@ class _VentasList extends StatelessWidget {
 
 class _PeriodPill extends StatelessWidget {
   final String periodo;
-
   const _PeriodPill({required this.periodo});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            'MTD · $periodo',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
-            ),
-          ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: ShelfyTokens.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        'MTD · $periodo',
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: ShelfyTokens.primary,
         ),
-      ],
+      ),
     );
   }
 }
 
 class _VentasHeader extends StatelessWidget {
   final VentasResponse data;
-
   const _VentasHeader({required this.data});
 
   @override
   Widget build(BuildContext context) {
-    final fmt = NumberFormat.currency(locale: 'es_AR', symbol: '\$');
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -181,19 +154,26 @@ class _VentasHeader extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    fmt.format(data.totalImporte),
+                    '${data.totalBultos.toStringAsFixed(data.totalBultos % 1 == 0 ? 0 : 2)} bultos',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
+                          color: ShelfyTokens.primary,
                         ),
                   ),
+                  if (data.totalUnidades > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '${data.totalUnidades.toStringAsFixed(0)} unidades',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: ShelfyTokens.textSoft,
+                          ),
+                    ),
+                  ],
                   const SizedBox(height: 4),
-                  Text(
-                    'Total vendido MTD',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: Colors.grey[600]),
+                  const Text(
+                    'Volumen MTD (sin importes)',
+                    style: TextStyle(color: ShelfyTokens.muted, fontSize: 13),
                   ),
                 ],
               ),
@@ -207,13 +187,7 @@ class _VentasHeader extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                 ),
-                Text(
-                  'facturas',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Colors.grey[600]),
-                ),
+                const Text('facturas', style: TextStyle(color: ShelfyTokens.muted)),
               ],
             ),
           ],
@@ -225,19 +199,15 @@ class _VentasHeader extends StatelessWidget {
 
 class _SnapshotLabel extends StatelessWidget {
   final String label;
-
   const _SnapshotLabel({required this.label});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(Icons.access_time_outlined, size: 13, color: Colors.grey[500]),
+        const Icon(Icons.access_time_outlined, size: 13, color: ShelfyTokens.muted),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, color: ShelfyTokens.muted)),
       ],
     );
   }
@@ -245,32 +215,22 @@ class _SnapshotLabel extends StatelessWidget {
 
 class _BultosDesgloseSection extends StatelessWidget {
   final List<BultosDesglose> items;
-
   const _BultosDesgloseSection({required this.items});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: ExpansionTile(
-        leading: const Icon(Icons.inventory_2_outlined),
-        title: const Text(
-          'Desglose bultos',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
+        leading: const Icon(Icons.inventory_2_outlined, color: ShelfyTokens.primary),
+        title: const Text('Desglose bultos', style: TextStyle(fontWeight: FontWeight.w600)),
         children: items
             .map(
               (b) => ListTile(
                 dense: true,
-                title: Text(
-                  b.articulo,
-                  style: const TextStyle(fontSize: 13),
-                ),
+                title: Text(b.articulo, style: const TextStyle(fontSize: 13)),
                 trailing: Text(
-                  '${b.bultos}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
+                  b.volumenLabel,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
               ),
             )
@@ -282,50 +242,36 @@ class _BultosDesgloseSection extends StatelessWidget {
 
 class _TopCompradoresSection extends StatelessWidget {
   final List<TopComprador> items;
-
   const _TopCompradoresSection({required this.items});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: ExpansionTile(
-        leading: const Icon(Icons.leaderboard_outlined),
-        title: const Text(
-          'Top compradores',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
+        leading: const Icon(Icons.leaderboard_outlined, color: ShelfyTokens.primary),
+        title: const Text('Top compradores', style: TextStyle(fontWeight: FontWeight.w600)),
         children: items
             .map(
               (c) => ListTile(
                 dense: true,
                 leading: CircleAvatar(
                   radius: 12,
-                  backgroundColor:
-                      Theme.of(context).colorScheme.primaryContainer,
+                  backgroundColor: ShelfyTokens.primary.withValues(alpha: 0.15),
                   child: Text(
                     '${c.rank}',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
-                      color:
-                          Theme.of(context).colorScheme.onPrimaryContainer,
+                      color: ShelfyTokens.primary,
                     ),
                   ),
                 ),
-                title: Text(
-                  c.nombreCliente,
-                  style: const TextStyle(fontSize: 13),
-                ),
-                subtitle: Text(
-                  '#${c.idClienteErp}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                ),
+                title: Text(c.nombreCliente, style: const TextStyle(fontSize: 13)),
+                subtitle: Text('#${c.idClienteErp}',
+                    style: const TextStyle(fontSize: 11, color: ShelfyTokens.muted)),
                 trailing: Text(
                   '${c.totalBultos} bts',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                 ),
               ),
             )
@@ -337,29 +283,28 @@ class _TopCompradoresSection extends StatelessWidget {
 
 class _PdvVentasTile extends StatelessWidget {
   final PdvVentas pdv;
-  final NumberFormat fmt;
-
-  const _PdvVentasTile({required this.pdv, required this.fmt});
+  const _PdvVentasTile({required this.pdv});
 
   @override
   Widget build(BuildContext context) {
+    final vol = pdv.unidades > 0
+        ? '${pdv.bultos.toStringAsFixed(pdv.bultos % 1 == 0 ? 0 : 2)} bts · ${pdv.unidades.toStringAsFixed(0)} u'
+        : '${pdv.bultos.toStringAsFixed(pdv.bultos % 1 == 0 ? 0 : 2)} bts';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        title: Text(
-          pdv.nombreDisplay,
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
+        title: Text(pdv.nombreDisplay, style: const TextStyle(fontWeight: FontWeight.w500)),
         subtitle: Text(
-          '#${pdv.idClienteErp} · ${pdv.facturas} factura${pdv.facturas != 1 ? "s" : ""}',
-          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          '#${pdv.idClienteErp} · ${pdv.facturas} factura${pdv.facturas != 1 ? 's' : ''}',
+          style: const TextStyle(color: ShelfyTokens.muted, fontSize: 12),
         ),
         trailing: Text(
-          fmt.format(pdv.importe),
-          style: TextStyle(
+          vol,
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
-            fontSize: 15,
-            color: Theme.of(context).colorScheme.primary,
+            fontSize: 13,
+            color: ShelfyTokens.primary,
           ),
         ),
       ),

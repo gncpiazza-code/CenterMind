@@ -26,8 +26,14 @@ class CarteraProvider extends ChangeNotifier {
   String? errorRutaHoy;
 
   /// Carga la cartera para el [mode] indicado ('hoy' o 'general').
-  Future<void> fetchCartera(String mode) async {
+  /// Con [force] false reutiliza cache en memoria (fluido al cambiar tabs).
+  Future<void> fetchCartera(String mode, {bool force = false}) async {
     assert(mode == 'hoy' || mode == 'general');
+
+    if (!force) {
+      if (mode == 'hoy' && cartaHoy != null) return;
+      if (mode == 'general' && cartaGeneral != null) return;
+    }
 
     if (mode == 'hoy') {
       loadingHoy = true;
@@ -69,7 +75,8 @@ class CarteraProvider extends ChangeNotifier {
   }
 
   /// Carga el resumen de ruta del día desde GET /api/vendedor-app/cartera/ruta-hoy.
-  Future<void> fetchRutaHoy() async {
+  Future<void> fetchRutaHoy({bool force = false}) async {
+    if (!force && rutaHoy != null) return;
     loadingRutaHoy = true;
     errorRutaHoy = null;
     notifyListeners();

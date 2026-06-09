@@ -42,7 +42,8 @@ def get_ventas_vendedor(
         return {
             "periodo": periodo,
             "snapshot_label": snapshot_label,
-            "total_importe": 0.0,
+            "total_bultos": 0.0,
+            "total_unidades": 0.0,
             "total_facturas": 0,
             "por_pdv": [],
             "bultos_desglose": [],
@@ -51,43 +52,54 @@ def get_ventas_vendedor(
 
     meses_set: set[str] = {periodo}
 
-    pdv_agg: dict[str, dict] = defaultdict(lambda: {"importe": 0.0, "facturas": 0, "nombre": ""})
-    total_importe = 0.0
+    pdv_agg: dict[str, dict] = defaultdict(
+        lambda: {"bultos": 0.0, "unidades": 0.0, "facturas": 0, "nombre": ""}
+    )
     total_facturas = 0
     for r in rows:
         cid = str(r.get("id_cliente_erp") or r.get("cod_cliente") or "").strip()
-        importe = float(r.get("importe_neto") or r.get("importe") or 0)
-        pdv_agg[cid]["importe"] += importe
+        bultos = float(r.get("bultos_total") or 0)
+        unidades = float(r.get("unidades_total") or 0)
+        pdv_agg[cid]["bultos"] += bultos
+        pdv_agg[cid]["unidades"] += unidades
         pdv_agg[cid]["facturas"] += 1
         if not pdv_agg[cid]["nombre"]:
             pdv_agg[cid]["nombre"] = str(
                 r.get("razon_social") or r.get("nombre_cliente") or cid
             ).strip()
-        total_importe += importe
         total_facturas += 1
 
     por_pdv = [
         {
             "id_cliente_erp": cid,
             "nombre_display": v["nombre"],
-            "importe": round(v["importe"], 2),
+            "bultos": round(v["bultos"], 2),
+            "unidades": round(v["unidades"], 0),
             "facturas": v["facturas"],
         }
-        for cid, v in sorted(pdv_agg.items(), key=lambda x: -x[1]["importe"])
+        for cid, v in sorted(pdv_agg.items(), key=lambda x: -x[1]["bultos"])
     ]
 
     bultos_desglose: list[dict] = []
     top_compradores: list[dict] = []
+    total_bultos = 0.0
+    total_unidades = 0.0
     try:
-        raw_bultos, _ = _build_bultos_desglose(rows, meses_set)
+        raw_bultos, bultos_total_raw = _build_bultos_desglose(rows, meses_set)
+        total_bultos = round(float(bultos_total_raw or 0), 2)
         bultos_desglose = [
             {
                 "articulo": r.get("articulo", ""),
                 "cod_articulo": r.get("cod_articulo"),
                 "bultos": r.get("bultos", 0),
+                "bultos_enteros": r.get("bultos_enteros"),
+                "unidades_resto": r.get("unidades_resto"),
             }
             for r in raw_bultos
         ]
+        total_unidades = round(
+            sum(float(r.get("unidades_resto") or 0) for r in raw_bultos), 0
+        )
         top_compradores = [
             {
                 "rank": r.get("rank", 0),
@@ -103,7 +115,8 @@ def get_ventas_vendedor(
     return {
         "periodo": periodo,
         "snapshot_label": snapshot_label,
-        "total_importe": round(total_importe, 2),
+        "total_bultos": total_bultos,
+        "total_unidades": total_unidades,
         "total_facturas": total_facturas,
         "por_pdv": por_pdv,
         "bultos_desglose": bultos_desglose,

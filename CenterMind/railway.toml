@@ -4,6 +4,10 @@
 #   - Root Directory: CenterMind
 #   - Railway config file: /CenterMind/railway.toml
 #
+# CLI (NO usar `railway up` desde raíz del monorepo — .railwayignore es para engines):
+#   ./scripts/deploy-centermind-railway.sh
+#   o: railway deployment redeploy --from-source -s CenterMind -y
+#
 # watchPatterns: no redeploy por cambios en RPA ni frontend (Vercel).
 # Paths desde la raíz del repo: https://docs.railway.com/guides/build-configuration#configure-watch-paths
 # Redeploy trigger: 2026-05-31 top_localidades + bundle refresh=1

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
+
 import '../cuentas/cuentas_screen.dart';
 import '../galeria/galeria_provider.dart';
 import '../galeria/galeria_screen.dart';
@@ -29,7 +31,7 @@ class _MoreScreenState extends State<MoreScreen>
       activeIcon: Icons.receipt_long,
       label: 'Ventas',
       subtitle: 'Ventas del mes',
-      color: Color(0xFF2196F3),
+      color: ShelfyTokens.primary,
     ),
     _HubItem(
       index: 1,
@@ -37,7 +39,7 @@ class _MoreScreenState extends State<MoreScreen>
       activeIcon: Icons.account_balance_wallet,
       label: 'Cuentas',
       subtitle: 'Saldos pendientes',
-      color: Color(0xFFE53935),
+      color: ShelfyTokens.error,
     ),
     _HubItem(
       index: 2,
@@ -45,7 +47,7 @@ class _MoreScreenState extends State<MoreScreen>
       activeIcon: Icons.flag,
       label: 'Objetivos',
       subtitle: 'Mis objetivos activos',
-      color: Color(0xFF43A047),
+      color: ShelfyTokens.success,
     ),
     _HubItem(
       index: 3,
@@ -53,7 +55,7 @@ class _MoreScreenState extends State<MoreScreen>
       activeIcon: Icons.photo_library,
       label: 'Galería',
       subtitle: 'Historial de exhibiciones',
-      color: Color(0xFF7B1FA2),
+      color: ShelfyTokens.accent,
     ),
   ];
 
@@ -100,8 +102,6 @@ class _MoreScreenState extends State<MoreScreen>
   }
 
   void _onTap(BuildContext context, int hubIndex) {
-    final disableAnimations =
-        MediaQuery.of(context).disableAnimations;
     final tabCtrl = context.read<HomeTabController>();
 
     // Pre-fetch galería si va a abrirse
@@ -110,12 +110,6 @@ class _MoreScreenState extends State<MoreScreen>
     }
 
     tabCtrl.pushMoreSubScreen(hubIndex);
-
-    if (!disableAnimations) {
-      _ctrl.reverse().then((_) {
-        if (mounted) _ctrl.forward();
-      });
-    }
   }
 
   @override

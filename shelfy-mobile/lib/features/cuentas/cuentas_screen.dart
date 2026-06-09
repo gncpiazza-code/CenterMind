@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
 import 'cuentas_provider.dart';
 import 'models/cc_response.dart';
 
@@ -26,8 +27,10 @@ class _CuentasScreenState extends State<CuentasScreen> {
   Widget build(BuildContext context) {
     return Consumer<CuentasProvider>(
       builder: (context, provider, _) {
-        if (provider.loading) {
-          return const Center(child: CircularProgressIndicator());
+        if (!provider.hasLoaded || provider.loading) {
+          return const Center(
+            child: CircularProgressIndicator(color: ShelfyTokens.primary),
+          );
         }
 
         if (provider.error != null) {
@@ -45,7 +48,7 @@ class _CuentasScreenState extends State<CuentasScreen> {
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: () =>
-                      context.read<CuentasProvider>().fetch(modo: provider.modo),
+                      context.read<CuentasProvider>().fetch(modo: provider.modo, force: true),
                   child: const Text('Reintentar'),
                 ),
               ],
@@ -53,14 +56,12 @@ class _CuentasScreenState extends State<CuentasScreen> {
           );
         }
 
-        final data = provider.ccData;
-        if (data == null) {
-          return const SizedBox.shrink();
-        }
+        final data = provider.ccData!;
 
         return RefreshIndicator(
+          color: ShelfyTokens.primary,
           onRefresh: () =>
-              context.read<CuentasProvider>().fetch(modo: provider.modo),
+              context.read<CuentasProvider>().fetch(modo: provider.modo, force: true),
           child: _CuentasList(data: data),
         );
       },
@@ -110,7 +111,7 @@ class _CuentasList extends StatelessWidget {
             'Clientes con saldo',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: ShelfyTokens.primary,
                 ),
           ),
           const SizedBox(height: 8),
@@ -137,7 +138,7 @@ class _ModoToggle extends StatelessWidget {
               selected: provider.modo == 'general',
               onTap: () {
                 if (provider.modo != 'general') {
-                  provider.fetch(modo: 'general');
+                  provider.fetch(modo: 'general', force: true);
                 }
               },
             ),
@@ -147,7 +148,7 @@ class _ModoToggle extends StatelessWidget {
               selected: provider.modo == 'hoy',
               onTap: () {
                 if (provider.modo != 'hoy') {
-                  provider.fetch(modo: 'hoy');
+                  provider.fetch(modo: 'hoy', force: true);
                 }
               },
             ),

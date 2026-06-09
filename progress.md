@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 9 Jun 2026 (v18 — SHELFYAPP Oleada 2: fix upload P0 + espíritu Shelfy + captura 1 pantalla)  
+**Última actualización:** 9 Jun 2026 (v19 — SHELFYAPP perf dual-platform + nav estable)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -29,11 +29,11 @@
 
 ## Cambios recientes (máx 5)
 
-1. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal (`ensure_mobile_integrante` antes del RPC, `telegram_user_id` sintético, HTTP 422 si vacío); espíritu Shelfy (`shelfy_tokens.dart` + shared widgets + AppBar logo + violeta por defecto); captura 1 pantalla (Stack único, `CaptureOverlayPhase`, glass sheet, flash, radio 100 m); `pdv/buscar` endpoint nuevo; `flutter analyze` 0 errors.
-2. **SHELFYAPP polish (2026-06-09):** snapshot-first CC+ventas (nombre_display fix, aging buckets, bultos/top compradores); hub Más animado (4 tabs, stagger); `flutter analyze` 0 warnings código.
-3. **Alta Ippolibaz dist 13 (2026-06-09):** registry + CHESS vault + tablas `*_d13`; padrón 1111 PDVs; CC 3 filas; guardrail CC permite primer bootstrap sin snapshot previo.
-4. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` responde 202 + thread; evita 524/502 Cloudflare en uploads RPA.
-5. **Mapa supervisión My Maps (2026-06-08):** toolbar Explorar/Objetivo/Rutas, capas planificación, fix pin exhibición 30d.
+1. **SHELFYAPP perf + nav (2026-06-09):** tab único montado (sin IndexedStack OOM); cache providers `fetch(force)`; cámara `medium` Android / `high` iOS; doc estrategia vendedores Android vs supervisores iOS futuro; Maestro nav stress.
+2. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal (`ensure_mobile_integrante` antes del RPC, `telegram_user_id` sintético, HTTP 422 si vacío); espíritu Shelfy (`shelfy_tokens.dart` + shared widgets + AppBar logo + violeta por defecto); captura 1 pantalla (Stack único, `CaptureOverlayPhase`, glass sheet, flash, radio 100 m); `pdv/buscar` endpoint nuevo; `flutter analyze` 0 errors.
+3. **SHELFYAPP polish (2026-06-09):** snapshot-first CC+ventas; hub Más 4 tabs.
+4. **Alta Ippolibaz dist 13 (2026-06-09):** registry + tablas `*_d13`; padrón 1111 PDVs.
+5. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` 202 + thread.
 
 ## Guardrails activos
 

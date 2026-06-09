@@ -38,7 +38,7 @@ class GaleriaMapaView extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   FilledButton(
-                    onPressed: () => provider.fetchClientes(),
+                    onPressed: () => provider.fetchClientes(force: true),
                     child: const Text('Reintentar'),
                   ),
                 ],
@@ -100,7 +100,7 @@ class GaleriaMapaView extends StatelessWidget {
 
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () => provider.fetchClientes(),
+                onRefresh: () => provider.fetchClientes(force: true),
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: 32),
                   children: [

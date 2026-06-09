@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'core/api/api_client.dart';
 import 'core/auth/auth_service.dart';
+import 'core/offline/sync_worker.dart';
 import 'core/offline/upload_queue.dart';
 import 'features/activation/activation_screen.dart';
 import 'features/home/home_screen.dart';
@@ -13,11 +14,13 @@ import 'theme/tenant_theme.dart';
 class ShelfyApp extends StatefulWidget {
   final AuthService authService;
   final ShelfyDatabase db;
+  final SyncWorker syncWorker;
 
   const ShelfyApp({
     super.key,
     required this.authService,
     required this.db,
+    required this.syncWorker,
   });
 
   @override
@@ -30,6 +33,9 @@ class _ShelfyAppState extends State<ShelfyApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.syncWorker.start();
+    });
     _router = GoRouter(
       initialLocation: '/',
       refreshListenable: widget.authService,

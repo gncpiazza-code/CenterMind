@@ -23,9 +23,7 @@ void main() async {
   final authService = AuthService(apiClient: apiClient);
   await authService.initialize();
 
-  // Iniciar worker de sincronización offline.
   final syncWorker = SyncWorker(db: db, api: apiClient);
-  syncWorker.start();
 
   runApp(
     // SyncWorker disponible en todo el árbol.
@@ -35,7 +33,11 @@ void main() async {
         Provider<SyncWorker>.value(value: syncWorker),
         ChangeNotifierProvider<AuthService>.value(value: authService),
       ],
-      child: ShelfyApp(authService: authService, db: db),
+      child: ShelfyApp(
+        authService: authService,
+        db: db,
+        syncWorker: syncWorker,
+      ),
     ),
   );
 }

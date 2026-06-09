@@ -80,7 +80,7 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: () => provider.fetch(),
+              onPressed: () => provider.fetch(force: true),
               child: const Text('Reintentar'),
             ),
           ],
@@ -106,7 +106,7 @@ class _RankingScreenState extends State<RankingScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: () => provider.fetch(),
+      onRefresh: () => provider.fetch(force: true),
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: data.ranking.length,

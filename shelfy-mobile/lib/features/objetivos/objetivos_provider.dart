@@ -13,25 +13,33 @@ class ObjetivosProvider extends ChangeNotifier {
 
   List<ObjetivoApp> objetivos = [];
   bool loading = false;
+  bool hasLoaded = false;
   String? error;
 
   /// Obtiene los objetivos activos desde GET /api/vendedor-app/objetivos.
-  Future<void> fetch() async {
+  Future<void> fetch({bool force = false}) async {
+    if (!force && objetivos.isNotEmpty) return;
     loading = true;
     error = null;
     notifyListeners();
 
     try {
       final list = await _api.getList('/api/vendedor-app/objetivos');
-      objetivos = list
-          .map((e) => ObjetivoApp.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final parsed = <ObjetivoApp>[];
+      for (final item in list) {
+        if (item is! Map<String, dynamic>) continue;
+        try {
+          parsed.add(ObjetivoApp.fromJson(item));
+        } catch (_) {}
+      }
+      objetivos = parsed;
     } on ApiException catch (e) {
       error = e.message;
-    } catch (_) {
-      error = 'Error al cargar los objetivos';
+    } catch (e) {
+      error = 'Error al cargar los objetivos: $e';
     } finally {
       loading = false;
+      hasLoaded = true;
       notifyListeners();
     }
   }

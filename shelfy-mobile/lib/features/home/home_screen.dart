@@ -30,6 +30,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _providersReady = false;
+  bool _captureTabReady = false;
 
   late HomeTabController _tabController;
   late CaptureProvider _captureProvider;
@@ -58,7 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _captureProvider.onUploadSuccess = (nroCliente) {
       _galeriaProvider.refreshAfterUpload(nroCliente);
     };
-    _providersReady = true;
+    setState(() => _providersReady = true);
   }
 
   @override
@@ -83,39 +84,58 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
       child: ListenableBuilder(
         listenable: _tabController,
-        builder: (context, _) => Scaffold(
-          appBar: AppBar(
-            title: const ShelfyAppBarTitle(),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.sync_outlined),
-                tooltip: 'Sincronizar pendientes',
-                onPressed: () {
-                  context.read<SyncWorker>().syncNow();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Sincronizando exhibiciones pendientes...'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-          body: IndexedStack(
-            index: _tabController.selectedIndex,
-            children: const [
-              CaptureScreen(), // 0
-              CarteraScreen(), // 1
-              StatsScreen(),   // 2
-              MoreScreen(),    // 3 — hub animado
-            ],
-          ),
-          bottomNavigationBar: _BottomNav(
-            selectedIndex: _tabController.selectedIndex,
-            onTap: (index) => _tabController.goToTab(index),
-          ),
-        ),
+        builder: (context, _) {
+          final onCaptureTab = _tabController.selectedIndex == 0;
+          return Scaffold(
+            extendBody: onCaptureTab,
+            appBar: onCaptureTab
+                ? null
+                : AppBar(
+                    title: const ShelfyAppBarTitle(),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.sync_outlined),
+                        tooltip: 'Sincronizar pendientes',
+                        onPressed: () {
+                          context.read<SyncWorker>().syncNow();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Sincronizando exhibiciones pendientes...',
+                              ),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+            // Solo monta el tab activo — IndexedStack dejaba cámara + 4 pantallas
+            // vivas y provocaba OOM / crash nativo en iOS al navegar mucho.
+            body: switch (_tabController.selectedIndex) {
+              0 => _captureTabReady
+                  ? const CaptureScreen(key: ValueKey('tab_capture'))
+                  : const Center(child: CircularProgressIndicator()),
+              1 => const CarteraScreen(key: ValueKey('tab_cartera')),
+              2 => const StatsScreen(key: ValueKey('tab_stats')),
+              3 => const MoreScreen(key: ValueKey('tab_more')),
+              _ => const SizedBox.shrink(),
+            },
+            bottomNavigationBar: _BottomNav(
+              selectedIndex: _tabController.selectedIndex,
+              onTap: (index) {
+                if (index == 0 && !_captureTabReady) {
+                  Future<void>.delayed(const Duration(milliseconds: 350), () {
+                    if (mounted && _tabController.selectedIndex == 0) {
+                      setState(() => _captureTabReady = true);
+                    }
+                  });
+                }
+                _tabController.goToTab(index);
+              },
+            ),
+          );
+        },
       ),
     );
   }

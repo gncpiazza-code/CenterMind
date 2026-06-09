@@ -17,8 +17,7 @@ logger = logging.getLogger("ShelfyAPI")
 _OBJETIVO_COLS = (
     "id, tipo, descripcion, fecha_objetivo, fecha_inicio, "
     "valor_actual, valor_objetivo, cumplido, lanzado_at, "
-    "id_vendedor, nombre_vendedor, origen, mes_referencia, "
-    "created_at, id_target_pdv"
+    "id_vendedor, nombre_vendedor, origen, mes_referencia"
 )
 
 
@@ -63,8 +62,13 @@ def list_objetivos_vendedor(
         logger.error(f"list_objetivos_vendedor dist={dist_id} vendor={id_vendedor_v2}: {e}")
         return []
 
-    # Filtrar con la función canónica
-    activos = [o for o in all_objetivos if objetivo_activo_para_vendedor(o, hoy)]
+    activos: list[dict] = []
+    for o in all_objetivos:
+        try:
+            if objetivo_activo_para_vendedor(o, hoy):
+                activos.append(o)
+        except Exception as e:
+            logger.warning(f"objetivo_activo skip id={o.get('id')}: {e}")
 
     # Formatear para la app: solo campos relevantes
     result: list[dict] = []
@@ -136,7 +140,7 @@ def get_objetivo_detalle(
     sb,
     dist_id: int,
     id_vendedor_v2: int,
-    objetivo_id: int,
+    objetivo_id: str,
 ) -> dict | None:
     """
     Objetivo específico con campos extendidos para la pantalla de detalle.

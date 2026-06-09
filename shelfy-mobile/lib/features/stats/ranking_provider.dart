@@ -20,10 +20,15 @@ class RankingProvider extends ChangeNotifier {
         selectedMonth = DateTime.now().month;
 
   /// Obtiene el ranking desde GET /api/vendedor-app/ranking?year=&month=.
-  Future<void> fetch({int? year, int? month}) async {
-    if (year != null) selectedYear = year;
-    if (month != null) selectedMonth = month;
+  Future<void> fetch({int? year, int? month, bool force = false}) async {
+    final newYear = year ?? selectedYear;
+    final newMonth = month ?? selectedMonth;
+    final periodChanged =
+        newYear != selectedYear || newMonth != selectedMonth;
+    selectedYear = newYear;
+    selectedMonth = newMonth;
 
+    if (!force && !periodChanged && rankingData != null) return;
     loading = true;
     error = null;
     notifyListeners();

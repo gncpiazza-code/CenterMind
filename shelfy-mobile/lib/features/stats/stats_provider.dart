@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import 'models/stats_models.dart';
 
 /// ChangeNotifier que gestiona las estadísticas del vendedor.
+/// Llama /stats/full (exhibiciones) + /estadisticas/resumen (7 KPIs).
 class StatsProvider extends ChangeNotifier {
   final ApiClient _api;
 
@@ -11,19 +12,24 @@ class StatsProvider extends ChangeNotifier {
   StatsProvider({required ApiClient api}) : _api = api;
 
   StatsData? statsData;
+  KpisResumen? kpisResumen;
   bool loading = false;
   String? error;
 
-  /// Obtiene las estadísticas desde GET /api/vendedor-app/stats/full.
   Future<void> fetch({bool force = false}) async {
-    if (!force && statsData != null) return;
+    if (!force && statsData != null && kpisResumen != null) return;
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      final data = await _api.get('/api/vendedor-app/stats/full');
-      statsData = StatsData.fromJson(data);
+      final results = await Future.wait([
+        _api.get('/api/vendedor-app/stats/full'),
+        _api.get('/api/vendedor-app/estadisticas/resumen'),
+      ]);
+
+      statsData = StatsData.fromJson(results[0] as Map<String, dynamic>);
+      kpisResumen = KpisResumen.fromJson(results[1] as Map<String, dynamic>);
     } on ApiException catch (e) {
       error = e.message;
     } catch (_) {

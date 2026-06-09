@@ -58,11 +58,17 @@ class _StatsScreenState extends State<StatsScreen> {
           return const SizedBox.shrink();
         }
 
+        final kpis = provider.kpisResumen;
         return RefreshIndicator(
           onRefresh: () => context.read<StatsProvider>().fetch(force: true),
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // KPIs 7 indicadores del mes (desde /estadisticas/resumen)
+              if (kpis != null) ...[
+                _KpisResumenCard(kpis: kpis),
+                const SizedBox(height: 12),
+              ],
               _MesActualCard(stats: data.mesActual),
               const SizedBox(height: 12),
               _MesAnteriorCard(stats: data.mesAnterior),
@@ -414,6 +420,93 @@ class _VerRankingButton extends StatelessWidget {
       label: const Text('Ver ranking completo'),
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Card 7 KPIs resumen del mes (desde /estadisticas/resumen)
+// ---------------------------------------------------------------------------
+
+class _KpisResumenCard extends StatelessWidget {
+  final KpisResumen kpis;
+
+  const _KpisResumenCard({required this.kpis});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'KPIs del mes',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _KpiChip(label: 'PDVs activos', value: '${kpis.pdvs}'),
+                _KpiChip(label: 'Altas', value: '${kpis.altas}'),
+                _KpiChip(label: 'Exhibiciones', value: '${kpis.exhibiciones}'),
+                _KpiChip(label: 'Compradores', value: '${kpis.compradores}'),
+                _KpiChip(label: 'Bultos', value: '${kpis.bultos.toStringAsFixed(1)}'),
+                _KpiChip(label: 'Cobertura', value: '${kpis.coberturaPct.toStringAsFixed(1)}%'),
+                _KpiChip(label: 'Objetivos', value: '${kpis.objetivosPct.toStringAsFixed(1)}%'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KpiChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _KpiChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
       ),
     );
   }

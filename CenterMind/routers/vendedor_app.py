@@ -10,7 +10,7 @@ Separación de contextos de auth:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, File, Form, UploadFile
@@ -801,3 +801,36 @@ def get_bundle(session: dict = Depends(vendedor_session_dep)):
     except Exception as e:
         logger.error(f"get_bundle dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error generando bundle offline")
+
+
+# ─── Estadísticas KPI (resumen 7 indicadores) ────────────────────────────────
+
+@router.get(
+    "/estadisticas/resumen",
+    summary="KPIs del vendedor — 7 indicadores (PDVs, altas, exhibiciones, compradores, bultos, cobertura, objetivos)",
+)
+def get_estadisticas_resumen(
+    meses: List[str] = Query(
+        default=None,
+        description="Meses YYYY-MM a incluir. Default: mes actual AR.",
+    ),
+    session: dict = Depends(vendedor_session_dep),
+):
+    from datetime import datetime, timezone, timedelta
+    from services.estadisticas_service import aggregate_kpis_vendedor
+
+    dist_id = int(session["dist"])
+    vendor_id = int(session["vendor"])
+
+    if not meses:
+        ar_tz = timezone(timedelta(hours=-3))
+        now = datetime.now(ar_tz)
+        meses = [f"{now.year}-{now.month:02d}"]
+
+    try:
+        return aggregate_kpis_vendedor(dist_id, str(vendor_id), list(meses))
+    except Exception as e:
+        logger.error(
+            f"get_estadisticas_resumen dist={dist_id} vendor={vendor_id} meses={meses}: {e}"
+        )
+        raise HTTPException(status_code=500, detail="Error obteniendo KPIs")

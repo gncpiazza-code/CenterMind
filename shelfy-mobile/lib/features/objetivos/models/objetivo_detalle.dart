@@ -27,6 +27,7 @@ class ObjetivoDetalle {
   final String fechaObjetivo;
   final Map<String, dynamic>? desglose;
   final List<ItemPdv> itemsPdv;
+  final List<String> recomendaciones;
 
   const ObjetivoDetalle({
     required this.id,
@@ -39,11 +40,17 @@ class ObjetivoDetalle {
     required this.fechaObjetivo,
     this.desglose,
     this.itemsPdv = const [],
+    this.recomendaciones = const [],
   });
 
   factory ObjetivoDetalle.fromJson(Map<String, dynamic> json) {
     final pdvList = (json['items_pdv'] as List<dynamic>? ?? [])
         .map((e) => ItemPdv.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    final recList = (json['recomendaciones'] as List<dynamic>? ?? [])
+        .map((e) => e as String? ?? '')
+        .where((s) => s.isNotEmpty)
         .toList();
 
     return ObjetivoDetalle(
@@ -57,6 +64,7 @@ class ObjetivoDetalle {
       fechaObjetivo: json['fecha_objetivo'] as String? ?? '',
       desglose: json['desglose'] as Map<String, dynamic>?,
       itemsPdv: pdvList,
+      recomendaciones: recList,
     );
   }
 }

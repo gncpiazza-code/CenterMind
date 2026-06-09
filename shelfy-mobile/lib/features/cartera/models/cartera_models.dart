@@ -49,6 +49,8 @@ class RutaCartera {
 class PdvCartera {
   final String idClienteErp;
   final String nombreDisplay;
+  final String? nombreFantasia;
+  final String? nombreRazonSocial;
   final String? domicilio;
   final String? localidad;
   final String? telefono;
@@ -57,10 +59,13 @@ class PdvCartera {
   final double? longitud;
   final String vitalidad;
   final String? fechaUltimaCompra;
+  final String? fechaAlta;
 
   PdvCartera({
     required this.idClienteErp,
     required this.nombreDisplay,
+    this.nombreFantasia,
+    this.nombreRazonSocial,
     this.domicilio,
     this.localidad,
     this.telefono,
@@ -69,12 +74,15 @@ class PdvCartera {
     this.longitud,
     required this.vitalidad,
     this.fechaUltimaCompra,
+    this.fechaAlta,
   });
 
   factory PdvCartera.fromJson(Map<String, dynamic> json) {
     return PdvCartera(
       idClienteErp: jsonAsString(json['id_cliente_erp']),
       nombreDisplay: json['nombre_display'] as String? ?? '',
+      nombreFantasia: json['nombre_fantasia'] as String?,
+      nombreRazonSocial: json['nombre_razon_social'] as String?,
       domicilio: json['domicilio'] as String?,
       localidad: json['localidad'] as String?,
       telefono: json['telefono'] as String?,
@@ -83,6 +91,7 @@ class PdvCartera {
       longitud: (json['longitud'] as num?)?.toDouble(),
       vitalidad: json['vitalidad'] as String? ?? 'activo',
       fechaUltimaCompra: json['fecha_ultima_compra'] as String?,
+      fechaAlta: json['fecha_alta'] as String?,
     );
   }
 }

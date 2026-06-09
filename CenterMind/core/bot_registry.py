@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Any
 
-from core.config import WEBHOOK_URL
+from core.config import TELEGRAM_WEBHOOK_ALLOWED_UPDATES, WEBHOOK_URL
 from db import sb
 
 logger = logging.getLogger("bot_registry")
@@ -30,6 +30,17 @@ _TRANSIENT_MARKERS = (
     "server disconnected",
     "connection reset",
 )
+
+
+async def configure_bot_webhook(bot: Any, dist_id: int) -> None:
+    """Registra webhook con allowed_updates completos (chat_member + mensajes)."""
+    if not WEBHOOK_URL:
+        return
+    webhook_path = f"{WEBHOOK_URL.rstrip('/')}/api/telegram/webhook/{dist_id}"
+    await bot.set_webhook(
+        url=webhook_path,
+        allowed_updates=TELEGRAM_WEBHOOK_ALLOWED_UPDATES,
+    )
 
 
 def is_transient_supabase_error(exc: BaseException) -> bool:
@@ -115,9 +126,14 @@ async def start_bot_for_dist(
         ptb_app = worker.build_app()
         await ptb_app.initialize()
         if WEBHOOK_URL:
-            webhook_path = f"{WEBHOOK_URL.rstrip('/')}/api/telegram/webhook/{d_id}"
-            await ptb_app.bot.set_webhook(url=webhook_path)
-            logger.info("✅ Bot %s (%s) — Webhook OK: %s", d_id, nombre, webhook_path)
+            await configure_bot_webhook(ptb_app.bot, d_id)
+            logger.info(
+                "✅ Bot %s (%s) — Webhook OK: %s/api/telegram/webhook/%s",
+                d_id,
+                nombre,
+                WEBHOOK_URL.rstrip("/"),
+                d_id,
+            )
         else:
             logger.warning("⚠️ Bot %s (%s) — WEBHOOK_URL no definida", d_id, nombre)
         await ptb_app.start()

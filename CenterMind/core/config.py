@@ -35,6 +35,15 @@ def _normalize_webhook_url(raw: str | None) -> str | None:
 
 WEBHOOK_URL = _normalize_webhook_url(os.environ.get("WEBHOOK_URL"))
 
+# Tipos de update que Telegram envía al webhook (obligatorio para chat_member / fotos en grupo).
+TELEGRAM_WEBHOOK_ALLOWED_UPDATES = [
+    "message",
+    "edited_message",
+    "callback_query",
+    "my_chat_member",
+    "chat_member",
+]
+
 # Offset UTC → America/Argentina (UTC-3, sin DST)
 AR_OFFSET = "-3 hours"
 

@@ -1106,6 +1106,42 @@ def load_active_vendedor_ids(dist_id: int) -> set[int]:
         return set()
 
 
+def _vendedor_v2_is_usable(dist_id: int, vid: int) -> bool:
+    """Existe en vendedores_v2 tenant y no está marcado inactivo en vendedores_perfil."""
+    try:
+        vid = int(vid)
+    except (TypeError, ValueError):
+        return False
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    try:
+        vres = (
+            sb.table(t_vend)
+            .select("id_vendedor")
+            .eq("id_vendedor", vid)
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        if not vres.data:
+            return False
+    except Exception:
+        return False
+    try:
+        perf = (
+            sb.table("vendedores_perfil")
+            .select("activo")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", vid)
+            .limit(1)
+            .execute()
+        )
+        if perf.data and perf.data[0].get("activo") is False:
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def resolve_vendedor_for_group(dist_id: int, telegram_chat_id: int) -> int | None:
     """
     Fuente de verdad group-first para comandos de bot.
@@ -1119,18 +1155,8 @@ def resolve_vendedor_for_group(dist_id: int, telegram_chat_id: int) -> int | Non
         from core.telegram_group_matcher import get_group_binding
         binding = get_group_binding(dist_id, telegram_chat_id)
         if binding and binding.get("id_vendedor_v2"):
-            vid = binding["id_vendedor_v2"]
-            # Verificar que el vendedor esté activo
-            t_vend = tenant_table_name("vendedores_v2", dist_id)
-            vres = (
-                sb.table(t_vend)
-                .select("id_vendedor, activo")
-                .eq("id_vendedor", vid)
-                .eq("id_distribuidor", dist_id)
-                .limit(1)
-                .execute()
-            )
-            if vres.data and vres.data[0].get("activo", True):
+            vid = int(binding["id_vendedor_v2"])
+            if _vendedor_v2_is_usable(dist_id, vid):
                 return vid
     except Exception as e:
         logger.warning(f"resolve_vendedor_for_group dist={dist_id} chat={telegram_chat_id}: {e}")
@@ -1154,12 +1180,13 @@ def resolve_vendedor_for_group(dist_id: int, telegram_chat_id: int) -> int | Non
                     .select("id_vendedor")
                     .eq("id_distribuidor", dist_id)
                     .eq("id_vendedor_erp", legacy_erp)
-                    .eq("activo", True)
                     .limit(1)
                     .execute()
                 )
                 if v_res.data:
-                    return int(v_res.data[0]["id_vendedor"])
+                    vid = int(v_res.data[0]["id_vendedor"])
+                    if _vendedor_v2_is_usable(dist_id, vid):
+                        return vid
     except Exception as e:
         logger.warning(f"resolve_vendedor_for_group legacy dist={dist_id}: {e}")
 
@@ -1176,16 +1203,7 @@ def resolve_vendedor_for_group(dist_id: int, telegram_chat_id: int) -> int | Non
         )
         if b_res.data:
             vid = int(b_res.data[0]["id_vendedor_v2"])
-            t_vend = tenant_table_name("vendedores_v2", dist_id)
-            vres = (
-                sb.table(t_vend)
-                .select("id_vendedor, activo")
-                .eq("id_vendedor", vid)
-                .eq("id_distribuidor", dist_id)
-                .limit(1)
-                .execute()
-            )
-            if vres.data and vres.data[0].get("activo", True):
+            if _vendedor_v2_is_usable(dist_id, vid):
                 return vid
     except Exception as e:
         logger.warning(

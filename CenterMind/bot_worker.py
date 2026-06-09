@@ -1993,8 +1993,22 @@ class BotWorker:
 
     def _resolve_vendedor_v2_for_objetivos(self, dist_id: int, uid: int, chat_id: int) -> dict:
         """
-        Vendedor para /objetivos: usuario+grupo → cualquier integrante del grupo → ERP en tabla grupos.
+        Vendedor para /objetivos (fallback si grupos no resolvió):
+        1) integrante del usuario
+        2) integrante cuyo id_vendedor_v2 coincide con grupos.id_vendedor_v2
+        3) ERP en tabla grupos
         """
+        g_res = (
+            self.db.sb.table("grupos")
+            .select("id_vendedor_v2, id_vendedor_erp")
+            .eq("id_distribuidor", dist_id)
+            .eq("telegram_chat_id", chat_id)
+            .limit(1)
+            .execute()
+        )
+        group_row = (g_res.data or [{}])[0]
+        group_vid = group_row.get("id_vendedor_v2")
+
         res_uid = (
             self.db.sb.table("integrantes_grupo")
             .select("id_vendedor_v2, nombre_integrante")
@@ -2005,28 +2019,39 @@ class BotWorker:
             .execute()
         )
         if res_uid.data and res_uid.data[0].get("id_vendedor_v2"):
-            return res_uid.data[0]
+            row = res_uid.data[0]
+            uid_vid = row.get("id_vendedor_v2")
+            if group_vid is None or int(uid_vid) == int(group_vid):
+                return row
 
-        res_grp = (
-            self.db.sb.table("integrantes_grupo")
-            .select("id_vendedor_v2, nombre_integrante")
-            .eq("id_distribuidor", dist_id)
-            .eq("telegram_group_id", chat_id)
-            .not_.is_("id_vendedor_v2", "null")
-            .limit(1)
-            .execute()
-        )
-        if res_grp.data and res_grp.data[0].get("id_vendedor_v2"):
-            return res_grp.data[0]
+        if group_vid is not None:
+            res_grp = (
+                self.db.sb.table("integrantes_grupo")
+                .select("id_vendedor_v2, nombre_integrante")
+                .eq("id_distribuidor", dist_id)
+                .eq("telegram_group_id", chat_id)
+                .eq("id_vendedor_v2", group_vid)
+                .limit(1)
+                .execute()
+            )
+            if res_grp.data and res_grp.data[0].get("id_vendedor_v2"):
+                return res_grp.data[0]
+            t_vend = tenant_table_name("vendedores_v2", dist_id)
+            v_info = (
+                self.db.sb.table(t_vend)
+                .select("nombre_erp")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", group_vid)
+                .limit(1)
+                .execute()
+            )
+            if v_info.data:
+                return {
+                    "id_vendedor_v2": group_vid,
+                    "nombre_integrante": v_info.data[0].get("nombre_erp"),
+                }
 
-        g_res = (
-            self.db.sb.table("grupos")
-            .select("id_vendedor_erp")
-            .eq("telegram_chat_id", chat_id)
-            .limit(1)
-            .execute()
-        )
-        erp = (g_res.data or [{}])[0].get("id_vendedor_erp") if g_res.data else None
+        erp = group_row.get("id_vendedor_erp")
         if erp:
             v_res = (
                 self.db.sb.table(tenant_table_name("vendedores_v2", dist_id))
@@ -3826,6 +3851,31 @@ class BotWorker:
                 member.username or "", member.first_name or "Usuario"
             )
 
+    async def handle_my_chat_member(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Cuando el bot entra a un grupo: registrar grupo aunque no haya /start."""
+        mcm = update.my_chat_member
+        if not mcm or not context.bot:
+            return
+        if mcm.new_chat_member.user.id != context.bot.id:
+            return
+        if mcm.new_chat_member.status not in ("member", "administrator", "creator"):
+            return
+        chat = mcm.chat
+        if chat.type not in ("group", "supergroup"):
+            return
+        chat_title = chat.title or "Grupo"
+        actor = mcm.from_user
+        self.logger.info(f"🤖 Bot agregado al grupo {chat_title} ({chat.id})")
+        await asyncio.to_thread(
+            self._register_user_and_group,
+            self.distribuidor_id,
+            chat.id,
+            chat_title,
+            actor.id,
+            actor.username or "",
+            actor.first_name or "Admin",
+        )
+
     async def handle_chat_member_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Monitorea cambios de estado (joins/leaves) vía ChatMemberHandler."""
         result = update.chat_member
@@ -4171,6 +4221,7 @@ class BotWorker:
         # Eventos de grupo
         app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_TITLE, self.handle_new_chat_title))
         app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.handle_new_chat_members))
+        app.add_handler(ChatMemberHandler(self.handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
         app.add_handler(ChatMemberHandler(self.handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
 
         # Callbacks (solo selección de tipo PDV — sin evaluación)

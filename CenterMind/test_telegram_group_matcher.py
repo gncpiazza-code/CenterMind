@@ -170,7 +170,9 @@ class TestGroupFirstStats:
             c.eq.return_value = c
             c.limit.return_value = c
             if "vendedores_v2" in str(name):
-                c.execute.return_value = MagicMock(data=[{"id_vendedor": 42, "activo": True}])
+                c.execute.return_value = MagicMock(data=[{"id_vendedor": 42}])
+            elif name == "vendedores_perfil":
+                c.execute.return_value = MagicMock(data=[])
             else:
                 c.execute.return_value = MagicMock(data=[{"id_vendedor_erp": None}])
             return c
@@ -212,7 +214,9 @@ class TestGroupFirstStats:
             if name == "vendedores_telegram_binding":
                 c.execute.return_value = MagicMock(data=[{"id_vendedor_v2": 77}])
             elif "vendedores_v2" in str(name):
-                c.execute.return_value = MagicMock(data=[{"id_vendedor": 77, "activo": True}])
+                c.execute.return_value = MagicMock(data=[{"id_vendedor": 77}])
+            elif name == "vendedores_perfil":
+                c.execute.return_value = MagicMock(data=[])
             else:
                 c.execute.return_value = MagicMock(data=[])
             return c
@@ -237,7 +241,12 @@ class TestGroupFirstStats:
             c.select.return_value = c
             c.eq.return_value = c
             c.limit.return_value = c
-            c.execute.return_value = MagicMock(data=[{"id_vendedor": 42, "activo": False}])
+            if "vendedores_v2" in str(name):
+                c.execute.return_value = MagicMock(data=[{"id_vendedor": 42}])
+            elif name == "vendedores_perfil":
+                c.execute.return_value = MagicMock(data=[{"activo": False}])
+            else:
+                c.execute.return_value = MagicMock(data=[])
             return c
 
         sb_mock.table.side_effect = table_side

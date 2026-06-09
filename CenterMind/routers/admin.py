@@ -16,6 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from core.config import WEBHOOK_URL
+from core.bot_registry import configure_bot_webhook
 from core.lifespan import bots, manager
 from core.security import verify_auth, check_dist_permission
 from core.usuario_sucursal_scope import (
@@ -448,7 +449,7 @@ async def admin_crear_distribuidora(req: DistribuidoraRequest, payload=Depends(v
                 ptb_app = worker.build_app()
                 await ptb_app.initialize()
                 if WEBHOOK_URL:
-                    await ptb_app.bot.set_webhook(url=f"{WEBHOOK_URL}/api/telegram/webhook/{d_id}")
+                    await configure_bot_webhook(ptb_app.bot, d_id)
                 await ptb_app.start()
                 bots[d_id] = ptb_app
             except Exception as e:
@@ -494,7 +495,7 @@ async def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, pa
                 ptb_app = worker.build_app()
                 await ptb_app.initialize()
                 if WEBHOOK_URL:
-                    await ptb_app.bot.set_webhook(url=f"{WEBHOOK_URL}/api/telegram/webhook/{dist_id}")
+                    await configure_bot_webhook(ptb_app.bot, dist_id)
                 await ptb_app.start()
                 bots[dist_id] = ptb_app
             except Exception as e:
@@ -522,7 +523,7 @@ async def admin_toggle_distribuidora(dist_id: int, estado: str, payload=Depends(
             ptb_app = worker.build_app()
             await ptb_app.initialize()
             if WEBHOOK_URL:
-                await ptb_app.bot.set_webhook(url=f"{WEBHOOK_URL}/api/telegram/webhook/{dist_id}")
+                await configure_bot_webhook(ptb_app.bot, dist_id)
             await ptb_app.start()
             bots[dist_id] = ptb_app
         except Exception as e:

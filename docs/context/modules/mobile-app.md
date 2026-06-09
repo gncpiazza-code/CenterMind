@@ -52,7 +52,8 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 
 - `GET /estadisticas/resumen?meses=YYYY-MM` → `aggregate_kpis_vendedor` (7 KPIs: pdvs, altas, exhibiciones, compradores, bultos, cobertura_pct, objetivos_pct)
 - Cartera JSON: +`fecha_alta`, `nombre_fantasia`, `nombre_razon_social` en cada PDV
-- Objetivos detalle: +`recomendaciones[]` generadas BE (texto accionable sin lógica Dart)
+- Objetivos detalle: +`recomendaciones[]`, +`prorrateo` (grid lun–sáb), +`items_pdv[]` con ruta (paridad `cmd_objetivos`)
+- Stats tab: `/stats/full` + `/estadisticas/resumen` + `/ventas` (desglose bultos por SKU)
 
 ## Invariantes
 

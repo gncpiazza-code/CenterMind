@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../theme/shelfy_tokens.dart';
+import '../ventas/models/ventas_response.dart';
 import 'models/stats_models.dart';
 import 'ranking_provider.dart';
 import 'ranking_screen.dart';
@@ -59,6 +61,7 @@ class _StatsScreenState extends State<StatsScreen> {
         }
 
         final kpis = provider.kpisResumen;
+        final ventas = provider.ventasData;
         return RefreshIndicator(
           onRefresh: () => context.read<StatsProvider>().fetch(force: true),
           child: ListView(
@@ -67,6 +70,10 @@ class _StatsScreenState extends State<StatsScreen> {
               // KPIs 7 indicadores del mes (desde /estadisticas/resumen)
               if (kpis != null) ...[
                 _KpisResumenCard(kpis: kpis),
+                const SizedBox(height: 12),
+              ],
+              if (ventas != null) ...[
+                _VentasMtdCard(ventas: ventas),
                 const SizedBox(height: 12),
               ],
               _MesActualCard(stats: data.mesActual),
@@ -507,6 +514,108 @@ class _KpiChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ventas MTD + desglose bultos/SKU (desde /ventas — solo render)
+// ---------------------------------------------------------------------------
+
+class _VentasMtdCard extends StatelessWidget {
+  final VentasResponse ventas;
+
+  const _VentasMtdCard({required this.ventas});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Ventas MTD',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(color: Colors.grey[600]),
+                ),
+                const Spacer(),
+                if (ventas.periodo.isNotEmpty)
+                  Text(
+                    ventas.periodo,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: ShelfyTokens.muted,
+                    ),
+                  ),
+              ],
+            ),
+            if (ventas.snapshotLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                ventas.snapshotLabel,
+                style: const TextStyle(fontSize: 11, color: ShelfyTokens.muted),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              '${ventas.totalBultos.toStringAsFixed(ventas.totalBultos % 1 == 0 ? 0 : 2)} bultos · ${ventas.totalFacturas} facturas',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: ShelfyTokens.primary,
+                  ),
+            ),
+            if (ventas.bultosDesglose.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Bultos por SKU',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              ...ventas.bultosDesglose.take(12).map(
+                    (b) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              b.articulo,
+                              style: const TextStyle(fontSize: 13),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            b.volumenLabel,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              if (ventas.bultosDesglose.length > 12)
+                Text(
+                  '+${ventas.bultosDesglose.length - 12} SKUs más',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: ShelfyTokens.muted,
+                  ),
+                ),
+            ],
+          ],
+        ),
       ),
     );
   }

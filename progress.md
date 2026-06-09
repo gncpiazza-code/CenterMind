@@ -29,7 +29,7 @@
 
 ## Cambios recientes (máx 5)
 
-1. **SHELFYAPP MVP campo ruta (2026-06-09):** nav 5 tabs directos (Captura·CC·Cartera·Objetivos·Stats); tab inicial=Captura; fix multifoto (`addExtraPhoto()`); BE wrappers `/estadisticas/resumen` + cartera +3 campos + objetivos `recomendaciones[]`; FE visor KPIs+ficha PDV+recomendaciones.
+1. **SHELFYAPP gaps P2 stats/objetivos (2026-06-09):** Stats integra `/ventas` (bultos/SKU); objetivos detalle +`prorrateo` grid BE + items ruta + recomendaciones paridad bot; APK tabaco rebuild.
 2. **SHELFYAPP perf + nav (2026-06-09):** tab único montado (sin IndexedStack OOM); cache providers `fetch(force)`; cámara `medium` Android / `high` iOS; Maestro nav stress.
 3. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal; espíritu Shelfy tokens; captura 1 pantalla Stack; `pdv/buscar` endpoint.
 4. **Alta Ippolibaz dist 13 (2026-06-09):** registry + tablas `*_d13`; padrón 1111 PDVs.

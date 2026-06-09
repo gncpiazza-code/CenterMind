@@ -165,6 +165,12 @@ class ObjetivoDetalleSheet extends StatelessWidget {
               color: detalle.cumplido ? Colors.green : tipoColor,
             ),
 
+            // Prorrateo (desde BE)
+            if (detalle.prorrateo != null) ...[
+              const SizedBox(height: 20),
+              _ProrrateoSection(grid: detalle.prorrateo!),
+            ],
+
             // Desglose (si existe)
             if (detalle.desglose != null && detalle.desglose!.isNotEmpty) ...[
               const SizedBox(height: 20),
@@ -266,7 +272,10 @@ class _DesgloseSection extends StatelessWidget {
           style: Theme.of(context).textTheme.titleSmall,
         ),
         const SizedBox(height: 8),
-        ...desglose.entries.map((e) {
+        ...desglose.entries.where((e) {
+          final v = e.value;
+          return v is! Map && v is! List;
+        }).map((e) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),
             child: Row(
@@ -325,13 +334,27 @@ class _PdvsSection extends StatelessWidget {
           (pdv) => Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(Icons.store_outlined, size: 16, color: Colors.grey),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    pdv.nombre.isNotEmpty ? pdv.nombre : pdv.idClienteErp,
-                    style: Theme.of(context).textTheme.bodySmall,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pdv.nombre.isNotEmpty ? pdv.nombre : 'NRO ${pdv.idClienteErp}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      if (pdv.rutaLabel != null && pdv.rutaLabel!.isNotEmpty)
+                        Text(
+                          pdv.rutaLabel!,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: Colors.grey[500]),
+                        ),
+                    ],
                   ),
                 ),
                 if (pdv.idClienteErp.isNotEmpty)
@@ -347,6 +370,128 @@ class _PdvsSection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prorrateo calendario (JSON desde BE)
+// ---------------------------------------------------------------------------
+
+class _ProrrateoSection extends StatelessWidget {
+  final ProrrateoGrid grid;
+
+  const _ProrrateoSection({required this.grid});
+
+  @override
+  Widget build(BuildContext context) {
+    final ritmoColor = grid.avanceVsMeta >= 0 ? Colors.green : Colors.orange;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(grid.label, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (!grid.invarianteOk)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Recalculando avance diario…',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: Colors.grey[600]),
+            ),
+          ),
+        Row(
+          children: [
+            _ProrrateoChip(
+              label: 'Restante',
+              value: '${grid.restante.toStringAsFixed(0)}',
+            ),
+            const SizedBox(width: 8),
+            _ProrrateoChip(
+              label: 'Meta/día',
+              value: grid.metaDiariaFutura.toStringAsFixed(1),
+            ),
+            const SizedBox(width: 8),
+            _ProrrateoChip(
+              label: 'Ritmo',
+              value: '${grid.avanceVsMeta >= 0 ? '+' : ''}${grid.avanceVsMeta.toStringAsFixed(1)}',
+              color: ritmoColor,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...grid.semanas.where((s) => s.weekMeta > 0 || s.weekAvance > 0).map(
+              (sem) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 72,
+                      child: Text(
+                        sem.label,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: (sem.weekPct / 100).clamp(0.0, 1.0),
+                          minHeight: 8,
+                          backgroundColor: Colors.grey[200],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${sem.weekAvance.toStringAsFixed(0)}/${sem.weekMeta.toStringAsFixed(0)}',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      ],
+    );
+  }
+}
+
+class _ProrrateoChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? color;
+
+  const _ProrrateoChip({
+    required this.label,
+    required this.value,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            Text(label, style: Theme.of(context).textTheme.labelSmall),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

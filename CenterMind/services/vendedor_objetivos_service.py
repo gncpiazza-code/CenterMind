@@ -111,29 +111,193 @@ _OBJETIVO_DETALLE_COLS = (
 )
 
 
-def _fetch_pdv_nombre(sb, dist_id: int, id_pdv: int) -> str | None:
-    """Busca nombre_fantasia o nombre_razon_social en clientes_pdv_v2."""
-    from core.helpers import tenant_table_name
-    pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+def _fetch_objetivo_items(sb, objetivo_id: str) -> list[int]:
+    """IDs internos de PDV asociados al objetivo (paridad cmd_objetivos)."""
+    ids: list[int] = []
     try:
         res = (
-            sb.table(pdv_table)
-            .select("nombre_fantasia,nombre_razon_social")
-            .eq("id_distribuidor", dist_id)
-            .eq("id_cliente_erp", str(id_pdv))
-            .limit(1)
+            sb.table("objetivo_items")
+            .select("id_cliente_pdv")
+            .eq("id_objetivo", objetivo_id)
             .execute()
         )
-        if res.data:
-            row = res.data[0]
-            return (
+        for row in res.data or []:
+                cid = row.get("id_cliente_pdv")
+                if cid is not None:
+                    try:
+                        ids.append(int(cid))
+                    except (TypeError, ValueError):
+                        pass
+    except Exception as e:
+        logger.warning(f"_fetch_objetivo_items obj={objetivo_id}: {e}")
+    return ids
+
+
+def _fetch_pdv_map(
+    sb, dist_id: int, pdv_ids: list[int]
+) -> dict[int, dict]:
+    """Mapa id_cliente → datos PDV + ruta (paridad bot /objetivos)."""
+    from core.helpers import tenant_table_name
+
+    if not pdv_ids:
+        return {}
+
+    pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+    rutas_table = tenant_table_name("rutas_v2", dist_id)
+    result: dict[int, dict] = {}
+
+    for i in range(0, len(pdv_ids), 200):
+        chunk = pdv_ids[i : i + 200]
+        try:
+            rows = (
+                sb.table(pdv_table)
+                .select(
+                    "id_cliente,id_cliente_erp,id_ruta,nombre_fantasia,nombre_razon_social"
+                )
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente", chunk)
+                .execute()
+                .data or []
+            )
+        except Exception as e:
+            logger.warning(f"_fetch_pdv_map dist={dist_id}: {e}")
+            continue
+
+        ruta_ids = {int(r["id_ruta"]) for r in rows if r.get("id_ruta") is not None}
+        rutas_map: dict[int, str] = {}
+        if ruta_ids:
+            try:
+                rutas_rows = (
+                    sb.table(rutas_table)
+                    .select("id_ruta,id_ruta_erp,dia_semana")
+                    .in_("id_ruta", list(ruta_ids))
+                    .execute()
+                    .data or []
+                )
+                for rr in rutas_rows:
+                    rid = int(rr["id_ruta"])
+                    rid_erp = rr.get("id_ruta_erp")
+                    dia = (rr.get("dia_semana") or "").capitalize()
+                    if rid_erp and dia:
+                        rutas_map[rid] = f"Ruta {rid_erp} — {dia}"
+                    elif rid_erp:
+                        rutas_map[rid] = f"Ruta {rid_erp}"
+                    elif dia:
+                        rutas_map[rid] = dia
+            except Exception:
+                pass
+
+        for row in rows:
+            cid = int(row["id_cliente"])
+            nombre = (
                 (row.get("nombre_fantasia") or "").strip()
                 or (row.get("nombre_razon_social") or "").strip()
                 or None
             )
-    except Exception:
-        pass
-    return None
+            rid = row.get("id_ruta")
+            ruta_label = rutas_map.get(int(rid)) if rid is not None else None
+            result[cid] = {
+                "id_cliente": cid,
+                "id_cliente_erp": str(row.get("id_cliente_erp") or "").strip(),
+                "nombre": nombre,
+                "ruta_label": ruta_label,
+            }
+    return result
+
+
+def _build_recomendaciones(
+    o: dict,
+    tipo_str: str,
+    cumplido: bool,
+    valor_objetivo: float,
+    valor_actual: float,
+    items_pdv: list[dict],
+    prorrateo: dict | None,
+    desglose: dict,
+) -> list[str]:
+    """Textos accionables generados en BE (sin lógica en Flutter)."""
+    if cumplido:
+        return ["Objetivo cumplido."]
+
+    recs: list[str] = []
+    gap = valor_objetivo - valor_actual
+    if gap > 0:
+        unidades = {
+            "exhibicion": ("exhibición", "exhibiciones"),
+            "compradores": ("comprador", "compradores"),
+            "ruteo_alteo": ("alta", "altas"),
+            "alteo": ("alta", "altas"),
+        }
+        sing, plur = unidades.get(tipo_str, ("unidad", "unidades"))
+        unidad = sing if gap == 1 else plur
+        recs.append(f"Necesitás {int(gap) if gap == int(gap) else gap} {unidad} más para cumplir el objetivo.")
+
+    if prorrateo:
+        avance_vs = prorrateo.get("avance_vs_meta", 0)
+        if avance_vs < -0.5:
+            recs.append(
+                f"Vas atrasado respecto al ritmo esperado (Δ {abs(round(avance_vs, 1))} unidades)."
+            )
+        elif avance_vs > 0.5:
+            recs.append(f"Vas adelantado respecto al ritmo esperado (+{round(avance_vs, 1)} unidades).")
+        meta_futura = prorrateo.get("meta_diaria_futura", 0)
+        if meta_futura > 0 and gap > 0:
+            recs.append(
+                f"Para cumplir a tiempo, apuntá a {meta_futura} por día hábil (lun–sáb)."
+            )
+
+    tasa_p = o.get("tasa_pendientes")
+    if tasa_p is not None and desglose:
+        pend_count = desglose.get("pendientes_count")
+        if pend_count is not None:
+            recs.append(
+                f"Tasa pendientes P={tasa_p} · {pend_count} pendiente"
+                f"{'s' if pend_count != 1 else ''}."
+            )
+
+    id_target = o.get("id_target_pdv")
+    pdv_candidates = []
+    if id_target is not None:
+        try:
+            pdv_candidates.append(int(id_target))
+        except (TypeError, ValueError):
+            pass
+
+    verbo = {
+        "exhibicion": "Exhibí en",
+        "compradores": "Activá al comprador",
+        "ruteo_alteo": "Dale de alta",
+        "alteo": "Dale de alta",
+        "conversion_estado": "Activá",
+        "activacion": "Activá",
+    }.get(tipo_str, "Visitá")
+
+    shown = 0
+    for item in items_pdv:
+        if shown >= 3:
+            break
+        erp = item.get("id_cliente_erp") or ""
+        nombre = item.get("nombre") or ""
+        ruta = item.get("ruta_label") or ""
+        if not erp and not nombre:
+            continue
+        label = f"{nombre} (NRO {erp})" if nombre else f"NRO {erp}"
+        line = f"{verbo} {label}"
+        if ruta:
+            line += f" · {ruta}"
+        recs.append(line)
+        shown += 1
+
+    if not shown and id_target is not None:
+        for item in items_pdv:
+            if item.get("id_cliente") == id_target or str(item.get("id_cliente_erp")) == str(id_target):
+                erp = item.get("id_cliente_erp") or str(id_target)
+                nombre = item.get("nombre") or ""
+                label = f"{nombre} (NRO {erp})" if nombre else f"NRO {erp}"
+                recs.append(f"El objetivo es en el PDV {label}.")
+                break
+
+    return recs
 
 
 def get_objetivo_detalle(
@@ -173,35 +337,49 @@ def get_objetivo_detalle(
     valor_actual = o.get("valor_actual") or 0
     progreso_pct = round((valor_actual / valor_objetivo) * 100, 1) if valor_objetivo > 0 else 0.0
 
-    # Enriquecer con nombre del PDV target si existe
-    id_target_pdv = o.get("id_target_pdv")
-    items_pdv = None
-    if id_target_pdv is not None:
-        nombre_pdv = _fetch_pdv_nombre(sb, dist_id, id_target_pdv)
-        items_pdv = [{"id": id_target_pdv, "nombre": nombre_pdv}]
-
-    # Generar recomendaciones accionables (texto desde BE, no lógica en Flutter)
     cumplido = bool(o.get("cumplido", False))
     tipo_str = (o.get("tipo") or "").strip()
-    recomendaciones: list[str] = []
-    if not cumplido:
-        gap = valor_objetivo - valor_actual
-        if gap > 0:
-            if tipo_str == "exhibicion":
-                unidad = "exhibición" if gap == 1 else "exhibiciones"
-                recomendaciones.append(f"Necesitás {gap} {unidad} más para cumplir el objetivo.")
-            elif tipo_str == "compradores":
-                unidad = "comprador" if gap == 1 else "compradores"
-                recomendaciones.append(f"Necesitás {gap} {unidad} más para cumplir el objetivo.")
-            elif tipo_str in ("ruteo_alteo", "alteo"):
-                unidad = "alta" if gap == 1 else "altas"
-                recomendaciones.append(f"Necesitás {gap} {unidad} más para cumplir el objetivo.")
-            else:
-                recomendaciones.append(f"Faltan {gap} unidades para cumplir el objetivo.")
-        if id_target_pdv is not None:
-            nombre = (items_pdv[0]["nombre"] or "") if items_pdv else ""
-            pdv_label = f"{nombre} (NRO {id_target_pdv})" if nombre else f"NRO {id_target_pdv}"
-            recomendaciones.append(f"El objetivo es en el PDV {pdv_label}.")
+
+    desglose_raw = o.get("desglose_cache")
+    desglose: dict = {}
+    if isinstance(desglose_raw, dict):
+        desglose = desglose_raw
+    elif isinstance(desglose_raw, str):
+        import json
+        try:
+            desglose = json.loads(desglose_raw)
+        except Exception:
+            desglose = {}
+
+    # Items PDV — paridad cmd_objetivos (objetivo_items + id_target_pdv)
+    pdv_ids: list[int] = []
+    id_target_pdv = o.get("id_target_pdv")
+    if id_target_pdv is not None:
+        try:
+            pdv_ids.append(int(id_target_pdv))
+        except (TypeError, ValueError):
+            pass
+    for cid in _fetch_objetivo_items(sb, objetivo_id):
+        if cid not in pdv_ids:
+            pdv_ids.append(cid)
+
+    pdv_map = _fetch_pdv_map(sb, dist_id, pdv_ids)
+    items_pdv = list(pdv_map.values())
+
+    from core.objetivos_prorrateo import build_prorrateo_grid
+
+    prorrateo = build_prorrateo_grid(o)
+
+    recomendaciones = _build_recomendaciones(
+        o,
+        tipo_str,
+        cumplido,
+        float(valor_objetivo),
+        float(valor_actual),
+        items_pdv,
+        prorrateo,
+        desglose,
+    )
 
     return {
         "id": o.get("id"),
@@ -220,7 +398,8 @@ def get_objetivo_detalle(
         "tasa_pendientes": o.get("tasa_pendientes"),
         "progreso_diario_updated_at": o.get("progreso_diario_updated_at"),
         "min_pdvs_distintos": o.get("min_pdvs_distintos"),
-        "desglose": o.get("desglose_cache"),
+        "desglose": desglose_raw,
         "items_pdv": items_pdv,
+        "prorrateo": prorrateo,
         "recomendaciones": recomendaciones,
     }

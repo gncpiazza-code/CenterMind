@@ -1,5 +1,47 @@
 // Modelos de datos para las estadísticas de rendimiento del vendedor.
 
+/// 7 KPIs del vendedor desde /estadisticas/resumen → aggregate_kpis_vendedor.
+class KpisResumen {
+  final int pdvs;
+  final int altas;
+  final int exhibiciones;
+  final int pdvsExhibidos;
+  final int compradores;
+  final double bultos;
+  final double coberturaPct;
+  final double objetivosPct;
+
+  KpisResumen({
+    required this.pdvs,
+    required this.altas,
+    required this.exhibiciones,
+    required this.pdvsExhibidos,
+    required this.compradores,
+    required this.bultos,
+    required this.coberturaPct,
+    required this.objetivosPct,
+  });
+
+  factory KpisResumen.fromJson(Map<String, dynamic> json) {
+    double parseDouble(dynamic v) {
+      if (v == null) return 0.0;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString()) ?? 0.0;
+    }
+
+    return KpisResumen(
+      pdvs: (json['pdvs'] as num?)?.toInt() ?? 0,
+      altas: (json['altas'] as num?)?.toInt() ?? 0,
+      exhibiciones: (json['exhibiciones'] as num?)?.toInt() ?? 0,
+      pdvsExhibidos: (json['pdvs_exhibidos'] as num?)?.toInt() ?? 0,
+      compradores: (json['compradores'] as num?)?.toInt() ?? 0,
+      bultos: parseDouble(json['bultos']),
+      coberturaPct: parseDouble(json['cobertura_pct']),
+      objetivosPct: parseDouble(json['objetivos_pct']),
+    );
+  }
+}
+
 class StatsData {
   final MesStats mesActual;
   final MesStats mesAnterior;

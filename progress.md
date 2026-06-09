@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 9 Jun 2026 (v19 — SHELFYAPP perf dual-platform + nav estable)  
+**Última actualización:** 9 Jun 2026 (v20 — SHELFYAPP MVP campo ruta: nav 5 tabs + wrappers BE + visor datos)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -29,9 +29,9 @@
 
 ## Cambios recientes (máx 5)
 
-1. **SHELFYAPP perf + nav (2026-06-09):** tab único montado (sin IndexedStack OOM); cache providers `fetch(force)`; cámara `medium` Android / `high` iOS; doc estrategia vendedores Android vs supervisores iOS futuro; Maestro nav stress.
-2. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal (`ensure_mobile_integrante` antes del RPC, `telegram_user_id` sintético, HTTP 422 si vacío); espíritu Shelfy (`shelfy_tokens.dart` + shared widgets + AppBar logo + violeta por defecto); captura 1 pantalla (Stack único, `CaptureOverlayPhase`, glass sheet, flash, radio 100 m); `pdv/buscar` endpoint nuevo; `flutter analyze` 0 errors.
-3. **SHELFYAPP polish (2026-06-09):** snapshot-first CC+ventas; hub Más 4 tabs.
+1. **SHELFYAPP MVP campo ruta (2026-06-09):** nav 5 tabs directos (Captura·CC·Cartera·Objetivos·Stats); tab inicial=Captura; fix multifoto (`addExtraPhoto()`); BE wrappers `/estadisticas/resumen` + cartera +3 campos + objetivos `recomendaciones[]`; FE visor KPIs+ficha PDV+recomendaciones.
+2. **SHELFYAPP perf + nav (2026-06-09):** tab único montado (sin IndexedStack OOM); cache providers `fetch(force)`; cámara `medium` Android / `high` iOS; Maestro nav stress.
+3. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal; espíritu Shelfy tokens; captura 1 pantalla Stack; `pdv/buscar` endpoint.
 4. **Alta Ippolibaz dist 13 (2026-06-09):** registry + tablas `*_d13`; padrón 1111 PDVs.
 5. **Ventas enriched async (2026-06-08):** POST `/api/motor/ventas-enriched` 202 + thread.
 

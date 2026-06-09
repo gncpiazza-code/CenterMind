@@ -180,16 +180,39 @@ def get_objetivo_detalle(
         nombre_pdv = _fetch_pdv_nombre(sb, dist_id, id_target_pdv)
         items_pdv = [{"id": id_target_pdv, "nombre": nombre_pdv}]
 
+    # Generar recomendaciones accionables (texto desde BE, no lógica en Flutter)
+    cumplido = bool(o.get("cumplido", False))
+    tipo_str = (o.get("tipo") or "").strip()
+    recomendaciones: list[str] = []
+    if not cumplido:
+        gap = valor_objetivo - valor_actual
+        if gap > 0:
+            if tipo_str == "exhibicion":
+                unidad = "exhibición" if gap == 1 else "exhibiciones"
+                recomendaciones.append(f"Necesitás {gap} {unidad} más para cumplir el objetivo.")
+            elif tipo_str == "compradores":
+                unidad = "comprador" if gap == 1 else "compradores"
+                recomendaciones.append(f"Necesitás {gap} {unidad} más para cumplir el objetivo.")
+            elif tipo_str in ("ruteo_alteo", "alteo"):
+                unidad = "alta" if gap == 1 else "altas"
+                recomendaciones.append(f"Necesitás {gap} {unidad} más para cumplir el objetivo.")
+            else:
+                recomendaciones.append(f"Faltan {gap} unidades para cumplir el objetivo.")
+        if id_target_pdv is not None:
+            nombre = (items_pdv[0]["nombre"] or "") if items_pdv else ""
+            pdv_label = f"{nombre} (NRO {id_target_pdv})" if nombre else f"NRO {id_target_pdv}"
+            recomendaciones.append(f"El objetivo es en el PDV {pdv_label}.")
+
     return {
         "id": o.get("id"),
-        "tipo": (o.get("tipo") or "").strip(),
+        "tipo": tipo_str,
         "descripcion": (o.get("descripcion") or "").strip() or None,
         "fecha_objetivo": (o.get("fecha_objetivo") or "")[:10] or None,
         "fecha_inicio": (o.get("fecha_inicio") or "")[:10] or None,
         "valor_objetivo": valor_objetivo,
         "valor_actual": valor_actual,
         "progreso_pct": progreso_pct,
-        "cumplido": bool(o.get("cumplido", False)),
+        "cumplido": cumplido,
         "lanzado_at": o.get("lanzado_at"),
         "origen": (o.get("origen") or "").strip() or None,
         "mes_referencia": (o.get("mes_referencia") or "")[:7] or None,
@@ -199,4 +222,5 @@ def get_objetivo_detalle(
         "min_pdvs_distintos": o.get("min_pdvs_distintos"),
         "desglose": o.get("desglose_cache"),
         "items_pdv": items_pdv,
+        "recomendaciones": recomendaciones,
     }

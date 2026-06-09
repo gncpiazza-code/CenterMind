@@ -69,7 +69,7 @@ def build_cartera_json(
                 .select(
                     "id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,"
                     "domicilio,localidad,telefono,canal,"
-                    "latitud,longitud,fecha_ultima_compra"
+                    "latitud,longitud,fecha_ultima_compra,fecha_alta"
                 )
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
@@ -121,6 +121,8 @@ def build_cartera_json(
             pdv_json = {
                 "id_cliente_erp": str(pdv.get("id_cliente_erp") or ""),
                 "nombre_display": nombre_display,
+                "nombre_fantasia": (pdv.get("nombre_fantasia") or "").strip() or None,
+                "nombre_razon_social": (pdv.get("nombre_razon_social") or "").strip() or None,
                 "domicilio": (pdv.get("domicilio") or "").strip() or None,
                 "localidad": (pdv.get("localidad") or "").strip() or None,
                 "telefono": (pdv.get("telefono") or "").strip() or None,
@@ -129,6 +131,7 @@ def build_cartera_json(
                 "longitud": lng_val,
                 "vitalidad": vitalidad,
                 "fecha_ultima_compra": (pdv.get("fecha_ultima_compra") or "")[:10] or None,
+                "fecha_alta": (pdv.get("fecha_alta") or "")[:10] or None,
             }
             pdvs_by_ruta.setdefault(rid, []).append(pdv_json)
 

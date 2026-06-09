@@ -176,6 +176,12 @@ class ObjetivoDetalleSheet extends StatelessWidget {
               const SizedBox(height: 20),
               _PdvsSection(items: detalle.itemsPdv),
             ],
+
+            // Recomendaciones accionables (desde API)
+            if (detalle.recomendaciones.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              _RecomendacionesSection(items: detalle.recomendaciones),
+            ],
           ],
         );
       },
@@ -336,6 +342,50 @@ class _PdvsSection extends StatelessWidget {
                         .labelSmall
                         ?.copyWith(color: Colors.grey[500]),
                   ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sección de recomendaciones accionables (generadas por BE)
+// ---------------------------------------------------------------------------
+
+class _RecomendacionesSection extends StatelessWidget {
+  final List<String> items;
+
+  const _RecomendacionesSection({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Recomendaciones',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 8),
+        ...items.map(
+          (rec) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.lightbulb_outline, size: 16, color: Colors.orange),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    rec,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.orange[800],
+                        ),
+                  ),
+                ),
               ],
             ),
           ),

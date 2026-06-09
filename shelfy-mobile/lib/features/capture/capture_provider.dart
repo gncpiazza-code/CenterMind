@@ -36,6 +36,7 @@ class CaptureProvider extends ChangeNotifier {
 
   CaptureOverlayPhase _phase = CaptureOverlayPhase.live;
   PdvCandidate? _selectedPdv;
+  bool _addingExtraPhoto = false;
 
   /// Lista de PDVs cercanos (radio 100 m).
   List<PdvCandidate> _nearbyPdvs = [];
@@ -166,18 +167,27 @@ class CaptureProvider extends ChangeNotifier {
 
   // ── Eventos de foto ────────────────────────────────────────────────────────
 
+  /// Colapsa el sheet para que el vendedor pueda tomar otra foto manteniendo el PDV.
+  void addExtraPhoto() {
+    _addingExtraPhoto = true;
+    _phase = CaptureOverlayPhase.live;
+    notifyListeners();
+  }
+
   void onPhotoTaken(File file, CapturePhotoMetadata metadata) {
     final photo = CapturePhoto(file: file, metadata: metadata);
 
-    if (_phase == CaptureOverlayPhase.confirmPdv && hasPhotos) {
-      // Agregar foto extra sin resetear PDV
+    if (_addingExtraPhoto && hasPhotos) {
+      _addingExtraPhoto = false;
       if (_photos.length >= kMaxPhotosPerExhibicion) return;
       _photos = [..._photos, photo];
+      _phase = CaptureOverlayPhase.confirmPdv;
       notifyListeners();
       return;
     }
 
     // Primera foto de la sesión
+    _addingExtraPhoto = false;
     _photos = [photo];
     _selectedPdv = null;
     _manualNro = null;
@@ -240,6 +250,7 @@ class CaptureProvider extends ChangeNotifier {
     _manualNro = null;
     _selectedTipo = null;
     _errorMessage = null;
+    _addingExtraPhoto = false;
     _phase = CaptureOverlayPhase.live;
     clearSearch();
     notifyListeners();
@@ -352,6 +363,7 @@ class CaptureProvider extends ChangeNotifier {
     _photos = [];
     _selectedTipo = null;
     _isUploading = false;
+    _addingExtraPhoto = false;
     _lastResult = null;
     _postUploadSummary = null;
     _errorMessage = null;

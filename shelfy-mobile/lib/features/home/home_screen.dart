@@ -11,16 +11,17 @@ import '../capture/capture_screen.dart';
 import '../cartera/cartera_provider.dart';
 import '../cartera/cartera_screen.dart';
 import '../cuentas/cuentas_provider.dart';
+import '../cuentas/cuentas_screen.dart';
 import '../galeria/galeria_provider.dart';
 import '../objetivos/objetivos_provider.dart';
+import '../objetivos/objetivos_screen.dart';
 import '../stats/stats_provider.dart';
 import '../stats/stats_screen.dart';
 import '../ventas/ventas_provider.dart';
 import 'home_tab_controller.dart';
-import 'more_screen.dart';
 
-/// Shell de navegación principal con BottomNavigationBar de 4 tabs.
-/// Tabs: Captura · Cartera · Stats · Más (hub animado → Ventas/Cuentas/Objetivos/Galería).
+/// Shell de navegación principal con BottomNavigationBar de 5 tabs MVP.
+/// Tabs: Captura · CC · Cartera · Objetivos · Stats.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -30,7 +31,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _providersReady = false;
-  bool _captureTabReady = false;
+  bool _captureTabReady = false; // lazy para evitar OOM iOS en cold start
 
   late HomeTabController _tabController;
   late CaptureProvider _captureProvider;
@@ -60,6 +61,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _galeriaProvider.refreshAfterUpload(nroCliente);
     };
     setState(() => _providersReady = true);
+
+    // Lazy mount cámara ~350 ms tras providers listos — evita SIGKILL iOS cold start.
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) setState(() => _captureTabReady = true);
+    });
   }
 
   @override
@@ -110,29 +116,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-            // Solo monta el tab activo — IndexedStack dejaba cámara + 4 pantallas
-            // vivas y provocaba OOM / crash nativo en iOS al navegar mucho.
+            // Solo monta el tab activo — evita OOM con cámara + múltiples pantallas vivas.
             body: switch (_tabController.selectedIndex) {
               0 => _captureTabReady
                   ? const CaptureScreen(key: ValueKey('tab_capture'))
                   : const Center(child: CircularProgressIndicator()),
-              1 => const CarteraScreen(key: ValueKey('tab_cartera')),
-              2 => const StatsScreen(key: ValueKey('tab_stats')),
-              3 => const MoreScreen(key: ValueKey('tab_more')),
+              1 => const CuentasScreen(key: ValueKey('tab_cc')),
+              2 => const CarteraScreen(key: ValueKey('tab_cartera')),
+              3 => const ObjetivosScreen(key: ValueKey('tab_objetivos')),
+              4 => const StatsScreen(key: ValueKey('tab_stats')),
               _ => const SizedBox.shrink(),
             },
             bottomNavigationBar: _BottomNav(
               selectedIndex: _tabController.selectedIndex,
-              onTap: (index) {
-                if (index == 0 && !_captureTabReady) {
-                  Future<void>.delayed(const Duration(milliseconds: 350), () {
-                    if (mounted && _tabController.selectedIndex == 0) {
-                      setState(() => _captureTabReady = true);
-                    }
-                  });
-                }
-                _tabController.goToTab(index);
-              },
+              onTap: (index) => _tabController.goToTab(index),
             ),
           );
         },
@@ -141,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// BottomNavigationBar con 4 tabs: Captura, Cartera, Stats, Más.
+/// BottomNavigationBar con 5 tabs MVP: Captura, CC, Cartera, Objetivos, Stats.
 class _BottomNav extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onTap;
@@ -156,9 +153,9 @@ class _BottomNav extends StatelessWidget {
       currentIndex: selectedIndex,
       onTap: onTap,
       type: BottomNavigationBarType.fixed,
-      selectedFontSize: 11,
-      unselectedFontSize: 10,
-      iconSize: 24,
+      selectedFontSize: 10,
+      unselectedFontSize: 9,
+      iconSize: 22,
       selectedItemColor: ShelfyTokens.primary,
       unselectedItemColor: ShelfyTokens.muted,
       backgroundColor: ShelfyTokens.panel,
@@ -184,26 +181,33 @@ class _BottomNav extends StatelessWidget {
           label: 'Captura',
           tooltip: 'Registrar exhibición',
         ),
-        // Tab 1: Cartera
+        // Tab 1: CC
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.account_balance_wallet_outlined),
+          activeIcon: Icon(Icons.account_balance_wallet),
+          label: 'CC',
+          tooltip: 'Cuentas corrientes',
+        ),
+        // Tab 2: Cartera
         const BottomNavigationBarItem(
           icon: Icon(Icons.list_alt_outlined),
           activeIcon: Icon(Icons.list_alt),
           label: 'Cartera',
           tooltip: 'Ver clientes de tu ruta',
         ),
-        // Tab 2: Stats
+        // Tab 3: Objetivos
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.flag_outlined),
+          activeIcon: Icon(Icons.flag),
+          label: 'Objetivos',
+          tooltip: 'Objetivos activos',
+        ),
+        // Tab 4: Stats
         const BottomNavigationBarItem(
           icon: Icon(Icons.bar_chart_outlined),
           activeIcon: Icon(Icons.bar_chart),
           label: 'Stats',
           tooltip: 'Estadísticas de rendimiento',
-        ),
-        // Tab 3: Más
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.grid_view_outlined),
-          activeIcon: Icon(Icons.grid_view),
-          label: 'Más',
-          tooltip: 'Ventas, Cuentas, Objetivos, Galería',
         ),
       ],
     );

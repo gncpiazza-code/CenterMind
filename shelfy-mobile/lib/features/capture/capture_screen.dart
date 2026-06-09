@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 
 import '../../shared/widgets/shelfy/shelfy_widgets.dart';
 import '../../theme/shelfy_tokens.dart';
-import '../home/home_tab_controller.dart';
 import 'capture_provider.dart';
 import 'models/pdv_candidate.dart';
 import 'widgets/camera_capture_widget.dart';
@@ -127,13 +126,6 @@ class _CaptureScreenState extends State<CaptureScreen>
     _startBackgroundGps();
   }
 
-  void _openGaleria(CaptureProvider provider) {
-    final nro = provider.nroCliente;
-    context.read<HomeTabController>().openGaleriaHub(
-          clienteErp: nro.isNotEmpty ? nro : null,
-        );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Consumer<CaptureProvider>(
@@ -193,7 +185,6 @@ class _CaptureScreenState extends State<CaptureScreen>
                     provider: provider,
                     searchController: _searchController,
                     onReset: _resetAndRefresh,
-                    onOpenGaleria: () => _openGaleria(provider),
                   ),
                 ),
               ),
@@ -303,13 +294,11 @@ class _OverlaySheet extends StatelessWidget {
   final CaptureProvider provider;
   final TextEditingController searchController;
   final VoidCallback onReset;
-  final VoidCallback onOpenGaleria;
 
   const _OverlaySheet({
     required this.provider,
     required this.searchController,
     required this.onReset,
-    required this.onOpenGaleria,
   });
 
   @override
@@ -367,7 +356,6 @@ class _OverlaySheet extends StatelessWidget {
         return _DoneContent(
           provider: provider,
           onReset: onReset,
-          onOpenGaleria: onOpenGaleria,
         );
       case CaptureOverlayPhase.live:
         return const SizedBox.shrink();
@@ -823,10 +811,10 @@ class _ConfirmPdvContent extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Otra foto (si hay cupo)
+          // Otra foto (si hay cupo) — colapsa el sheet y vuelve a la cámara sin resetear PDV
           if (provider.canAddMorePhotos)
             OutlinedButton.icon(
-              onPressed: () {},
+              onPressed: provider.addExtraPhoto,
               icon: const Icon(Icons.add_a_photo_outlined, size: 18),
               label: const Text('Agregar otra foto'),
               style: OutlinedButton.styleFrom(
@@ -1086,12 +1074,10 @@ class _UploadingContent extends StatelessWidget {
 class _DoneContent extends StatelessWidget {
   final CaptureProvider provider;
   final VoidCallback onReset;
-  final VoidCallback onOpenGaleria;
 
   const _DoneContent({
     required this.provider,
     required this.onReset,
-    required this.onOpenGaleria,
   });
 
   @override
@@ -1170,19 +1156,6 @@ class _DoneContent extends StatelessWidget {
             label: 'Nueva captura',
             icon: Icons.add_a_photo_outlined,
           ),
-
-          if (!isOffline) ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: onOpenGaleria,
-              icon: const Icon(Icons.photo_library_outlined, size: 18),
-              label: const Text('Ver en galería'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: ShelfyTokens.primary,
-                side: const BorderSide(color: ShelfyTokens.primary),
-              ),
-            ),
-          ],
         ],
       ),
     );

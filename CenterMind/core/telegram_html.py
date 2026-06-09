@@ -56,8 +56,10 @@ def repair_telegram_message_html(text: str) -> str:
     s = re.sub(r"<(?!/?(?:b|i|u|s|code|pre)\b)[^>]+>", "", s, flags=re.I)
 
     s = re.sub(r"\n{3,}", "\n\n", s)
-    # No usar strip(): borra \\n finales de plantillas dinámicas (filas de ranking, etc.)
-    return s.lstrip().rstrip(" \t")
+    # Editor manual: a veces deja un espacio suelto tras \\n (no indentación con •).
+    s = re.sub(r"\n (?=[^\s•])", "\n", s)
+    # Solo espacios/tabs en bordes — no strip() ni lstrip() genérico (borran \\n de plantillas).
+    return s.lstrip(" \t").rstrip(" \t")
 
 
 def message_needs_linebreak_repair(text: str) -> bool:

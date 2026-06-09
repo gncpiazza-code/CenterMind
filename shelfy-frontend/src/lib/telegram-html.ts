@@ -27,7 +27,8 @@ export function sanitizeStoredTelegramHtml(text: string): string {
     .replace(/<\/?(?:span|font)\b[^>]*>/gi, "")
     .replace(/&nbsp;/gi, " ")
     .replace(/\u200b/g, "")
-    .replace(/\n{3,}/g, "\n\n");
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n (?=[^\s•])/g, "\n");
 }
 
 /** Normaliza HTML del contentEditable → string Telegram (saltos = \\n). */
@@ -61,12 +62,14 @@ export function normalizeTelegramHtml(raw: string): string {
   });
 
   html = html.replace(/\n{3,}/g, "\n\n");
+  html = html.replace(/\n (?=[^\s•])/g, "\n");
 
   // Colapsar tags anidados del mismo tipo consecutivos vacíos
   html = html.replace(/(<(\w+)>)\s*(<\2>)+/gi, "$1");
   html = html.replace(/(<\/(\w+)>)\s*(<\/\2>)+/gi, "$1");
 
-  return html.trim();
+  // No trim(): preserva \n inicial/final en plantillas dinámicas (filas ranking, items objetivos).
+  return html.replace(/^\s+/, "").replace(/[ \t]+$/, "");
 }
 
 /** Telegram HTML → HTML seguro para render en preview (contentEditable). */

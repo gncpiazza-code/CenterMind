@@ -1522,10 +1522,10 @@ class BotWorker:
 
         # Solo funciona en grupos
         if m.chat.type not in ("group", "supergroup"):
-            await m.reply_text(self._msg("vincular_solo_grupo"))
+            await m.reply_text(self._msg("vincular_solo_grupo"), parse_mode=ParseMode.HTML)
             return
 
-        await m.reply_text(self._msg("vincular_buscando"))
+        await m.reply_text(self._msg("vincular_buscando"), parse_mode=ParseMode.HTML)
 
         try:
             from core.telegram_group_matcher import score_group_vendor_candidates, apply_group_binding
@@ -1535,7 +1535,7 @@ class BotWorker:
             )
 
             if not candidates:
-                await m.reply_text(self._msg("vincular_sin_candidatos"))
+                await m.reply_text(self._msg("vincular_sin_candidatos"), parse_mode=ParseMode.HTML)
                 return
 
             top = candidates[:5]
@@ -1575,7 +1575,7 @@ class BotWorker:
             )
         except Exception as e:
             self.logger.error(f"[vincular] Error chat={chat_id}: {e}", exc_info=True)
-            await m.reply_text(self._msg("vincular_error"))
+            await m.reply_text(self._msg("vincular_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_ranking(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -1790,7 +1790,7 @@ class BotWorker:
             )
         except Exception as e:
             self.logger.error(f"[ventas] Error generando PDF: {e}", exc_info=True)
-            await m.reply_text(self._msg("ventas_error"))
+            await m.reply_text(self._msg("ventas_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_cuentas(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Envía PDF de cuentas corrientes del vendedor."""
@@ -2337,7 +2337,7 @@ class BotWorker:
                 f"[objetivos] Error uid={uid} chat={chat_id} dist={dist_id}: {type(e).__name__}: {e}",
                 exc_info=True,
             )
-            await m.reply_text(self._msg("objetivos_error"))
+            await m.reply_text(self._msg("objetivos_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_cadenaone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:

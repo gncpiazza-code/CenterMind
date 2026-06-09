@@ -544,6 +544,8 @@ def list_all_message_keys() -> list[str]:
 
 def build_flows_payload(db_messages: dict[str, str]) -> list[dict[str, Any]]:
     """Arma estructura para UI: flujos → nodos con body merge DB + default."""
+    from core.telegram_html import repair_telegram_message_html
+
     flows_out: list[dict[str, Any]] = []
     for flow in sorted(BOT_FLOWS, key=lambda f: f.sort_order):
         nodes = [
@@ -564,7 +566,9 @@ def build_flows_payload(db_messages: dict[str, str]) -> list[dict[str, Any]]:
                     "node_type": n.node_type,
                     "sort_order": n.sort_order,
                     "placeholders": list(n.placeholders),
-                    "body_html": (db_messages.get(n.key) or n.default_html),
+                    "body_html": repair_telegram_message_html(
+                        db_messages.get(n.key) or n.default_html
+                    ),
                     "default_html": n.default_html,
                     "is_customized": bool(db_messages.get(n.key, "").strip()),
                 }
@@ -576,10 +580,13 @@ def build_flows_payload(db_messages: dict[str, str]) -> list[dict[str, Any]]:
 
 def merge_messages_for_api(db_rows: list[dict]) -> list[dict[str, Any]]:
     """Lista plana para compat API /messages."""
+    from core.telegram_html import repair_telegram_message_html
+
     db_map = {normalize_message_key(r["message_key"]): r.get("body_html") or "" for r in db_rows}
     out: list[dict[str, Any]] = []
     for defn in BOT_MESSAGES:
-        body = db_map.get(defn.key, "").strip() or defn.default_html
+        raw = db_map.get(defn.key, "")
+        body = repair_telegram_message_html(raw if raw.strip() else defn.default_html)
         row = next((r for r in db_rows if normalize_message_key(r["message_key"]) == defn.key), None)
         out.append({
             "message_key": defn.key,

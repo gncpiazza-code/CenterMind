@@ -31,3 +31,15 @@ def test_literal_backslash_n_from_bad_sql_seed():
 
 def test_needs_repair_detects_literal_backslash_n():
     assert message_needs_linebreak_repair("a\\nb") is True
+
+
+def test_repair_preserves_leading_and_trailing_newlines():
+    raw = "\n\n📊 <b>Título</b>\n\n"
+    assert repair_telegram_message_html(raw) == raw
+    row = "{emoji} <b>{v}</b>\n   ⭐ Puntos: {p}\n\n"
+    assert repair_telegram_message_html(row) == row
+
+
+def test_repair_removes_stray_space_after_newline_not_bullets():
+    raw = "Línea 1\n 🧑 emoji\n   • bullet"
+    assert repair_telegram_message_html(raw) == "Línea 1\n🧑 emoji\n   • bullet"

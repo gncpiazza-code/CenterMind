@@ -3,12 +3,14 @@
 from unittest.mock import MagicMock
 
 from core.bot_dynamic_messages import (
+    build_objetivos_item_line,
     build_objetivos_message,
     build_ranking_result_message,
     build_stats_message,
     build_upload_rich_message,
 )
 from core.bot_message_catalog import BOT_MESSAGES
+from core.bot_settings import get_settings_cache
 
 
 def test_catalog_has_dynamic_parts():
@@ -134,6 +136,63 @@ def test_build_objetivos_message_with_overflow():
     )
     assert "Objetivos de Vendedor X" in msg
     assert "Mostrando 3 de 10" in msg
+
+
+def test_build_objetivos_message_items_not_glued_to_header():
+    get_settings_cache().invalidate()
+    sb = MagicMock()
+    sb.table.return_value.select.return_value.execute.return_value.data = []
+    item = build_objetivos_item_line(
+        sb,
+        estado_icon="⏳",
+        tipo_txt="Exhibición",
+        origen_tag="",
+        progreso="5/10",
+        pct=50,
+    )
+    msg = build_objetivos_message(
+        sb,
+        vendedor_nombre="Vendedor X",
+        item_lines=[item],
+        total_count=1,
+        shown_count=1,
+    )
+    assert "Objetivos de Vendedor X</b>\n⏳" in msg
+    assert "Objetivos de Vendedor X</b>⏳" not in msg
+
+
+def test_build_stats_message_ranking_line_on_own_row():
+    get_settings_cache().invalidate()
+    sb = MagicMock()
+    sb.table.return_value.select.return_value.execute.return_value.data = []
+    msg = build_stats_message(
+        sb,
+        nombre_dist="Tabaco",
+        display_name="Juan",
+        mes_actual_nombre="Junio",
+        mes_anterior_nombre="Mayo",
+        counts_actual={
+            "aprobadas": 10,
+            "destacadas": 2,
+            "rechazadas": 1,
+            "pendientes": 3,
+            "puntos": 25,
+            "total_logicas": 16,
+        },
+        counts_prev={
+            "aprobadas": 8,
+            "destacadas": 1,
+            "rechazadas": 0,
+            "pendientes": 2,
+            "puntos": 18,
+            "total_logicas": 11,
+        },
+        ranking_pos=3,
+        ranking_total=12,
+        ranking_delta=1,
+    )
+    assert "(exhibiciones: 16)\n   • 📍 Posición:" in msg
+    assert "(exhibiciones: 16)• 📍" not in msg
 
 
 def test_build_upload_rich_message_minimal():

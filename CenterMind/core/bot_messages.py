@@ -46,12 +46,12 @@ def resolve_bot_message(
     Pasá __raw_nombre=True junto con nombre=... para HTML pre-formateado.
     """
     canon = normalize_message_key(key)
-    body = get_settings_cache().get_message(sb, canon).strip()
-    if not body:
-        body = get_default_message(canon).strip()
-    if not body and fallback is not None:
-        body = fallback.strip()
-    if not body:
+    body = get_settings_cache().get_message(sb, canon)
+    if not body.strip():
+        body = get_default_message(canon)
+    if not body.strip() and fallback is not None:
+        body = fallback
+    if not body.strip():
         return ""
     body = repair_telegram_message_html(body)
     if variables:

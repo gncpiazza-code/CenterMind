@@ -59,6 +59,7 @@ import { useSupervisionMapPinsEngine } from "@/hooks/useSupervisionMapPinsEngine
 import { SupervisionMapToolbar } from "./map/SupervisionMapToolbar";
 import { SupervisionMapView } from "./map/SupervisionMapView";
 import { SupervisionMapShell } from "./map/SupervisionMapShell";
+import { MapSucursalCenterPicker } from "./map/MapSucursalCenterPicker";
 import { ObjetivoPorZonaPanel } from "./map/ObjetivoPorZonaPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -1791,34 +1792,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     const showDrawHint =
       mapToolMode === "objetivo_zona" ||
       (mapToolMode === "crear_rutas" && rutasZonasTab === "dibujar");
-    const sucursalSlot = glass ? (
-      <div className="flex items-center gap-1.5 bg-black/45 rounded-lg px-2.5 py-1 border border-white/25 shadow-sm">
-        <Building2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-        {loading && sucursales.length === 0 ? (
-          <div className="h-4 w-28 rounded bg-white/10 animate-pulse" />
-        ) : (
-          <select
-            value={selectedSucursal || ""}
-            onChange={e => {
-              setSelectedSucursal(e.target.value || null);
-              setVisibleVends(new Set());
-              setVisibleRutas(new Set());
-              setVisibleClientes(new Set());
-            }}
-            className="bg-transparent text-white text-xs font-semibold focus:outline-none min-w-[100px]"
-          >
-            {sucursales.length === 0 ? (
-              <option value="">Sin sucursales</option>
-            ) : (
-              <>
-                {sucursales.length > 1 && <option value="">Sucursal…</option>}
-                {sucursales.map(s => <option key={s} value={s}>{s}</option>)}
-              </>
-            )}
-          </select>
-        )}
-      </div>
-    ) : undefined;
+    // mapOnly: sucursal solo en picker central (1ª vez) + panel lateral — sin dropdown en toolbar
+    const sucursalSlot = undefined;
 
     return (
       <SupervisionMapToolbar
@@ -1839,42 +1814,59 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     );
   }
 
+  const handleSucursalSelect = useCallback(
+    (suc: string | null) => {
+      setSelectedSucursal(suc);
+      setVisibleVends(new Set());
+      setVisibleRutas(new Set());
+      setVisibleClientes(new Set());
+    },
+    [setSelectedSucursal, setVisibleVends, setVisibleRutas, setVisibleClientes],
+  );
+
+  const showMapSucursalCenterPicker =
+    mapOnly && !selectedSucursal && sucursales.length > 1;
+
   // ── Vendor panel content for MapaRutas fullscreen overlay ────────────────
   const vendorPanelContent = (
     <div className="flex flex-col h-full text-white" style={{ background: "rgba(10,14,24,0.97)" }}>
-      {/* Header Sucursal selector (Compact) */}
-      <div className="px-4 py-3 border-b border-white/10 shrink-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">
-          Sucursal
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {sucursales.map(suc => (
-            <button
-              key={suc}
-              onClick={() => {
-                  setSelectedSucursal(suc === selectedSucursal && sucursales.length > 1 ? null : suc);
-                setVisibleVends(new Set());
-                setVisibleRutas(new Set());
-                setVisibleClientes(new Set());
-              }}
-              className={`px-3 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${
-                selectedSucursal === suc
-                  ? "bg-[var(--shelfy-primary)] text-white border-transparent"
-                  : "bg-white/5 text-white/50 border-white/10 hover:text-white/80"
-              }`}
-            >
-              {suc}
-            </button>
-          ))}
+      {/* Sucursal — panel lateral (después de la 1ª selección o para cambiar) */}
+      {selectedSucursal && (
+        <div className="px-4 py-3 border-b border-white/10 shrink-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">
+            Sucursal
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {sucursales.map(suc => (
+              <button
+                key={suc}
+                type="button"
+                onClick={() => {
+                  handleSucursalSelect(
+                    suc === selectedSucursal && sucursales.length > 1 ? null : suc,
+                  );
+                }}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${
+                  selectedSucursal === suc
+                    ? "bg-amber-500/90 text-white border-amber-400/60 shadow-sm"
+                    : "bg-white/8 text-white/70 border-white/20 hover:bg-white/15 hover:text-white"
+                }`}
+              >
+                {suc}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* List of Vendors + Routes + PDVs (Cascada) */}
       <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-white/5">
         {!selectedSucursal && (
-          <div className="flex flex-col items-center justify-center py-12 text-white/20">
-            <Building2 className="w-8 h-8 opacity-20" />
-            <p className="text-[10px] text-center px-6 mt-2">Seleccioná una sucursal</p>
+          <div className="flex flex-col items-center justify-center py-12 text-white/30 px-6 text-center">
+            <Building2 className="w-8 h-8 opacity-25 mb-2" />
+            <p className="text-[11px] leading-relaxed">
+              Elegí una sucursal en el centro del mapa para ver vendedores y rutas.
+            </p>
           </div>
         )}
         {vendedoresFiltrados.map(v => {
@@ -2156,17 +2148,22 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           dock={vendorPanelContent}
           dockOpen={vendorDockOpen}
         >
-          {loading && !selectedSucursal ? (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
-              <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
-              <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
+          {showMapSucursalCenterPicker ? (
+            <div
+              className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none"
+              style={{ paddingTop: 52 }}
+            >
+              <MapSucursalCenterPicker
+                className="pointer-events-auto"
+                sucursales={sucursales}
+                loading={loading}
+                onSelect={(suc) => handleSucursalSelect(suc)}
+              />
             </div>
           ) : !selectedSucursal ? (
             <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]" style={{ paddingTop: 52 }}>
-              <MapIcon className="w-12 h-12 opacity-15" />
-              <p className="text-sm font-medium text-center px-8 leading-relaxed">
-                Seleccioná una sucursal para comenzar
-              </p>
+              <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
+              <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
             </div>
           ) : (
             <>

@@ -406,15 +406,21 @@ export function Topbar({ title, live = false }: TopbarProps) {
     <TooltipProvider delayDuration={300}>
       <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50 gap-2">
 
-        {/* Left: logo */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Logo icon — desktop only */}
+        {/* Left: icono + wordmark SHELFY (morado #2B0C66 en LOGO_NUEVO.svg) */}
+        <div className="flex items-center gap-2 shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/WEBICON.svg"
-            alt="Shelfy"
-            className="hidden md:block h-7 w-auto"
+            alt=""
+            aria-hidden
+            className="hidden md:block h-8 w-8 shrink-0"
           />
+          <span
+            className="hidden md:inline text-xl font-extrabold tracking-tight leading-none select-none"
+            style={{ color: "#2B0C66" }}
+          >
+            SHELFY
+          </span>
         </div>
 
         {/* Center: TopModeTabs (desktop) / title (mobile) */}

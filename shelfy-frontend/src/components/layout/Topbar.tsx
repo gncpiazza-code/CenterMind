@@ -37,6 +37,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import Link from "next/link";
+import { useTopbarBrandSizes, TOPBAR_BRAND_DEFAULTS } from "@/hooks/useTopbarBrandSizes";
+import { TopbarBrandTuner } from "./TopbarBrandTuner";
 
 // ── Ticket flotante ───────────────────────────────────────────────────────────
 
@@ -279,6 +281,10 @@ export function Topbar({ title, live = false }: TopbarProps) {
     switchDistributor,
     canSwitchDistribuidor,
   } = useAuth();
+  const { sizes: brandSizes, update: updateBrandSizes, reset: resetBrandSizes } =
+    useTopbarBrandSizes();
+  const brand =
+    process.env.NODE_ENV === "development" ? brandSizes : TOPBAR_BRAND_DEFAULTS;
   const isSuperadmin = user?.is_superadmin;
   const qc = useQueryClient();
 
@@ -408,20 +414,25 @@ export function Topbar({ title, live = false }: TopbarProps) {
       <div className="shrink-0 z-50">
       <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2">
 
-        {/* Left: ícono compacto + wordmark original (tipografías de LOGO_NUEVO.svg) */}
-        <div className="hidden md:flex items-center gap-2.5 shrink-0">
+        {/* Left: ícono + wordmark (tamaños ajustables en dev vía panel Brand) */}
+        <div
+          className="hidden md:flex items-center shrink-0"
+          style={{ gap: brand.gapPx }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/WEBICON.svg"
             alt=""
             aria-hidden
-            className="h-8 w-8 shrink-0"
+            className="shrink-0"
+            style={{ width: brand.iconPx, height: brand.iconPx }}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/SHELFY_WORDMARK.svg"
             alt="Shelfy"
-            className="h-12 w-auto max-h-[calc(100%-2px)] shrink-0"
+            className="w-auto max-h-[calc(100%-2px)] shrink-0"
+            style={{ height: brand.wordmarkPx }}
           />
         </div>
 
@@ -608,6 +619,11 @@ export function Topbar({ title, live = false }: TopbarProps) {
       <EspectadorBanner />
       </div>
       {ticketOpen && <TicketPanel onClose={() => setTicketOpen(false)} />}
+      <TopbarBrandTuner
+        sizes={brandSizes}
+        onChange={updateBrandSizes}
+        onReset={resetBrandSizes}
+      />
     </TooltipProvider>
   );
 }

@@ -37,15 +37,22 @@ export function useSupervisionMapPreload(
         queryFn: () => fetchRutasSupervision(v.id_vendedor),
         staleTime: PRELOAD_STALE_MS,
       });
-      await Promise.all(
-        (rutas ?? []).slice(0, 50).map((r) =>
-          queryClient.fetchQuery({
-            queryKey: ["supervision-clientes", distId, r.id_ruta],
-            queryFn: () => fetchClientesSupervision(r.id_ruta),
-            staleTime: PRELOAD_STALE_MS,
-          }),
-        ),
+      const routeQueue = [...(rutas ?? [])];
+      const routeWorkers = Array.from(
+        { length: Math.min(MAX_CONCURRENT, routeQueue.length || 1) },
+        async () => {
+          while (routeQueue.length && !cancelled) {
+            const r = routeQueue.shift();
+            if (!r) break;
+            await queryClient.fetchQuery({
+              queryKey: ["supervision-clientes", distId, r.id_ruta],
+              queryFn: () => fetchClientesSupervision(r.id_ruta),
+              staleTime: PRELOAD_STALE_MS,
+            });
+          }
+        },
       );
+      await Promise.all(routeWorkers);
     }
 
     async function run() {

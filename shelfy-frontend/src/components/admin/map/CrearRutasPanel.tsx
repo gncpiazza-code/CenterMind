@@ -70,15 +70,17 @@ export function CrearRutasPanel({
     mutationFn: async () => {
       if (!geoJson || pdvIds.length === 0) throw new Error("Dibujá un polígono con PDVs");
       if (!nombre.trim()) throw new Error("Nombre requerido");
-      return createMapaCapa({
+      const body: Parameters<typeof createMapaCapa>[0] = {
         id_distribuidor: distId,
         id_vendedor: idVendedor,
         nombre: nombre.trim(),
         geojson: geoJson as unknown as Record<string, unknown>,
-        pdv_ids: pdvIds,
         color,
         id_ruta_anclada: idRutaAnclada === "" ? null : Number(idRutaAnclada),
-      });
+      };
+      // Payload liviano: el backend resuelve pdv_ids desde geojson si no se envían
+      if (pdvIds.length <= 400) body.pdv_ids = pdvIds;
+      return createMapaCapa(body);
     },
     onSuccess: (capa) => {
       toast.success("Capa guardada");
@@ -87,7 +89,13 @@ export function CrearRutasPanel({
       setNombre("");
       onClearPolygon?.();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      const msg =
+        e.message === "Failed to fetch"
+          ? "No se pudo conectar con la API (revisá red o que el backend tenga /api/supervision/mapa/capas)."
+          : e.message;
+      toast.error(msg);
+    },
   });
 
   const saveLabel =

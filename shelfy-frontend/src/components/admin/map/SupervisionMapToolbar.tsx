@@ -77,7 +77,7 @@ export function SupervisionMapToolbar({
             </button>
           ) : (
             <span>
-              Clic = vértice · clic punto 1 / Enter = cerrar · Backspace deshacer
+              Clic = vértice · Ctrl+arrastrar = mover · punto 1 / Enter = cerrar · Backspace deshacer
               {vertexCount > 0 ? ` · ${vertexCount} pts` : ""}
             </span>
           )}

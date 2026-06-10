@@ -51,9 +51,10 @@ export const STATUS_COLORS: Record<PinStatus, string> = {
   inactivo:            "#ef4444",
 };
 
-/** Opacidad pins en modo dibujo (referencia visual sin ocultarlos). */
-const PIN_OPACITY_DRAW = 0.72;
+/** Opacidad pins en modo dibujo (85% visibles). */
+const PIN_OPACITY_DRAW = 0.85;
 const PIN_OPACITY_DRAG_LARGE = 0.55;
+const MARKER_BATCH_SIZE = 200;
 
 export const STATUS_LABELS: Record<PinStatus, string> = {
   activo_exhibicion:   "Activo + Exhibición",
@@ -412,8 +413,15 @@ function MapaRutas({
 }: MapaRutasProps) {
   const routeBuildEnabled = routeBuildEnabledProp ?? mapToolMode !== 'explorar';
   const drawStrokeColor = mapToolMode === 'crear_rutas' ? '#0ea5e9' : '#8b5cf6';
-  const drawVertexCount = useSupervisionStore((s) => s.drawVertexCount);
-  const setDrawVertexCount = useSupervisionStore((s) => s.setDrawVertexCount);
+  const [drawVertexCount, setDrawVertexCountLocal] = useState(0);
+  const setDrawVertexCount = useCallback((n: number) => {
+    setDrawVertexCountLocal(n);
+    useSupervisionStore.getState().setDrawVertexCount(n);
+  }, []);
+
+  useEffect(() => {
+    if (!routeBuildEnabled) setDrawVertexCountLocal(0);
+  }, [routeBuildEnabled]);
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
@@ -628,68 +636,83 @@ function MapaRutas({
     };
   }, [mapLoaded]);
 
-  // ── Markers (sync incremental; sin clustering — todos los PDVs visibles) ───
+  const attachMarkerListeners = useCallback(
+    (marker: google.maps.Marker, pinId: number, map: google.maps.Map) => {
+      let clickTimer: ReturnType<typeof setTimeout> | null = null;
+      marker.addListener("click", () => {
+        if (routeBuildEnabledRef.current) return;
+        if (clickTimer) return;
+        clickTimer = setTimeout(() => {
+          clickTimer = null;
+          const pin = filteredPinesRef.current.find((x) => x.id === pinId);
+          if (!pin || !infoWindowRef.current) return;
+          infoWindowRef.current.setContent(buildPinPopupHTML(pin));
+          infoWindowRef.current.open(map, marker);
+        }, 250);
+      });
+      marker.addListener("dblclick", () => {
+        if (routeBuildEnabledRef.current) return;
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+        }
+        onTogglePDVRef.current?.(pinId);
+      });
+    },
+    [],
+  );
+
+  const createMarkerForPin = useCallback(
+    (p: PinCliente, map: google.maps.Map, inDrawMode: boolean, targetOpacity: number) => {
+      const iconKey = markerIconCacheKey(p, false, pinConfig);
+      const marker = new window.google.maps.Marker({
+        position: { lat: p.lat, lng: p.lng },
+        clickable: !inDrawMode,
+        icon: getCachedMarkerIcon(p, false, pinConfig),
+        optimized: true,
+        zIndex: inDrawMode ? 1 : (p.activo ? 10 : 5),
+        opacity: targetOpacity,
+      });
+      markerIconKeysRef.current.set(p.id, iconKey);
+      attachMarkerListeners(marker, p.id, map);
+      markersMapRef.current.set(p.id, marker);
+      marker.setMap(map);
+    },
+    [attachMarkerListeners, pinConfig],
+  );
+
+  // ── Markers (sync incremental; creación por lotes si hay muchos PDVs) ───
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
 
+    let cancelled = false;
     const inDrawMode = routeBuildEnabledRef.current;
     const targetOpacity = inDrawMode ? PIN_OPACITY_DRAW : 1;
+    const conCoords = filteredPinesRef.current.filter((p) => p.lat && p.lng);
+    const nextIds = new Set(conCoords.map((p) => p.id));
 
-    const nextIds = new Set<number>();
-    const conCoords = filteredPinesRef.current.filter(p => p.lat && p.lng);
-
+    const toCreate: PinCliente[] = [];
     for (const p of conCoords) {
-      nextIds.add(p.id);
       const iconKey = markerIconCacheKey(p, false, pinConfig);
       let marker = markersMapRef.current.get(p.id);
-
       if (!marker) {
-        marker = new window.google.maps.Marker({
-          position: { lat: p.lat, lng: p.lng },
-          clickable: !inDrawMode,
-          icon: getCachedMarkerIcon(p, false, pinConfig),
-          optimized: true,
-          zIndex: p.activo ? 10 : 5,
-          opacity: targetOpacity,
-        });
-        markerIconKeysRef.current.set(p.id, iconKey);
-
-        let clickTimer: ReturnType<typeof setTimeout> | null = null;
-        const pinId = p.id;
-        marker.addListener("click", () => {
-          if (routeBuildEnabledRef.current) return;
-          if (clickTimer) return;
-          clickTimer = setTimeout(() => {
-            clickTimer = null;
-            const pin = filteredPinesRef.current.find(x => x.id === pinId);
-            if (!pin || !infoWindowRef.current) return;
-            infoWindowRef.current.setContent(buildPinPopupHTML(pin));
-            infoWindowRef.current.open(map, marker);
-          }, 250);
-        });
-        marker.addListener("dblclick", () => {
-          if (routeBuildEnabledRef.current) return;
-          if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-          onTogglePDVRef.current?.(pinId);
-        });
-
-        markersMapRef.current.set(p.id, marker);
-        marker.setMap(map);
-      } else {
-        const pos = marker.getPosition();
-        if (!pos || pos.lat() !== p.lat || pos.lng() !== p.lng) {
-          marker.setPosition({ lat: p.lat, lng: p.lng });
-        }
-        if (markerIconKeysRef.current.get(p.id) !== iconKey) {
-          marker.setIcon(getCachedMarkerIcon(p, false, pinConfig));
-          markerIconKeysRef.current.set(p.id, iconKey);
-        }
-        const z = p.activo ? 10 : 5;
-        if (marker.getZIndex() !== z) marker.setZIndex(z);
-        if (!marker.getMap()) marker.setMap(map);
-        marker.setOpacity(targetOpacity);
+        toCreate.push(p);
+        continue;
       }
+      const pos = marker.getPosition();
+      if (!pos || pos.lat() !== p.lat || pos.lng() !== p.lng) {
+        marker.setPosition({ lat: p.lat, lng: p.lng });
+      }
+      if (markerIconKeysRef.current.get(p.id) !== iconKey) {
+        marker.setIcon(getCachedMarkerIcon(p, false, pinConfig));
+        markerIconKeysRef.current.set(p.id, iconKey);
+      }
+      const z = inDrawMode ? 1 : (p.activo ? 10 : 5);
+      if (marker.getZIndex() !== z) marker.setZIndex(z);
+      marker.setClickable(!inDrawMode);
+      if (!marker.getMap()) marker.setMap(map);
+      marker.setOpacity(targetOpacity);
     }
 
     markersMapRef.current.forEach((marker, id) => {
@@ -701,14 +724,29 @@ function MapaRutas({
       }
     });
 
-    if (conCoords.length > 0 && !fittedRef.current) {
-      fittedRef.current = true;
-      const bounds = new window.google.maps.LatLngBounds();
-      conCoords.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
-      map.fitBounds(bounds, 60);
-      if (conCoords.length === 1) map.setZoom(14);
-    }
-  }, [pinDataSyncKey, mapLoaded, pinConfig, routeBuildEnabled]);
+    let batchIdx = 0;
+    const runBatch = () => {
+      if (cancelled) return;
+      const end = Math.min(batchIdx + MARKER_BATCH_SIZE, toCreate.length);
+      for (; batchIdx < end; batchIdx++) {
+        createMarkerForPin(toCreate[batchIdx], map, inDrawMode, targetOpacity);
+      }
+      if (batchIdx < toCreate.length) {
+        requestAnimationFrame(runBatch);
+      } else if (conCoords.length > 0 && !fittedRef.current) {
+        fittedRef.current = true;
+        const bounds = new window.google.maps.LatLngBounds();
+        conCoords.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+        map.fitBounds(bounds, 60);
+        if (conCoords.length === 1) map.setZoom(14);
+      }
+    };
+    runBatch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pinDataSyncKey, mapLoaded, pinConfig, routeBuildEnabled, createMarkerForPin]);
 
   // ── Selection ring (solo iconos que cambiaron de estado) ───────────────────
   useEffect(() => {
@@ -739,9 +777,15 @@ function MapaRutas({
   }, [selectedPDVs, pinDataSyncKey, mapLoaded, pinConfig]);
 
   const resolvePdvIdsInPolygon = useCallback((polygon: google.maps.Polygon) => {
+    const bounds = new window.google.maps.LatLngBounds();
+    const path = polygon.getPath();
+    for (let i = 0; i < path.getLength(); i++) {
+      bounds.extend(path.getAt(i));
+    }
     const pdvIds: number[] = [];
-    filteredPinesRef.current.forEach(p => {
+    filteredPinesRef.current.forEach((p) => {
       if (!p.lat || !p.lng) return;
+      if (!bounds.contains({ lat: p.lat, lng: p.lng })) return;
       const point = new window.google.maps.LatLng(p.lat, p.lng);
       if (window.google.maps.geometry.poly.containsLocation(point, polygon)) {
         pdvIds.push(p.id);
@@ -854,12 +898,13 @@ function MapaRutas({
     if (!map || !mapLoaded) return;
     if (routeBuildEnabled) {
       infoWindowRef.current?.close();
-      markersMapRef.current.forEach(m => {
+      markersMapRef.current.forEach((m) => {
         m.setClickable(false);
-        m.setOpacity(0.35);
+        m.setZIndex(1);
+        m.setOpacity(PIN_OPACITY_DRAW);
       });
     } else {
-      markersMapRef.current.forEach(m => {
+      markersMapRef.current.forEach((m) => {
         m.setClickable(true);
         m.setOpacity(1);
       });
@@ -1059,7 +1104,7 @@ function MapaRutas({
             maxWidth: '92%',
           }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-              Clic = vértice · clic en punto 1 o Enter = cerrar · Backspace deshacer · ESC cancelar
+              Clic = vértice · Ctrl+arrastrar = mover mapa · punto 1 / Enter = cerrar · Backspace deshacer
               {drawVertexCount > 0 ? ` (${drawVertexCount} pts)` : ''}
             </span>
             {drawVertexCount > 0 && (
@@ -1170,11 +1215,15 @@ function MapaRutas({
         >🖨️</button>
       </div>
 
-      {/* Bottom-left controls — stacked column (layer → filters → legend), no overlap */}
+      {/* Capas / filtros — en dibujo: panel arriba a la derecha; si no, abajo a la izquierda */}
       <div style={{
-        position: 'absolute', bottom: 12, left: panelOffset + 12,
+        position: 'absolute',
+        ...(routeBuildEnabled
+          ? { top: 52, right: 10, maxWidth: 320 }
+          : { bottom: 12, left: panelOffset + 12 }),
         zIndex: 30, display: 'flex', flexDirection: 'column', gap: 6,
-        alignItems: 'flex-start', transition: 'left 0.2s ease',
+        alignItems: routeBuildEnabled ? 'flex-end' : 'flex-start',
+        transition: 'left 0.2s ease',
       }}>
         {(layerPanelSlot || (capas.length > 0 && onToggleCapa)) && (
           <div style={{
@@ -1195,8 +1244,8 @@ function MapaRutas({
             )}
           </div>
         )}
-        <FilterLegend />
-        <MapLegendTooltip />
+        {!routeBuildEnabled && <FilterLegend />}
+        {!routeBuildEnabled && <MapLegendTooltip />}
       </div>
 
       {/* Superadmin: config panel */}

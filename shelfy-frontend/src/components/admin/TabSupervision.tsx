@@ -480,6 +480,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     activePolygonGeoJson,
   } = useSupervisionStore();
 
+  const mapFocusMode = useMemo(
+    () =>
+      mapToolMode === "objetivo_zona" ||
+      (mapToolMode === "crear_rutas" && rutasZonasTab === "dibujar"),
+    [mapToolMode, rutasZonasTab],
+  );
+
   // accordion state (local UI only)
   const [openVend, setOpenVend]                 = useState<number | null>(null);
   const [openRuta, setOpenRuta]                 = useState<number | null>(null);
@@ -889,29 +896,44 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   }, [queryClient, selectedDist, vendedores, cuentasData, getVendorColor]);
 
   const handleShowAllVendors = useCallback(async () => {
-    const ids = new Set(vendedoresFiltrados.map(v => v.id_vendedor));
-    setVisibleVends(ids);
+    if (!selectedDist || vendedoresFiltrados.length === 0) return;
+    const ids = new Set(vendedoresFiltrados.map((v) => v.id_vendedor));
+    setLoadingMap(ids);
     const rutaIds = new Set<number>();
     const clienteIds = new Set<number>();
-    for (const v of vendedoresFiltrados) {
-      const rutas = await queryClient.fetchQuery({
-        queryKey: ['supervision-rutas', selectedDist, v.id_vendedor],
-        queryFn: () => fetchRutasSupervision(v.id_vendedor),
-      });
-      for (const r of rutas ?? []) {
-        rutaIds.add(r.id_ruta);
-        const clientes = await queryClient.fetchQuery({
-          queryKey: ['supervision-clientes', selectedDist, r.id_ruta],
-          queryFn: () => fetchClientesSupervision(r.id_ruta),
-        });
-        for (const c of clientes ?? []) {
-          if (c.latitud != null && c.longitud != null) clienteIds.add(c.id_cliente);
-        }
-      }
+    try {
+      await Promise.all(
+        vendedoresFiltrados.map(async (v) => {
+          const rutas = await queryClient.fetchQuery({
+            queryKey: ["supervision-rutas", selectedDist, v.id_vendedor],
+            queryFn: () => fetchRutasSupervision(v.id_vendedor),
+          });
+          const clientesByRuta = await Promise.all(
+            (rutas ?? []).map((r) => {
+              rutaIds.add(r.id_ruta);
+              return queryClient.fetchQuery({
+                queryKey: ["supervision-clientes", selectedDist, r.id_ruta],
+                queryFn: () => fetchClientesSupervision(r.id_ruta),
+              });
+            }),
+          );
+          for (const clientes of clientesByRuta) {
+            for (const c of clientes ?? []) {
+              if (c.latitud != null && c.longitud != null) clienteIds.add(c.id_cliente);
+            }
+          }
+        }),
+      );
+      setVisibleVends(ids);
+      setVisibleRutas(rutaIds);
+      setVisibleClientes(clienteIds);
+      flushMapPins();
+      toast.success(`${clienteIds.size.toLocaleString()} PDVs en mapa`);
+    } catch {
+      toast.error("No se pudieron cargar todos los PDVs. Probá por vendedor o revisá la conexión.");
+    } finally {
+      setLoadingMap(new Set());
     }
-    setVisibleRutas(rutaIds);
-    setVisibleClientes(clienteIds);
-    flushMapPins();
   }, [vendedoresFiltrados, selectedDist, queryClient, setVisibleVends, setVisibleRutas, setVisibleClientes, flushMapPins]);
 
   const handleHideAllVendors = useCallback(() => {
@@ -2072,11 +2094,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
       )}
 
-      {/* Main split */}
-      <div className={`${mapOnly ? "flex flex-col lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col lg:grid lg:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 lg:h-auto" : "lg:h-[680px]"}`}`}>
+      {/* Main split — en modo dibujo/zona el mapa ocupa todo el ancho hasta el hub superior */}
+      <div className={`${mapOnly ? "flex flex-col lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col lg:grid lg:grid-cols-5 gap-3 ${fullscreen || mapFocusMode ? "flex-1 min-h-0 lg:min-h-[calc(100vh-11rem)]" : "lg:h-[680px]"}`}`}>
 
         {/* ── MAP — responsive: tabs en mobile, siempre visible en lg+ ──── */}
-        <div className={`${mapOnly ? "flex flex-1 min-h-0 lg:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
+        <div className={`${mapOnly || mapFocusMode ? "flex flex-1 min-h-0 lg:col-span-5" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col ${mapFocusMode ? "rounded-xl" : "rounded-2xl"} overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
             {loading && !selectedSucursal ? (
@@ -2133,8 +2155,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           </div>
         </div>
 
-        {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
-        <div className={`lg:col-span-2 ${!mapOnly && mobileView === 'mapa' ? "hidden" : "flex"} lg:flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] lg:min-h-0`}>
+        {/* ── RIGHT PANEL — lista vendedores/rutas (oculto en modo dibujo fullscreen integrado) ─ */}
+        <div className={`${mapFocusMode ? "hidden" : `lg:col-span-2 ${!mapOnly && mobileView === "mapa" ? "hidden" : "flex"} lg:flex`} flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] lg:min-h-0`}>
 
           {/* Panel header */}
           <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/60 shrink-0 flex items-center gap-2">

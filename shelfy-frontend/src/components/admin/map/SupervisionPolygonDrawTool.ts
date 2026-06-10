@@ -43,7 +43,7 @@ function distanceMeters(a: google.maps.LatLng, b: google.maps.LatLng): number {
   return spherical.computeDistanceBetween(a, b);
 }
 
-/** Dibujo click-vértices: pins ocultos en MapaRutas + listeners directos al mapa. */
+/** Dibujo click-vértices. Sin Ctrl el mapa no se arrastra (solo vértices); Ctrl+arrastrar = pan. */
 export function useVertexPolygonDraw({
   enabled,
   mapRef,
@@ -59,6 +59,8 @@ export function useVertexPolygonDraw({
   const previewPolyRef = useRef<google.maps.Polygon | null>(null);
   const vertexMarkersRef = useRef<google.maps.Marker[]>([]);
   const moveRafRef = useRef(0);
+  const panModifierRef = useRef(false);
+  const mapDragRef = useRef(false);
 
   const enabledRef = useRef(enabled);
   const strokeColorRef = useRef(strokeColor);
@@ -96,35 +98,53 @@ export function useVertexPolygonDraw({
     if (path.length === 0) return;
 
     const color = strokeColorRef.current;
-    const style = { ...ROUTE_POLYGON_STYLE, strokeColor: color, fillColor: color };
+    const edgePath = cursor ? [...path, cursor] : path;
 
+    // Borde abierto (siempre visible mientras se dibuja)
+    if (!previewLineRef.current) {
+      previewLineRef.current = new window.google.maps.Polyline({
+        path: edgePath,
+        map,
+        strokeColor: color,
+        strokeWeight: 4,
+        strokeOpacity: 1,
+        clickable: false,
+        zIndex: 2750,
+      });
+    } else {
+      previewLineRef.current.setPath(edgePath);
+    }
+
+    // Relleno suave desde 2+ vértices
     if (path.length >= 2) {
-      previewLineRef.current?.setMap(null);
-      previewLineRef.current = null;
-      const paths = cursor ? [...path, cursor] : path;
+      const fillPath = cursor ? [...path, cursor] : path;
+      const style = {
+        ...ROUTE_POLYGON_STYLE,
+        strokeColor: color,
+        fillColor: color,
+        fillOpacity: 0.14,
+        strokeWeight: 2,
+        strokeOpacity: 0.55,
+      };
       if (!previewPolyRef.current) {
-        previewPolyRef.current = new window.google.maps.Polygon({ paths, map, ...style });
+        previewPolyRef.current = new window.google.maps.Polygon({ paths: fillPath, map, ...style });
       } else {
-        previewPolyRef.current.setPaths(paths);
+        previewPolyRef.current.setPaths(fillPath);
       }
     } else {
       previewPolyRef.current?.setMap(null);
       previewPolyRef.current = null;
-      const linePath = cursor ? [...path, cursor] : path;
-      if (!previewLineRef.current) {
-        previewLineRef.current = new window.google.maps.Polyline({
-          path: linePath,
-          map,
-          strokeColor: color,
-          strokeWeight: 3,
-          strokeOpacity: 0.95,
-          clickable: false,
-          zIndex: 2700,
-        });
-      } else {
-        previewLineRef.current.setPath(linePath);
-      }
     }
+  }, [mapRef]);
+
+  const applyPanMode = useCallback((pan: boolean) => {
+    const map = mapRef.current;
+    if (!map || !enabledRef.current) return;
+    map.setOptions({
+      draggable: pan,
+      draggableCursor: pan ? "grab" : "crosshair",
+      draggingCursor: pan ? "grabbing" : "crosshair",
+    });
   }, [mapRef]);
 
   const addVertexMarker = (latLng: google.maps.LatLng, index: number, onClose?: () => void) => {
@@ -266,6 +286,7 @@ export function useVertexPolygonDraw({
 
     const clickL = map.addListener("click", (e: google.maps.MapMouseEvent) => {
       if (!enabledRef.current) return;
+      if (panModifierRef.current || mapDragRef.current) return;
       const latLng = e.latLng;
       if (!latLng) return;
       addVertexRef.current(latLng);
@@ -273,6 +294,7 @@ export function useVertexPolygonDraw({
 
     const moveL = map.addListener("mousemove", (e: google.maps.MapMouseEvent) => {
       if (!enabledRef.current || pathRef.current.length === 0) return;
+      if (panModifierRef.current) return;
       const latLng = e.latLng ?? undefined;
       if (moveRafRef.current) cancelAnimationFrame(moveRafRef.current);
       moveRafRef.current = requestAnimationFrame(() => {
@@ -282,12 +304,22 @@ export function useVertexPolygonDraw({
     });
 
     const dblL = map.addListener("dblclick", (e: google.maps.MapMouseEvent) => {
-      if (!enabledRef.current) return;
+      if (!enabledRef.current || panModifierRef.current) return;
       e.stop();
       if (pathRef.current.length >= 3) finishPolygonRef.current();
     });
 
+    const dragStartL = map.addListener("dragstart", () => {
+      mapDragRef.current = true;
+    });
+    const dragEndL = map.addListener("dragend", () => {
+      window.setTimeout(() => {
+        mapDragRef.current = false;
+      }, 80);
+    });
+
     map.setOptions({
+      draggable: false,
       draggableCursor: "crosshair",
       draggingCursor: "crosshair",
       disableDoubleClickZoom: true,
@@ -297,13 +329,46 @@ export function useVertexPolygonDraw({
       clickL.remove();
       moveL.remove();
       dblL.remove();
+      dragStartL.remove();
+      dragEndL.remove();
+      panModifierRef.current = false;
+      mapDragRef.current = false;
       map.setOptions({
+        draggable: true,
         draggableCursor: null,
         draggingCursor: null,
         disableDoubleClickZoom: false,
       });
     };
   }, [enabled, mapLoaded, mapRef, updatePreview]);
+
+  // Ctrl / ⌘ = modo pan (sin agregar vértices)
+  useEffect(() => {
+    if (!enabled) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Control" && e.key !== "Meta") return;
+      panModifierRef.current = true;
+      applyPanMode(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Control" && e.key !== "Meta") return;
+      panModifierRef.current = false;
+      applyPanMode(false);
+    };
+    const onBlur = () => {
+      panModifierRef.current = false;
+      applyPanMode(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      panModifierRef.current = false;
+    };
+  }, [enabled, applyPanMode]);
 
   useEffect(() => {
     if (enabled || !mapLoaded) return;

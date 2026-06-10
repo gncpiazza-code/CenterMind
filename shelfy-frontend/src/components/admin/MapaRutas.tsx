@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Settings } from "lucide-react";
+import { MarkerClusterer } from '@googlemaps/markerclusterer';
 import { loadGoogleMapsFull, getGoogleMapsApiKey, ensureGoogleMapsConfigured, subscribeGoogleMapsAuthFailure, googleMapsReferrerWhitelistHint } from "@/lib/googleMapsLoader";
 import type { DrawnPolygon, MapToolMode } from "@/store/useSupervisionStore";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
@@ -300,6 +301,10 @@ interface MapaRutasProps {
   onToggleVendorCapas?: (ids: number[], visible: boolean) => void;
   layerPanelSlot?: React.ReactNode;
   onFinishPolygonRef?: React.MutableRefObject<(() => void) | null>;
+  /** Map is the full page — hides native fullscreen btn, adjusts overlay offsets */
+  integratedMap?: boolean;
+  /** Height (px) of glass chrome overlay — overlays are shifted down by this amount */
+  mapChromeTop?: number;
 }
 
 // ── Google Maps API Key ───────────────────────────────────────────────────────
@@ -405,14 +410,18 @@ function MapaRutas({
   onToggleVendorCapas,
   layerPanelSlot,
   onFinishPolygonRef,
+  integratedMap = false,
+  mapChromeTop = 0,
 }: MapaRutasProps) {
   const routeBuildEnabled = routeBuildEnabledProp ?? mapToolMode !== 'explorar';
   const drawStrokeColor = mapToolMode === 'crear_rutas' ? '#0ea5e9' : '#8b5cf6';
   const drawVertexCount = useSupervisionStore((s) => s.drawVertexCount);
   const setDrawVertexCount = useSupervisionStore((s) => s.setDrawVertexCount);
+  const topOffset = integratedMap ? mapChromeTop : 0;
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
+  const clustererRef  = useRef<MarkerClusterer | null>(null);
   const markerIconKeysRef = useRef<Map<number, string>>(new Map());
   const prevSelectedPdvRef = useRef<Set<number>>(new Set());
   const prevPinDataSyncKeyRef = useRef("");
@@ -697,14 +706,47 @@ function MapaRutas({
       }
     });
 
-    if (conCoords.length > 0 && !fittedRef.current) {
-      fittedRef.current = true;
-      const bounds = new window.google.maps.LatLngBounds();
-      conCoords.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
-      map.fitBounds(bounds, 60);
-      if (conCoords.length === 1) map.setZoom(14);
-    }
   }, [pinDataSyncKey, mapLoaded, pinConfig, routeBuildEnabled]);
+
+  // ── fitBounds (separate effect — runs after markers settle, not cancelled) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !window.google || fittedRef.current) return;
+    const conCoords = filteredPinesRef.current.filter(p => p.lat && p.lng);
+    if (conCoords.length === 0) return;
+    fittedRef.current = true;
+    const bounds = new window.google.maps.LatLngBounds();
+    conCoords.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
+    map.fitBounds(bounds, 60);
+    if (conCoords.length === 1) map.setZoom(14);
+  }, [pineIdsKey, mapLoaded]);
+
+  // ── MarkerClusterer (explorar mode, >800 pins) ────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !window.google) return;
+    const shouldCluster = filteredPines.length > 800 && mapToolMode === 'explorar';
+
+    if (!shouldCluster) {
+      if (clustererRef.current) {
+        clustererRef.current.clearMarkers();
+        clustererRef.current.setMap(null);
+        clustererRef.current = null;
+        markersMapRef.current.forEach(m => { if (!m.getMap()) m.setMap(map); });
+      }
+      return;
+    }
+
+    const allMarkers = [...markersMapRef.current.values()];
+    if (!clustererRef.current) {
+      allMarkers.forEach(m => m.setMap(null));
+      clustererRef.current = new MarkerClusterer({ map, markers: allMarkers });
+    } else {
+      clustererRef.current.clearMarkers();
+      allMarkers.forEach(m => m.setMap(null));
+      clustererRef.current.addMarkers(allMarkers);
+    }
+  }, [filteredPines.length, mapToolMode, mapLoaded, pinDataSyncKey]);
 
   // ── Selection ring (solo iconos que cambiaron de estado) ───────────────────
   useEffect(() => {
@@ -1042,8 +1084,8 @@ function MapaRutas({
           />
         )}
 
-        {/* "Armar Ruta" overlay bar */}
-        {routeBuildEnabled && (
+        {/* "Armar Ruta" overlay bar (hidden in integratedMap — toolbar glass shows the hint) */}
+        {routeBuildEnabled && !integratedMap && (
           <div style={{
             position: 'absolute', top: isFullscreen ? 56 : 10, left: '50%', transform: 'translateX(-50%)',
             zIndex: 30, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center',
@@ -1125,31 +1167,34 @@ function MapaRutas({
 
       {/* Top-right controls */}
       <div style={{
-        position: 'absolute', top: 10, right: 10,
+        position: 'absolute', top: topOffset + 10, right: 10,
         display: 'flex', gap: 5, zIndex: 30,
       }}>
-        <button
-          onClick={() => {
-            setIsFullscreen((f) => {
-              const next = !f;
-              if (next) {
-                setResolvedFullscreenPanel(getFullscreenPanel?.() ?? fullscreenPanel ?? null);
-              }
-              return next;
-            });
-          }}
-          title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-          style={{
-            background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
-            cursor: 'pointer', fontSize: 14, lineHeight: 1,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-            transition: 'background 0.15s',
-          }}
-          onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
-          onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
-        >{isFullscreen ? '✕ Salir' : '⛶'}</button>
+        {/* Fullscreen button hidden in integratedMap (already full area) */}
+        {!integratedMap && (
+          <button
+            onClick={() => {
+              setIsFullscreen((f) => {
+                const next = !f;
+                if (next) {
+                  setResolvedFullscreenPanel(getFullscreenPanel?.() ?? fullscreenPanel ?? null);
+                }
+                return next;
+              });
+            }}
+            title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+            style={{
+              background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
+              cursor: 'pointer', fontSize: 14, lineHeight: 1,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              transition: 'background 0.15s',
+            }}
+            onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
+            onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
+          >{isFullscreen ? '✕ Salir' : '⛶'}</button>
+        )}
         <button
           onClick={handlePrint}
           title="Imprimir lista de PDVs"
@@ -1244,7 +1289,7 @@ function MapaRutas({
 
       {/* PDV count badge */}
       <div style={{
-        position: 'absolute', top: 10,
+        position: 'absolute', top: topOffset + 10,
         left: (isFullscreen && activeFullscreenPanel)
           ? (showSidePanel ? 403 : 105)
           : (panelOffset + 10),
@@ -1262,7 +1307,7 @@ function MapaRutas({
       {/* Vendedor KPI badges */}
       {vendedorKpis && ((vendedorKpis.pdv_compradores_mes ?? 0) > 0 || (vendedorKpis.pdv_altas_mes ?? 0) > 0) && (
         <div style={{
-          position: 'absolute', top: 42,
+          position: 'absolute', top: topOffset + 42,
           left: (isFullscreen && activeFullscreenPanel)
             ? (showSidePanel ? 403 : 105)
             : (panelOffset + 10),
@@ -1319,6 +1364,8 @@ export default React.memo(MapaRutas, (prev, next) => {
     "onFinishPolygonRef",
     "getFullscreenPanel",
     "fullscreenPanel",
+    "integratedMap",
+    "mapChromeTop",
   ];
   for (const k of keys) {
     if (prev[k] !== next[k]) return false;

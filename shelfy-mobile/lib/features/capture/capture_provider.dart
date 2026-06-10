@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/offline/upload_queue.dart';
+import 'capture_pdv_memory.dart';
 import 'models/batch_upload_result.dart';
 import 'models/capture_photo.dart';
 import 'models/pdv_candidate.dart';
@@ -18,15 +19,15 @@ import 'models/post_upload_summary.dart';
 /// Máximo de fotos permitidas por exhibición.
 const int kMaxPhotosPerExhibicion = 6;
 
-/// Fases del overlay de captura — controlan el sheet, NO la ruta de navegación.
-/// La cámara siempre está activa en Z0; el sheet cambia de contenido.
+/// Fases del overlay — controlan el sheet Z3, NO la ruta de navegación.
+/// La cámara siempre está en Z0; el sheet sube/baja según fase.
 enum CaptureOverlayPhase {
-  live,       // Sin fotos aún — hint GPS · "Apuntá y capturá"
-  postPhoto,  // Tras 1ª foto — chips PDV cercanos o campo búsqueda
-  confirmPdv, // PDV elegido — resumen + "Otra foto"
-  ingreso,    // PDV confirmado — con/sin ingreso
-  uploading,  // Subiendo — barra progreso (cámara atenuada, no oculta)
-  done,       // OK / cola — banner éxito · sheet colapsa → live
+  burstLive,      // Cámara full-screen sin sheet — fotos se acumulan con Listo
+  assignPdv,      // Sheet: búsqueda PDV + chips cercanos + pendientes
+  suggestIngreso, // Sheet: banner memoria + countdown 5 s (auto-avance)
+  ingreso,        // Sheet: elección manual con/sin ingreso
+  uploading,      // Sheet: progreso (cámara atenuada)
+  done,           // Sheet: éxito/cola + stats — CTA "Nueva visita"
 }
 
 /// ChangeNotifier que gestiona el estado completo del flujo de captura.
@@ -34,11 +35,13 @@ class CaptureProvider extends ChangeNotifier {
   final ApiClient _api;
   final ShelfyDatabase _db;
 
-  CaptureOverlayPhase _phase = CaptureOverlayPhase.live;
+  CaptureOverlayPhase _phase = CaptureOverlayPhase.burstLive;
   PdvCandidate? _selectedPdv;
-  bool _addingExtraPhoto = false;
 
-  /// Lista de PDVs cercanos (radio 100 m).
+  /// Tipo de ingreso sugerido por memoria local (fase suggestIngreso).
+  String? _suggestedTipo;
+
+  /// PDVs cercanos (radio 100 m).
   List<PdvCandidate> _nearbyPdvs = [];
 
   /// Resultados de búsqueda por texto.
@@ -58,6 +61,9 @@ class CaptureProvider extends ChangeNotifier {
 
   double? _currentLat;
   double? _currentLng;
+  bool _gpsAvailable = false;
+
+  bool _pendienteRegistrado = false;
 
   /// Notifica al shell (ej. refrescar galería) tras upload online exitoso.
   void Function(String nroCliente)? onUploadSuccess;
@@ -78,6 +84,7 @@ class CaptureProvider extends ChangeNotifier {
   // ── Getters ──────────────────────────────────────────────────────────────────
   CaptureOverlayPhase get phase => _phase;
   PdvCandidate? get selectedPdv => _selectedPdv;
+  String? get suggestedTipo => _suggestedTipo;
   List<PdvCandidate> get nearbyPdvs => List.unmodifiable(_nearbyPdvs);
   List<PdvCandidate> get searchResults => List.unmodifiable(_searchResults);
   bool get searchLoading => _searchLoading;
@@ -91,11 +98,13 @@ class CaptureProvider extends ChangeNotifier {
   String? get selectedTipo => _selectedTipo;
   bool get isUploading => _isUploading;
   bool get nearbyLoading => _nearbyLoading;
+  bool get gpsAvailable => _gpsAvailable;
   BatchUploadResult? get lastResult => _lastResult;
   PostUploadSummary? get postUploadSummary => _postUploadSummary;
   String? get errorMessage => _errorMessage;
   double? get currentLat => _currentLat;
   double? get currentLng => _currentLng;
+  bool get pendienteRegistrado => _pendienteRegistrado;
 
   String get nroCliente {
     final raw = _selectedPdv?.idClienteErp ?? _manualNro ?? '';
@@ -123,6 +132,7 @@ class CaptureProvider extends ChangeNotifier {
           .cast<Map<String, dynamic>>()
           .map(PdvCandidate.fromJson)
           .toList();
+      _gpsAvailable = true;
     } catch (_) {
       _nearbyPdvs = [];
     } finally {
@@ -132,6 +142,7 @@ class CaptureProvider extends ChangeNotifier {
   }
 
   void onGpsUnavailable() {
+    _gpsAvailable = false;
     _nearbyPdvs = [];
     notifyListeners();
   }
@@ -174,35 +185,13 @@ class CaptureProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Eventos de foto ────────────────────────────────────────────────────────
+  // ── Eventos de foto (burst — no cambia fase) ──────────────────────────────
 
-  /// Colapsa el sheet para que el vendedor pueda tomar otra foto manteniendo el PDV.
-  void addExtraPhoto() {
-    _addingExtraPhoto = true;
-    _phase = CaptureOverlayPhase.live;
-    notifyListeners();
-  }
-
+  /// Agrega la foto al filmstrip sin cambiar de fase — siempre queda en burstLive.
   void onPhotoTaken(File file, CapturePhotoMetadata metadata) {
-    final photo = CapturePhoto(file: file, metadata: metadata);
-
-    if (_addingExtraPhoto && hasPhotos) {
-      _addingExtraPhoto = false;
-      if (_photos.length >= kMaxPhotosPerExhibicion) return;
-      _photos = [..._photos, photo];
-      _phase = CaptureOverlayPhase.confirmPdv;
-      notifyListeners();
-      return;
-    }
-
-    // Primera foto de la sesión
-    _addingExtraPhoto = false;
-    _photos = [photo];
-    _selectedPdv = null;
-    _manualNro = null;
-    _selectedTipo = null;
+    if (_photos.length >= kMaxPhotosPerExhibicion) return;
+    _photos = [..._photos, CapturePhoto(file: file, metadata: metadata)];
     _errorMessage = null;
-    _phase = CaptureOverlayPhase.postPhoto;
     notifyListeners();
   }
 
@@ -211,40 +200,73 @@ class CaptureProvider extends ChangeNotifier {
     final updated = List<CapturePhoto>.from(_photos);
     updated.removeAt(index);
     _photos = updated;
-    if (_photos.isEmpty) {
-      _phase = CaptureOverlayPhase.live;
-    }
     notifyListeners();
   }
 
-  // ── Selección de PDV ──────────────────────────────────────────────────────
+  // ── Transiciones de fase burst ────────────────────────────────────────────
+
+  /// Botón "Listo" — abre el sheet de asignación PDV.
+  void finishBurst() {
+    if (_photos.isEmpty) return;
+    _phase = CaptureOverlayPhase.assignPdv;
+    notifyListeners();
+  }
+
+  /// Vuelve a la cámara burst manteniendo el filmstrip.
+  void backToBurst() {
+    _selectedPdv = null;
+    _manualNro = null;
+    _suggestedTipo = null;
+    _pendienteRegistrado = false;
+    _phase = CaptureOverlayPhase.burstLive;
+    clearSearch();
+    notifyListeners();
+  }
+
+  // ── Selección de PDV → lookup memoria ────────────────────────────────────
 
   void selectPdv(PdvCandidate pdv) {
     _selectedPdv = pdv;
     _manualNro = null;
-    _phase = CaptureOverlayPhase.confirmPdv;
     clearSearch();
     notifyListeners();
+    _transitionToIngresoOrMemory(); // async fire-and-forget
   }
 
   void confirmManualNro(String nro) {
     _manualNro = nro.trim();
     _selectedPdv = null;
-    _phase = CaptureOverlayPhase.ingreso;
     clearSearch();
+    notifyListeners();
+    _transitionToIngresoOrMemory(); // async fire-and-forget
+  }
+
+  Future<void> _transitionToIngresoOrMemory() async {
+    final nro = nroCliente;
+    if (nro.isNotEmpty) {
+      final remembered = await CapturePdvMemory.get(_distId, _vendorId, nro);
+      if (remembered != null) {
+        _suggestedTipo = remembered;
+        _phase = CaptureOverlayPhase.suggestIngreso;
+        notifyListeners();
+        return;
+      }
+    }
+    _suggestedTipo = null;
+    _phase = CaptureOverlayPhase.ingreso;
     notifyListeners();
   }
 
-  void confirmPdv() {
-    _phase = CaptureOverlayPhase.ingreso;
-    notifyListeners();
+  /// Confirmar la sugerencia de memoria (countdown expiró o tap "Confirmar").
+  void confirmSuggestion() {
+    _selectedTipo = _suggestedTipo;
+    submit();
   }
 
-  void backToPostPhoto() {
-    _selectedPdv = null;
-    _manualNro = null;
-    _phase = CaptureOverlayPhase.postPhoto;
-    clearSearch();
+  /// Cambiar de suggestIngreso → ingreso manual.
+  void overrideIngreso() {
+    _suggestedTipo = null;
+    _phase = CaptureOverlayPhase.ingreso;
     notifyListeners();
   }
 
@@ -253,14 +275,11 @@ class CaptureProvider extends ChangeNotifier {
     submit();
   }
 
-  void backToCamera() {
-    _photos = [];
+  void backToAssignPdv() {
     _selectedPdv = null;
     _manualNro = null;
-    _selectedTipo = null;
-    _errorMessage = null;
-    _addingExtraPhoto = false;
-    _phase = CaptureOverlayPhase.live;
+    _suggestedTipo = null;
+    _phase = CaptureOverlayPhase.assignPdv;
     clearSearch();
     notifyListeners();
   }
@@ -333,6 +352,9 @@ class CaptureProvider extends ChangeNotifier {
       );
     }
 
+    // Guardar en memoria local para próxima visita
+    await CapturePdvMemory.save(_distId, _vendorId, nroCliente, _selectedTipo!);
+
     _fetchPostUploadSummary(nroCliente);
     _phase = CaptureOverlayPhase.done;
     onUploadSuccess?.call(nroCliente);
@@ -353,6 +375,11 @@ class CaptureProvider extends ChangeNotifier {
     final pathsJson = jsonEncode(_photos.map((p) => p.file.path).toList());
     final metadataJson = _buildSessionMetadata().toJsonString();
 
+    // Guardar en memoria local incluso offline (tipo elegido manualmente)
+    if (_selectedTipo != null) {
+      await CapturePdvMemory.save(_distId, _vendorId, nroCliente, _selectedTipo!);
+    }
+
     await _db.enqueueUpload(
       PendingUploadsCompanion.insert(
         clientUploadId: clientUploadId,
@@ -369,9 +396,6 @@ class CaptureProvider extends ChangeNotifier {
 
   // ── Pendientes padrón ──────────────────────────────────────────────────────
 
-  bool _pendienteRegistrado = false;
-  bool get pendienteRegistrado => _pendienteRegistrado;
-
   Future<void> registerPendientePdv(String nroCliente, {double? lat, double? lng}) async {
     try {
       await _api.post('/api/vendedor-app/pdv/pendiente', {
@@ -382,20 +406,19 @@ class CaptureProvider extends ChangeNotifier {
       _pendienteRegistrado = true;
       notifyListeners();
     } catch (_) {
-      // best-effort; si está offline se registrará después
       _pendienteRegistrado = true;
       notifyListeners();
     }
   }
 
   void reset() {
-    _phase = CaptureOverlayPhase.live;
+    _phase = CaptureOverlayPhase.burstLive;
     _selectedPdv = null;
     _manualNro = null;
     _photos = [];
     _selectedTipo = null;
+    _suggestedTipo = null;
     _isUploading = false;
-    _addingExtraPhoto = false;
     _lastResult = null;
     _postUploadSummary = null;
     _errorMessage = null;
@@ -413,6 +436,15 @@ class CaptureProvider extends ChangeNotifier {
   }
 
   // ── Metadatos GPS al disparar ──────────────────────────────────────────────
+
+  /// Construye metadata con posición ya cacheada (sin nueva petición GPS).
+  CapturePhotoMetadata buildPhotoMetadataCached() {
+    return CapturePhotoMetadata(
+      capturedAtUtc: DateTime.now().toUtc(),
+      lat: _currentLat,
+      lng: _currentLng,
+    );
+  }
 
   static Future<CapturePhotoMetadata> captureMetadataNow() async {
     final capturedAt = DateTime.now().toUtc();

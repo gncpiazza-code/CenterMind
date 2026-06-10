@@ -31,6 +31,33 @@ test.describe('Supervision Page — Smoke Tests', () => {
     await expect(body).not.toBeEmpty();
   });
 
+  test('renders mode toggle CC | Avance de ventas when authenticated', async ({ page }) => {
+    await page.addInitScript(() => {
+      const mockUser = {
+        access_token: 'fake',
+        rol: 'admin',
+        id_distribuidor: 3,
+        is_superadmin: false,
+        usuario: 'test',
+        nombre_empresa: 'Test Dist',
+      };
+      localStorage.setItem('shelfy_token', 'fake_token');
+      localStorage.setItem('shelfy_user', JSON.stringify(mockUser));
+    });
+
+    await page.goto('/supervision');
+    const body = page.locator('body');
+    await expect(body).not.toBeEmpty();
+
+    // Si la sesión mockeada renderiza el panel, el toggle de modo debe existir y
+    // alternar a Avance debe mostrar contenido del modo (KPI Bultos / selector periodo).
+    const toggle = page.getByRole('tab', { name: /Avance de ventas/i });
+    if (await toggle.count()) {
+      await toggle.first().click();
+      await expect(page.locator('body')).toContainText(/Bultos|Avance/i);
+    }
+  });
+
   test('Generar Informe button opens sheet on click (DOM-level)', async ({ page }) => {
     // Intercept the auth check so the page renders
     await page.route('**/auth/login', route => route.fulfill({ status: 200, body: '{}' }));

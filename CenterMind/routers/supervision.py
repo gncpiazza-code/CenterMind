@@ -1476,6 +1476,77 @@ def supervision_ventas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/supervision/avance-ventas/{dist_id}", tags=["Supervisión"])
+def supervision_avance_ventas(
+    dist_id: int,
+    modo: str = Query("dia", description="dia | semana | mes"),
+    fecha: Optional[str] = Query(None, description="YYYY-MM-DD ancla del periodo"),
+    sucursal: Optional[str] = Query(None, description="Nombre ERP sucursal; omitir/__all__ = todas"),
+    vendedor: Optional[str] = Query(
+        None,
+        description="Vendedor ERP display; omitir/__all__ = todos; __sin_vendedor__ = bucket sin vendedor",
+    ),
+    user_payload=Depends(verify_auth),
+):
+    """Avance de ventas en volumen (bultos + unidades) — analytics supervisión, sin importes."""
+    check_dist_permission(user_payload, dist_id)
+    suc_param = None if (sucursal or "").strip() in ("", "__all__") else sucursal
+    assert_sucursal_nombre_allowed(user_payload, suc_param)
+    try:
+        from services.avance_ventas_service import build_avance_ventas
+
+        fecha_ancla = (fecha or "").strip() or _today_ar().isoformat()
+        return build_avance_ventas(
+            dist_id,
+            modo=modo,
+            fecha=fecha_ancla,
+            sucursal=suc_param,
+            vendedor=vendedor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en supervision_avance_ventas dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/supervision/avance-ventas/{dist_id}/sku/{cod_articulo}/clientes", tags=["Supervisión"])
+def supervision_avance_ventas_sku_clientes(
+    dist_id: int,
+    cod_articulo: str,
+    modo: str = Query("dia", description="dia | semana | mes"),
+    fecha: Optional[str] = Query(None, description="YYYY-MM-DD ancla del periodo"),
+    sucursal: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
+    """Drill lazy: top/bottom clientes de un SKU fuera del top 20 precalculado."""
+    check_dist_permission(user_payload, dist_id)
+    suc_param = None if (sucursal or "").strip() in ("", "__all__") else sucursal
+    assert_sucursal_nombre_allowed(user_payload, suc_param)
+    try:
+        from services.avance_ventas_service import build_avance_ventas_sku_clientes
+
+        fecha_ancla = (fecha or "").strip() or _today_ar().isoformat()
+        return build_avance_ventas_sku_clientes(
+            dist_id,
+            cod_articulo=cod_articulo,
+            modo=modo,
+            fecha=fecha_ancla,
+            sucursal=suc_param,
+            vendedor=vendedor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en supervision_avance_ventas_sku dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 _CC_DETALLE_COLS = (
     "id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, "
     "id_cliente, deuda_total, deuda_7_dias, deuda_15_dias, deuda_30_dias, "

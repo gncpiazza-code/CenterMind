@@ -2257,6 +2257,160 @@ export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
   return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
 }
 
+// ── Avance de Ventas (supervisión, volumen sin $) ───────────────────────────
+
+export type AvanceVentasModo = "dia" | "semana" | "mes";
+
+export interface AvanceDeltaKpi {
+  diff: number;
+  pct: number | null;
+  anterior: number | null;
+  disponible: boolean;
+}
+
+export interface AvanceComparativaBloque {
+  disponible: boolean;
+  periodo: { desde: string; hasta: string } | null;
+  bultos: AvanceDeltaKpi;
+  unidades: AvanceDeltaKpi;
+  clientes: AvanceDeltaKpi;
+  skus: AvanceDeltaKpi;
+  comprobantes: AvanceDeltaKpi;
+}
+
+export interface AvanceKpiCard {
+  id: "bultos" | "unidades" | "clientes" | "skus" | "comprobantes";
+  valor: number;
+  wow?: AvanceDeltaKpi | null;
+  mom?: AvanceDeltaKpi | null;
+}
+
+export interface AvanceShareVendedor {
+  vendedor: string;
+  bultos: number;
+  unidades: number;
+  pct_bultos: number;
+}
+
+export interface AvanceSkuRankingRow {
+  cod_articulo: string;
+  articulo: string;
+  agrupacion?: string;
+  bultos: number;
+  unidades: number;
+  clientes: number;
+  intensidad: number;
+  penetracion_pct?: number | null;
+  wow_bultos?: AvanceDeltaKpi;
+  mom_bultos?: AvanceDeltaKpi;
+}
+
+export interface AvanceSkuInsight {
+  cod_articulo: string;
+  articulo: string;
+  bultos: number;
+  unidades: number;
+  clientes: number;
+  intensidad: number;
+  penetracion_pct?: number | null;
+}
+
+export interface AvanceClienteVolumen {
+  cliente: string;
+  id_cliente_erp: string | null;
+  bultos: number;
+  unidades: number;
+}
+
+export interface AvanceVentasResponse {
+  modo: AvanceVentasModo;
+  fecha_ancla: string;
+  periodo: { desde: string; hasta: string; label: string; parcial: boolean };
+  sync: { last_updated: string | null; next_run_hint?: string };
+  filtros: { sucursal: string | null; vendedor: string | null };
+  cartera_scope: number | null;
+  metadatos: {
+    total_bultos: number;
+    total_unidades: number;
+    clientes_compra: number;
+    skus_activos: number;
+    comprobantes: number;
+  };
+  comparativas: Partial<
+    Record<"wow" | "mom" | "semana_anterior" | "mes_anterior", AvanceComparativaBloque>
+  >;
+  kpis_cards: AvanceKpiCard[];
+  share_vendedores: AvanceShareVendedor[] | null;
+  ranking_skus: AvanceSkuRankingRow[];
+  insights: {
+    mas_vendido: AvanceSkuInsight | null;
+    menos_vendido: AvanceSkuInsight | null;
+    mayor_penetracion: AvanceSkuInsight | null;
+    mayor_intensidad: AvanceSkuInsight | null;
+    mayor_concentracion: AvanceSkuInsight | null;
+  };
+  series: {
+    por_agrupacion: Array<{ label: string; bultos: number; unidades: number }>;
+    scatter_penetracion_intensidad: Array<{
+      sku: string;
+      cod_articulo: string;
+      clientes: number;
+      bultos: number;
+      intensidad: number;
+    }>;
+    heatmap_top_skus: Array<{
+      sku: string;
+      cod_articulo: string;
+      actual: number;
+      ref_wow: number | null;
+      ref_mom: number | null;
+    }>;
+  };
+  drill_clientes_por_sku: Record<
+    string,
+    { top: AvanceClienteVolumen[]; bottom: AvanceClienteVolumen[] }
+  >;
+}
+
+export interface AvanceSkuClientesResponse {
+  cod_articulo: string;
+  modo: AvanceVentasModo;
+  periodo: { desde: string; hasta: string; label: string; parcial: boolean };
+  top: AvanceClienteVolumen[];
+  bottom: AvanceClienteVolumen[];
+}
+
+export async function fetchAvanceVentasSupervision(
+  distId: number,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string,
+  vendedor?: string,
+): Promise<AvanceVentasResponse> {
+  const qp = new URLSearchParams({ modo, fecha });
+  if (sucursal) qp.set("sucursal", sucursal);
+  if (vendedor) qp.set("vendedor", vendedor);
+  return apiFetch<AvanceVentasResponse>(
+    `/api/supervision/avance-ventas/${distId}?${qp.toString()}`,
+  );
+}
+
+export async function fetchAvanceVentasSkuClientes(
+  distId: number,
+  codArticulo: string,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string,
+  vendedor?: string,
+): Promise<AvanceSkuClientesResponse> {
+  const qp = new URLSearchParams({ modo, fecha });
+  if (sucursal) qp.set("sucursal", sucursal);
+  if (vendedor) qp.set("vendedor", vendedor);
+  return apiFetch<AvanceSkuClientesResponse>(
+    `/api/supervision/avance-ventas/${distId}/sku/${encodeURIComponent(codArticulo)}/clientes?${qp.toString()}`,
+  );
+}
+
 /** PDF de CC (mismo formato que difusión Telegram). Varios vendedores → ZIP. */
 export async function downloadCuentasSupervisionPdf(
   distId: number,

@@ -2,7 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AltasTab } from '@/hooks/useAltasCompradores';
 
+export type SupervisionViewMode = 'cc' | 'avance';
+export type AvancePeriodoModo = 'dia' | 'semana' | 'mes';
+
+/** Filtro vendedor exclusivo del modo avance (bucket sin vendedor ERP). */
+export const SIN_VENDEDOR_VALUE = '__sin_vendedor__';
+
 interface SupervisionPanelStore {
+  // Modo de pantalla: Cuentas Corrientes | Avance de ventas
+  viewMode: SupervisionViewMode;
+  // Periodo del modo avance de ventas
+  avanceModo: AvancePeriodoModo;
+  avanceFecha: string;                 // YYYY-MM-DD ancla
+
   // Filtros
   selectedSucursal: string;            // "__all__" = todas
   selectedVendedorNombre: string | null;
@@ -19,6 +31,8 @@ interface SupervisionPanelStore {
   selectedClienteErp: string | null;
 
   // Actions
+  setViewMode: (m: SupervisionViewMode) => void;
+  setAvancePeriodo: (modo: AvancePeriodoModo, fecha: string) => void;
   setSelectedSucursal: (s: string) => void;
   setSelectedVendedorNombre: (n: string | null) => void;
   setAltasMes: (m: string) => void;
@@ -34,9 +48,19 @@ function currentMes(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+function todayIso(): string {
+  // Calendario AR (UTC-3)
+  const now = new Date();
+  const ar = new Date(now.getTime() + (now.getTimezoneOffset() - 180) * 60_000);
+  return ar.toISOString().slice(0, 10);
+}
+
 export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
   persist(
     (set, get) => ({
+      viewMode: 'cc',
+      avanceModo: 'dia',
+      avanceFecha: todayIso(),
       selectedSucursal: '__all__',
       selectedVendedorNombre: null,
       altasMes: currentMes(),
@@ -45,6 +69,20 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       ccSortDir: 'desc',
       ccResumenExpanded: true,
       selectedClienteErp: null,
+
+      setViewMode: (m) => {
+        const { selectedVendedorNombre } = get();
+        set({
+          viewMode: m,
+          // "Sin vendedor" solo existe en avance: al volver a CC, resetear a todos.
+          selectedVendedorNombre:
+            m === 'cc' && selectedVendedorNombre === SIN_VENDEDOR_VALUE
+              ? null
+              : selectedVendedorNombre,
+        });
+      },
+
+      setAvancePeriodo: (modo, fecha) => set({ avanceModo: modo, avanceFecha: fecha }),
 
       setSelectedSucursal: (s) =>
         set({ selectedSucursal: s, selectedVendedorNombre: null, selectedClienteErp: null }),
@@ -77,6 +115,8 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
     {
       name: 'supervision-panel-store',
       partialize: (state) => ({
+        viewMode: state.viewMode,
+        avanceModo: state.avanceModo,
         selectedSucursal: state.selectedSucursal,
         selectedVendedorNombre: state.selectedVendedorNombre,
         altasMes: state.altasMes,
@@ -84,6 +124,7 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
         ccSort: state.ccSort,
         ccSortDir: state.ccSortDir,
         ccResumenExpanded: state.ccResumenExpanded,
+        // avanceFecha NO se persiste: cada sesión arranca en "hoy".
       }),
     }
   )

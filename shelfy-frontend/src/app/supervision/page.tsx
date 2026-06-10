@@ -19,7 +19,11 @@ import {
 import { formatCcKpiTrendDisplay, hasCcKpiTrends, shouldShowCcKpiTrend } from "@/lib/supervision-cc-trend";
 import { filterSucursalNamesForUser } from "@/lib/sucursal-scope";
 import { CcSyncStatusBadge } from "@/components/supervision/CcSyncStatusBadge";
-import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
+import { VentasSyncStatusBadge } from "@/components/supervision/VentasSyncStatusBadge";
+import { SupervisionModeToggle } from "@/components/supervision/SupervisionModeToggle";
+import { AvanceVentasPeriodSelector } from "@/components/supervision/AvanceVentasPeriodSelector";
+import { SupervisionAvanceVentasPanel } from "@/components/supervision/avance/SupervisionAvanceVentasPanel";
+import { SIN_VENDEDOR_VALUE, useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
   useSupervisionPanelQueries,
   usePrefetchDeudoresBatch,
@@ -158,6 +162,11 @@ export default function SupervisionPage() {
 
   // ── Zustand store ────────────────────────────────────────────────────────────
   const {
+    viewMode,
+    avanceModo,
+    avanceFecha,
+    setViewMode,
+    setAvancePeriodo,
     selectedSucursal,
     selectedVendedorNombre,
     ccSort,
@@ -181,6 +190,10 @@ export default function SupervisionPage() {
 
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
+  // "Sin vendedor" es un bucket exclusivo del modo avance: nunca llega a queries CC.
+  const ccVendedorNombre =
+    selectedVendedorNombre === SIN_VENDEDOR_VALUE ? null : selectedVendedorNombre;
+
   const {
     vendedores,
     vendedoresLoading,
@@ -193,9 +206,10 @@ export default function SupervisionPage() {
     ccKpisData,
     syncStatus,
     prefetchDeudor,
-  } = useSupervisionPanelQueries(distId, selectedSucursal, selectedVendedorNombre);
+  } = useSupervisionPanelQueries(distId, selectedSucursal, ccVendedorNombre);
 
-  const isRefreshing = vendedoresFetching || fetchingCuentas;
+  const isAvance = viewMode === "avance";
+  const isRefreshing = vendedoresFetching || (!isAvance && fetchingCuentas);
 
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
@@ -297,20 +311,30 @@ export default function SupervisionPage() {
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden pb-24 md:pb-8">
             <div className="max-w-[1400px] mx-auto flex flex-col flex-1 min-h-0 w-full gap-0">
 
-              {/* ── NIVEL 1: Sticky subheader — solo filtros, sin badges ni título ── */}
+              {/* ── NIVEL 1: Sticky subheader — toggle CC|Avance + filtros ── */}
               <div className="sticky top-0 z-20 bg-[var(--shelfy-bg)]/90 backdrop-blur-md border-b border-[var(--shelfy-border)] px-4 md:px-6 py-3">
                 <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
-                  <div className="flex flex-col sm:flex-row sm:items-end gap-3 min-w-0">
-                    <div className="flex items-center gap-2 shrink-0">
-                      <CreditCard size={15} className="text-rose-500" />
-                      <span className="text-sm font-black text-[var(--shelfy-text)] tracking-tight">
-                        Cuentas Corrientes
-                      </span>
-                      {isRefreshing && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--shelfy-muted)]" />
+                  <div className="flex flex-col gap-2 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-2 shrink-0">
+                        <SupervisionModeToggle mode={viewMode} onChange={setViewMode} />
+                        {isRefreshing && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--shelfy-muted)]" />
+                        )}
+                      </div>
+                      {isAvance ? (
+                        <VentasSyncStatusBadge entry={syncStatus?.ventas} className="max-w-md" />
+                      ) : (
+                        <CcSyncStatusBadge entry={syncStatus?.cuentas_corrientes} className="max-w-md" />
                       )}
                     </div>
-                    <CcSyncStatusBadge entry={syncStatus?.cuentas_corrientes} className="max-w-md" />
+                    {isAvance && (
+                      <AvanceVentasPeriodSelector
+                        modo={avanceModo}
+                        fecha={avanceFecha}
+                        onChange={setAvancePeriodo}
+                      />
+                    )}
                   </div>
 
                   {/* ── Filtros jerarquizados ─────────────────────────────── */}
@@ -347,6 +371,9 @@ export default function SupervisionPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__all__">Todos los vendedores</SelectItem>
+                          {isAvance && (
+                            <SelectItem value={SIN_VENDEDOR_VALUE}>Sin vendedor</SelectItem>
+                          )}
                           {vendedorOptions.map((nombre) => (
                             <SelectItem key={nombre} value={nombre}>{nombre}</SelectItem>
                           ))}
@@ -357,9 +384,23 @@ export default function SupervisionPage() {
                 </div>
               </div>
 
-              <div className="p-4 md:p-6 flex flex-col flex-1 min-h-0 gap-5 overflow-hidden">
+              <div
+                className={cn(
+                  "p-4 md:p-6 flex flex-col flex-1 min-h-0 gap-5",
+                  isAvance ? "overflow-y-auto" : "overflow-hidden",
+                )}
+              >
 
-                {vendedoresLoading ? (
+                {isAvance ? (
+                  <SupervisionAvanceVentasPanel
+                    distId={distId}
+                    modo={avanceModo}
+                    fecha={avanceFecha}
+                    sucursal={sucursalParam ?? null}
+                    vendedor={selectedVendedorNombre}
+                    ventasSync={syncStatus?.ventas}
+                  />
+                ) : vendedoresLoading ? (
                   <SupervisionPageLoadingShell />
                 ) : (
                 <SupervisionReveal

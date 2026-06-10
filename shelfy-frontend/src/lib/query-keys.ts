@@ -134,6 +134,40 @@ export const supervisionPanelKeys = {
     ['supervision-panel', 'cc-kpis', distId, vendedorId ?? null] as const,
   deudorDetalle: (distId: number, idClienteErp: string) =>
     ['supervision-panel', 'deudor-detalle', distId, idClienteErp] as const,
+  avanceVentas: (
+    distId: number,
+    modo: string,
+    fecha: string,
+    sucursal?: string | null,
+    vendedor?: string | null,
+  ) =>
+    [
+      'supervision-panel',
+      'avance-ventas',
+      distId,
+      modo,
+      fecha,
+      sucursal ?? '__all__',
+      vendedor ?? '__all__',
+    ] as const,
+  avanceVentasSku: (
+    distId: number,
+    codArticulo: string,
+    modo: string,
+    fecha: string,
+    sucursal?: string | null,
+    vendedor?: string | null,
+  ) =>
+    [
+      'supervision-panel',
+      'avance-ventas-sku',
+      distId,
+      codArticulo,
+      modo,
+      fecha,
+      sucursal ?? '__all__',
+      vendedor ?? '__all__',
+    ] as const,
 };
 
 // ── Admin Dashboard (motor runs) ──────────────────────────────────────────────

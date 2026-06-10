@@ -40,7 +40,7 @@ Catálogo: **`docs/context/modules/tenants.md`** · registry `core/rpa_tenant_re
 
 ## Endpoints nucleares
 
-Supervision · Dashboard · Difusión · ERP sync · Auth · WS · Portal feedback · Compañía reevaluación · Galería mapa bbox · Objetivos lanzar/preview · **Mapa capas planificación** `/api/supervision/mapa/capas`
+Supervision · Dashboard · Difusión · ERP sync · Auth · WS · Portal feedback · Compañía reevaluación · Galería mapa bbox · Objetivos lanzar/preview · **Mapa capas planificación** `/api/supervision/mapa/capas` · **Avance ventas** `/api/supervision/avance-ventas/{dist}` (volumen sin $, `avance_ventas_service.py`)
 
 ## Riesgos
 
@@ -56,3 +56,4 @@ Supervision · Dashboard · Difusión · ERP sync · Auth · WS · Portal feedba
 - Exhibición: `docs/context/modules/exhibicion-ranking.md`
 - Galería: `docs/context/modules/galeria-mapa.md`
 - Supervisión mapa: `docs/context/modules/supervision-mapa.md`
+- Supervisión avance ventas: `docs/context/modules/supervision-avance-ventas.md`

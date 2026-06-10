@@ -34,6 +34,7 @@ Topbar + TopModeTabs + BottomNav (sidebar desactivado en operación normal).
 |----------|----------------|
 | Dashboard | `modules/dashboard.md` · `components/dashboard/*` |
 | Supervisión mapa | `modules/supervision-mapa.md` · `TabSupervision`, `MapaRutas`, `map/*` · modos `explorar` / `objetivo_zona` / `crear_rutas` |
+| Supervisión avance ventas | `modules/supervision-avance-ventas.md` · `app/supervision/page.tsx` toggle CC\|Avance · `components/supervision/avance/*` · volumen sin $ |
 | Objetivos | `modules/objetivos.md` · `app/objetivos/page.tsx` |
 | Galería | `modules/galeria-mapa.md` · `app/galeria-exhibiciones/` |
 | Visor | `modules/visor-glass.md` · `app/visor/` |

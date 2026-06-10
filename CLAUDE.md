@@ -63,6 +63,7 @@ Resumen: dedup `(vendedor_erp, cliente_key, calendar_day_AR)` solo vía `core/ex
 | Objetivos | `docs/context/modules/objetivos.md` |
 | Galería mapa | `docs/context/modules/galeria-mapa.md` |
 | Supervisión mapa | `docs/context/modules/supervision-mapa.md` |
+| Supervisión avance ventas | `docs/context/modules/supervision-avance-ventas.md` |
 | Dashboard | `docs/context/modules/dashboard.md` |
 | Telegram binding | `docs/context/modules/telegram-binding.md` |
 | App móvil | `docs/context/modules/mobile-app.md` |

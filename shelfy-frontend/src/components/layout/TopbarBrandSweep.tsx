@@ -16,18 +16,40 @@ const SWEEP_TRANSITION = { duration: SWEEP_DURATION, ease: SWEEP_EASE };
 const IS_DEV = process.env.NODE_ENV === "development";
 
 const NEON_STEPS = 48;
+const NEON_CYCLE = 2.05;
 
-function buildNeonOpacity(steps: number): number[] {
+function buildPulse(steps: number, phase = 0): number[] {
   return Array.from({ length: steps }, (_, i) => {
-    const t = i / steps;
-    const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 2.05);
-    const pulse2 = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 2.05 + 1.35);
-    return 0.28 + 0.52 * pulse + 0.18 * pulse2;
+    const t = i / steps + phase;
+    const wave = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * NEON_CYCLE);
+    const flicker = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * NEON_CYCLE * 3.7 + 0.9);
+    return Math.max(0, Math.min(1, wave * 0.78 + flicker * 0.22));
   });
 }
 
-const NEON_OPACITY = buildNeonOpacity(NEON_STEPS);
+const NEON_PULSE = buildPulse(NEON_STEPS);
+const NEON_PULSE_B = buildPulse(NEON_STEPS, 0.31);
 const NEON_TIMES = Array.from({ length: NEON_STEPS }, (_, i) => i / (NEON_STEPS - 1));
+
+/** Relleno base más oscuro cuando el tubo “prende” — contraste cartel neón. */
+const NEON_BASE_FILTER = NEON_PULSE.map((p, i) => {
+  const brightness = 0.94 - 0.28 * p;
+  const saturate = 1.18 + 0.62 * NEON_PULSE_B[i];
+  return `brightness(${brightness.toFixed(3)}) saturate(${saturate.toFixed(3)}) contrast(1.08)`;
+});
+
+/** Luz interior del tubo (violeta claro). */
+const NEON_FILL_OPACITY = NEON_PULSE.map((p) => 0.06 + 0.58 * p ** 1.15);
+
+/** Halo exterior. */
+const NEON_HALO_OPACITY = NEON_PULSE.map((p, i) => 0.12 + 0.68 * p * (0.85 + 0.15 * NEON_PULSE_B[i]));
+
+const NEON_TRANSITION = {
+  duration: 2.1,
+  repeat: Infinity,
+  ease: "linear" as const,
+  times: NEON_TIMES,
+};
 
 const WORDMARK_IMG = "block max-w-none select-none pointer-events-none";
 
@@ -126,32 +148,42 @@ function WordTrail({
       }}
     >
       <div className="relative" style={{ width: travel, height: wordmarkH }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <motion.img
           src="/SHELFY_WORDMARK.svg"
           alt=""
           draggable={false}
           aria-hidden
           className={WORDMARK_IMG}
           style={{ width: travel, height: wordmarkH }}
+          initial={false}
+          animate={{ filter: neonActive ? NEON_BASE_FILTER : "none" }}
+          transition={neonActive ? NEON_TRANSITION : { duration: 0.15 }}
         />
         {neonActive && (
-          <motion.img
-            src="/SHELFY_WORDMARK-glow.svg"
-            alt=""
-            draggable={false}
-            aria-hidden
-            className={`absolute inset-0 ${WORDMARK_IMG}`}
-            style={{ width: travel, height: wordmarkH }}
-            initial={false}
-            animate={{ opacity: NEON_OPACITY }}
-            transition={{
-              duration: 2.1,
-              repeat: Infinity,
-              ease: "linear",
-              times: NEON_TIMES,
-            }}
-          />
+          <>
+            <motion.img
+              src="/SHELFY_WORDMARK-neon-fill.svg"
+              alt=""
+              draggable={false}
+              aria-hidden
+              className={`absolute inset-0 ${WORDMARK_IMG}`}
+              style={{ width: travel, height: wordmarkH, mixBlendMode: "screen" }}
+              initial={false}
+              animate={{ opacity: NEON_FILL_OPACITY }}
+              transition={NEON_TRANSITION}
+            />
+            <motion.img
+              src="/SHELFY_WORDMARK-glow.svg"
+              alt=""
+              draggable={false}
+              aria-hidden
+              className={`absolute inset-0 ${WORDMARK_IMG}`}
+              style={{ width: travel, height: wordmarkH, mixBlendMode: "screen" }}
+              initial={false}
+              animate={{ opacity: NEON_HALO_OPACITY }}
+              transition={NEON_TRANSITION}
+            />
+          </>
         )}
       </div>
     </div>

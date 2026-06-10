@@ -26,15 +26,12 @@ class CaptureScreen extends StatefulWidget {
   State<CaptureScreen> createState() => _CaptureScreenState();
 }
 
-class _CaptureScreenState extends State<CaptureScreen>
-    with SingleTickerProviderStateMixin {
+class _CaptureScreenState extends State<CaptureScreen> {
   final TextEditingController _searchController = TextEditingController();
   final GlobalKey<CameraCaptureWidgetState> _cameraKey =
       GlobalKey<CameraCaptureWidgetState>();
-  late AnimationController _sheetAnim;
-  late Animation<Offset> _sheetSlide;
   CaptureProvider? _captureProvider;
-  CaptureOverlayPhase? _lastAnimatedPhase;
+  CaptureOverlayPhase? _lastPhase;
 
   /// NRO pendiente de Cartera CTA — se pre-llena al abrir la fase assignPdv.
   String? _pendingPdvNro;
@@ -42,15 +39,6 @@ class _CaptureScreenState extends State<CaptureScreen>
   @override
   void initState() {
     super.initState();
-    _sheetAnim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _sheetSlide = Tween<Offset>(
-      begin: const Offset(0, 1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _sheetAnim, curve: Curves.easeOutCubic));
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _startBackgroundGps();
@@ -67,13 +55,15 @@ class _CaptureScreenState extends State<CaptureScreen>
       _captureProvider?.removeListener(_onProviderPhaseChanged);
       _captureProvider = provider;
       provider.addListener(_onProviderPhaseChanged);
-      _syncSheetToPhase(provider.phase);
+      _onProviderPhaseChanged();
     }
   }
 
   void _onProviderPhaseChanged() {
     if (!mounted) return;
     final phase = _captureProvider?.phase;
+    if (phase == null || _lastPhase == phase) return;
+    _lastPhase = phase;
     // Al entrar en assignPdv: pre-fill de Cartera CTA si hay pendiente
     if (phase == CaptureOverlayPhase.assignPdv && _pendingPdvNro != null) {
       final nro = _pendingPdvNro!;
@@ -81,25 +71,13 @@ class _CaptureScreenState extends State<CaptureScreen>
       _searchController.text = nro;
       _captureProvider?.searchPdv(nro);
     }
-    _syncSheetToPhase(phase);
-  }
-
-  void _syncSheetToPhase(CaptureOverlayPhase? phase) {
-    if (phase == null || _lastAnimatedPhase == phase) return;
-    _lastAnimatedPhase = phase;
-    final showSheet = phase != CaptureOverlayPhase.burstLive;
-    if (showSheet) {
-      _sheetAnim.forward();
-    } else {
-      _sheetAnim.reverse();
-    }
+    setState(() {});
   }
 
   @override
   void dispose() {
     _captureProvider?.removeListener(_onProviderPhaseChanged);
     _searchController.dispose();
-    _sheetAnim.dispose();
     super.dispose();
   }
 
@@ -117,10 +95,17 @@ class _CaptureScreenState extends State<CaptureScreen>
         provider.onGpsUnavailable();
         return;
       }
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null && mounted) {
+        await provider.refreshNearbyPdvs(
+          lat: last.latitude,
+          lng: last.longitude,
+        );
+      }
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 6),
         ),
       );
       if (mounted) {
@@ -223,20 +208,18 @@ class _CaptureScreenState extends State<CaptureScreen>
                   child: _BurstFilmstrip(provider: provider),
                 ),
 
-              // Z3: Sheet de overlay con las fases
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: SlideTransition(
-                  position: _sheetSlide,
+              // Z3: Sheet solo post-Listo (nunca durante burst — evita GPU + taps accidentales)
+              if (!isBurst)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
                   child: _OverlaySheet(
                     provider: provider,
                     searchController: _searchController,
                     onReset: _resetAndRefresh,
                   ),
                 ),
-              ),
             ],
           ),
         );
@@ -401,6 +384,8 @@ class _BurstFilmstrip extends StatelessWidget {
                   photo.file,
                   width: 64,
                   height: 64,
+                  cacheWidth: 128,
+                  cacheHeight: 128,
                   fit: BoxFit.cover,
                 ),
               ),

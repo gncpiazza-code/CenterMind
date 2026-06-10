@@ -7,8 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../core/utils/device_profile.dart';
-import '../capture_provider.dart';
+import '../capture_provider.dart' show kMaxPhotosPerExhibicion;
 import '../models/capture_photo.dart';
+import '../native_capture_service.dart';
 
 /// Preview de cámara pro — zoom pinch, tap-to-focus, flash, grilla de encuadre.
 /// Soporta modo nativo (gama baja): muestra pantalla estática con botón tomar foto.
@@ -54,16 +55,15 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   bool _showGrid = false;
   bool _showZoomIndicator = false;
   Timer? _zoomIndicatorTimer;
+  bool _useNative = false;
+  File? _lastNativePreview;
 
   static const _flashModes = [FlashMode.auto, FlashMode.always, FlashMode.off];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      if (mounted) _initCamera();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapCamera());
   }
 
   @override
@@ -80,6 +80,28 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   }
 
   Future<void> takePhoto() => _takePhoto();
+
+  CapturePhotoMetadata _metadataFromCache() {
+    return CapturePhotoMetadata(
+      capturedAtUtc: DateTime.now().toUtc(),
+      lat: widget.lastKnownLat,
+      lng: widget.lastKnownLng,
+    );
+  }
+
+  Future<void> _bootstrapCamera() async {
+    final useNative = await DeviceProfile.shouldUseNativeCamera();
+    if (!mounted) return;
+    if (useNative) {
+      setState(() {
+        _useNative = true;
+        _initializing = false;
+      });
+      widget.onCameraReady?.call(takePhoto);
+      return;
+    }
+    await _initCamera();
+  }
 
   Future<void> _releaseCamera() {
     _releaseFuture ??= _releaseCameraImpl();
@@ -244,7 +266,29 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _takePhotoNative() async {
+    if (_capturing) return;
+    _setCapturing(true);
+    HapticFeedback.mediumImpact();
+    try {
+      final file = await NativeCaptureService.capturePhoto();
+      if (file == null || !mounted) return;
+      setState(() => _lastNativePreview = file);
+      widget.onPhotoTaken(file, _metadataFromCache());
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al tomar la foto')),
+        );
+      }
+    } finally {
+      _setCapturing(false);
+    }
+  }
+
   Future<void> _takePhoto() async {
+    if (_useNative) return _takePhotoNative();
+
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized || _capturing) return;
 
@@ -253,24 +297,24 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
 
     final sw = Stopwatch()..start();
     try {
-      // Usa GPS cacheado del provider — evita petición GPS por disparo en burst.
-      final metadata = widget.lastKnownLat != null && widget.lastKnownLng != null
-          ? CapturePhotoMetadata(
-              capturedAtUtc: DateTime.now().toUtc(),
-              lat: widget.lastKnownLat,
-              lng: widget.lastKnownLng,
-            )
-          : await CaptureProvider.captureMetadataNow();
-
       final xfile = await controller.takePicture();
       sw.stop();
 
-      // Auto-detectar gama baja: primer disparo > 800 ms → marcar para fallback nativo.
       if (sw.elapsedMilliseconds > 800 && DeviceProfile.isAndroid) {
-        DeviceProfile.markSlowCameraDetected();
+        await DeviceProfile.markSlowCameraDetected();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Cámara lenta detectada. Activá «Usar cámara del sistema» en Ajustes.',
+              ),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       }
 
-      widget.onPhotoTaken(File(xfile.path), metadata);
+      widget.onPhotoTaken(File(xfile.path), _metadataFromCache());
     } catch (_) {
       sw.stop();
       if (mounted) {
@@ -344,6 +388,49 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     );
   }
 
+  Widget _buildNativeCaptureUi(BuildContext context) {
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_lastNativePreview != null)
+          Positioned.fill(
+            child: Image.file(_lastNativePreview!, fit: BoxFit.cover),
+          )
+        else
+          const ColoredBox(color: Colors.black),
+        Positioned.fill(
+          child: ColoredBox(color: Colors.black.withValues(alpha: 0.22)),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 132 + bottomPad,
+          child: Text(
+            widget.photoCount == 0
+                ? 'Cámara del sistema — tocá el botón para cada foto'
+                : '${widget.photoCount}/$kMaxPhotosPerExhibicion · seguí sacando o tocá Listo arriba',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: _BottomShutterArea(
+            capturing: _capturing,
+            onShutter: _takePhoto,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_initializing) {
@@ -362,6 +449,10 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       );
     }
 
+    if (_useNative) {
+      return _buildNativeCaptureUi(context);
+    }
+
     if (_error != null) {
       return ColoredBox(
         color: Colors.black,
@@ -375,7 +466,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
                 const SizedBox(height: 16),
                 Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
                 const SizedBox(height: 20),
-                FilledButton(onPressed: _initCamera, child: const Text('Reintentar')),
+                FilledButton(onPressed: _bootstrapCamera, child: const Text('Reintentar')),
               ],
             ),
           ),
@@ -383,7 +474,10 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
       );
     }
 
-    final controller = _controller!;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const ColoredBox(color: Colors.black);
+    }
     final hasZoom = _maxZoom > _minZoom + 0.5;
 
     return Stack(

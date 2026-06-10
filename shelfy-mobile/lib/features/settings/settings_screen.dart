@@ -13,6 +13,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool? _nativeCameraOverride;
+  bool _useNativeCamera = true;
   bool _loading = true;
 
   @override
@@ -23,9 +24,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final override = await DeviceProfile.getNativeCameraOverride();
+    final useNative = await DeviceProfile.shouldUseNativeCamera();
     if (mounted) {
       setState(() {
         _nativeCameraOverride = override;
+        _useNativeCamera = useNative;
         _loading = false;
       });
     }
@@ -33,12 +36,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleNativeCamera(bool value) async {
     await DeviceProfile.setNativeCameraOverride(useNative: value);
-    setState(() => _nativeCameraOverride = value);
+    setState(() {
+      _nativeCameraOverride = value;
+      _useNativeCamera = value;
+    });
   }
 
   Future<void> _clearOverride() async {
     await DeviceProfile.clearNativeCameraFlags();
-    setState(() => _nativeCameraOverride = null);
+    final useNative = await DeviceProfile.shouldUseNativeCamera();
+    if (!mounted) return;
+    setState(() {
+      _nativeCameraOverride = null;
+      _useNativeCamera = useNative;
+    });
   }
 
   @override
@@ -67,15 +78,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Usar cámara del sistema',
                   subtitle: DeviceProfile.isIOS
                       ? 'No disponible en iOS — siempre se usa cámara Flutter'
-                      : _nativeCameraOverride == null
-                          ? 'Auto-detectado según rendimiento del dispositivo'
-                          : _nativeCameraOverride!
-                              ? 'Activado — se usa el intent de cámara del SO'
-                              : 'Desactivado — se usa la cámara Flutter integrada',
+                      : _useNativeCamera
+                          ? (_nativeCameraOverride == null
+                              ? 'Recomendado en Android gama baja (Xiaomi, etc.)'
+                              : 'Activado — cámara del sistema')
+                          : 'Desactivado — preview Flutter (más lento en gama baja)',
                   trailing: DeviceProfile.isIOS
                       ? const SizedBox.shrink()
                       : Switch(
-                          value: _nativeCameraOverride ?? false,
+                          value: _useNativeCamera,
                           onChanged: _toggleNativeCamera,
                           activeThumbColor: ShelfyTokens.primary,
                         ),

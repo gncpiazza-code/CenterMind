@@ -8,9 +8,9 @@ abstract final class DeviceProfile {
   static const _kUseNativeCamera = 'use_native_camera_override';
   static const _kSlowCameraDetected = 'slow_camera_detected';
 
-  /// Android gama baja: preview más liviano. iOS: más calidad.
+  /// Android gama baja: preset mínimo. iOS: más calidad.
   static ResolutionPreset get cameraPreset =>
-      Platform.isAndroid ? ResolutionPreset.medium : ResolutionPreset.high;
+      Platform.isAndroid ? ResolutionPreset.low : ResolutionPreset.high;
 
   static bool get isAndroid => Platform.isAndroid;
   static bool get isIOS => Platform.isIOS;
@@ -23,7 +23,9 @@ abstract final class DeviceProfile {
     if (prefs.containsKey(_kUseNativeCamera)) {
       return prefs.getBool(_kUseNativeCamera) ?? false;
     }
-    return prefs.getBool(_kSlowCameraDetected) ?? false;
+    if (prefs.getBool(_kSlowCameraDetected) == true) return true;
+    // P0 vendedores Android: cámara nativa por defecto (Xiaomi/gama baja).
+    return true;
   }
 
   /// Toggle manual desde Ajustes — sobrescribe la auto-detección.

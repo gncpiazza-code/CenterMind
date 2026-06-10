@@ -81,6 +81,7 @@ function measureGeometry(header: HTMLElement, tab: HTMLElement): Geometry | null
 function revealedWidth(phase: Phase, iconX: number, travel: number): number {
   if (travel <= 0) return 0;
   if (phase === "holdAtEnd") return travel;
+  if (iconX >= travel - 0.5) return travel;
   if (phase === "sweepOut") return Math.min(travel, iconX + ICON_PX * 0.38);
   if (phase === "bounceBack") return Math.min(travel, iconX + ICON_PX * 0.55);
   return 0;
@@ -157,34 +158,30 @@ function WordTrail({
           style={{ width: travel, height: wordmarkH }}
           initial={false}
           animate={{ filter: neonActive ? NEON_BASE_FILTER : "none" }}
-          transition={neonActive ? NEON_TRANSITION : { duration: 0.15 }}
+          transition={neonActive ? NEON_TRANSITION : { duration: 0 }}
         />
-        {neonActive && (
-          <>
-            <motion.img
-              src="/SHELFY_WORDMARK-neon-fill.svg"
-              alt=""
-              draggable={false}
-              aria-hidden
-              className={`absolute inset-0 ${WORDMARK_IMG}`}
-              style={{ width: travel, height: wordmarkH, mixBlendMode: "screen" }}
-              initial={false}
-              animate={{ opacity: NEON_FILL_OPACITY }}
-              transition={NEON_TRANSITION}
-            />
-            <motion.img
-              src="/SHELFY_WORDMARK-glow.svg"
-              alt=""
-              draggable={false}
-              aria-hidden
-              className={`absolute inset-0 ${WORDMARK_IMG}`}
-              style={{ width: travel, height: wordmarkH, mixBlendMode: "screen" }}
-              initial={false}
-              animate={{ opacity: NEON_HALO_OPACITY }}
-              transition={NEON_TRANSITION}
-            />
-          </>
-        )}
+        <motion.img
+          src="/SHELFY_WORDMARK-neon-fill.svg"
+          alt=""
+          draggable={false}
+          aria-hidden
+          className={`absolute inset-0 ${WORDMARK_IMG}`}
+          style={{ width: travel, height: wordmarkH, mixBlendMode: "screen" }}
+          initial={false}
+          animate={{ opacity: neonActive ? NEON_FILL_OPACITY : 0 }}
+          transition={neonActive ? NEON_TRANSITION : { duration: 0.2, ease: "easeOut" }}
+        />
+        <motion.img
+          src="/SHELFY_WORDMARK-glow.svg"
+          alt=""
+          draggable={false}
+          aria-hidden
+          className={`absolute inset-0 ${WORDMARK_IMG}`}
+          style={{ width: travel, height: wordmarkH, mixBlendMode: "screen" }}
+          initial={false}
+          animate={{ opacity: neonActive ? NEON_HALO_OPACITY : 0 }}
+          transition={neonActive ? NEON_TRANSITION : { duration: 0.2, ease: "easeOut" }}
+        />
       </div>
     </div>
   );
@@ -213,6 +210,8 @@ function AnimatedSweep({
     if (isHold) setIconX(travel);
   }, [isHold, travel]);
 
+  const iconTargetX = isHold ? travel : isOut ? travel : 0;
+
   return (
     <>
       <WordTrail
@@ -224,33 +223,26 @@ function AnimatedSweep({
         neonActive={isHold}
       />
 
-      {isHold ? (
-        <div
-          className="absolute top-1/2 -translate-y-1/2"
-          style={{ left: homeX + travel, zIndex: 10 }}
-        >
-          <BrandIcon />
-        </div>
-      ) : (
-        <motion.div
-          key={`${cycle}-${phase}-icon`}
-          className="absolute top-1/2 -translate-y-1/2 will-change-transform"
-          style={{ left: homeX, zIndex: 10 }}
-          initial={{ x: isOut ? 0 : travel }}
-          animate={{ x: isOut ? travel : 0 }}
-          transition={SWEEP_TRANSITION}
-          onUpdate={(latest) => {
-            const x = typeof latest.x === "number" ? latest.x : 0;
-            setIconX(x);
-          }}
-          onAnimationComplete={() => {
-            if (isOut) onSweepComplete();
-            if (isBack) onBounceComplete();
-          }}
-        >
-          <BrandIcon eraser={isBack} />
-        </motion.div>
-      )}
+      {/* Un solo motion.div en todo el ciclo — evita parpadeo al entrar/salir de hold. */}
+      <motion.div
+        key={`${cycle}-icon`}
+        className="absolute top-1/2 -translate-y-1/2 will-change-transform"
+        style={{ left: homeX, zIndex: 10 }}
+        initial={{ x: isOut ? 0 : travel }}
+        animate={{ x: iconTargetX }}
+        transition={isHold ? { duration: 0 } : SWEEP_TRANSITION}
+        onUpdate={(latest) => {
+          if (isHold) return;
+          const x = typeof latest.x === "number" ? latest.x : 0;
+          setIconX(x);
+        }}
+        onAnimationComplete={() => {
+          if (isOut) onSweepComplete();
+          if (isBack) onBounceComplete();
+        }}
+      >
+        <BrandIcon eraser={isBack} />
+      </motion.div>
     </>
   );
 }

@@ -4919,7 +4919,7 @@ def supervision_mapa_capas_create(
 ):
     check_dist_permission(user_payload, body.id_distribuidor)
     _assert_mapa_capas_edit(user_payload)
-    row = mapa_capa_create(body.model_dump(), _mapa_capas_actor(user_payload))
+    row = mapa_capa_create(body.model_dump(exclude_unset=True), _mapa_capas_actor(user_payload))
     return row
 
 

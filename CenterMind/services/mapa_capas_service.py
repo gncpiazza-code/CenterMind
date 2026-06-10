@@ -164,7 +164,7 @@ def create_capa(payload: dict, user_id: str | None) -> dict:
         _validate_ruta_belongs_to_vendedor(dist_id, id_vendedor, int(id_ruta))
 
     pdv_ids = payload.get("pdv_ids")
-    if not pdv_ids:
+    if pdv_ids is None:
         pdv_ids = resolve_pdv_ids_in_polygon(dist_id, geojson, id_vendedor)
 
     row = {

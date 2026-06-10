@@ -70,17 +70,15 @@ export function CrearRutasPanel({
     mutationFn: async () => {
       if (!geoJson || pdvIds.length === 0) throw new Error("Dibujá un polígono con PDVs");
       if (!nombre.trim()) throw new Error("Nombre requerido");
-      const body: Parameters<typeof createMapaCapa>[0] = {
+      return createMapaCapa({
         id_distribuidor: distId,
         id_vendedor: idVendedor,
         nombre: nombre.trim(),
         geojson: geoJson as unknown as Record<string, unknown>,
+        pdv_ids: pdvIds,
         color,
         id_ruta_anclada: idRutaAnclada === "" ? null : Number(idRutaAnclada),
-      };
-      // Payload liviano: el backend resuelve pdv_ids desde geojson si no se envían
-      if (pdvIds.length <= 400) body.pdv_ids = pdvIds;
-      return createMapaCapa(body);
+      });
     },
     onSuccess: (capa) => {
       toast.success("Capa guardada");

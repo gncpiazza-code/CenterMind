@@ -599,7 +599,7 @@ class MapaCapaCreate(BaseModel):
     id_vendedor: int
     nombre: str
     geojson: dict
-    pdv_ids: list[int] = Field(default_factory=list)
+    pdv_ids: list[int] | None = None
     color: str | None = None
     id_ruta_anclada: int | None = None
     orden: int | None = None

@@ -728,12 +728,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       : "Error cargando datos"
     : null;
 
-  // Auto-select sucursal if only one exists
+  // Auto-select sucursal si el tenant tiene una sola (ignora null/vacío)
   useEffect(() => {
-    if (vendedores.length > 0 && !selectedSucursal) {
-      const slist = [...new Set(vendedores.map(v => v.sucursal_nombre))];
-      if (slist.length === 1) setSelectedSucursal(slist[0]);
-    }
+    if (vendedores.length === 0 || selectedSucursal) return;
+    const slist = [
+      ...new Set(
+        vendedores
+          .map((v) => v.sucursal_nombre?.trim())
+          .filter((s): s is string => !!s),
+      ),
+    ];
+    if (slist.length === 1) setSelectedSucursal(slist[0]);
   }, [vendedores, selectedSucursal, setSelectedSucursal]);
 
   // Clear visibility when changing distributor
@@ -861,9 +866,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   });
 
   // ── Derived & Filtered ────────────────────────────────────────────────────
-  const sucursales = useMemo(() =>
-    [...new Set(vendedores.map(v => v.sucursal_nombre))].sort(),
-    [vendedores]
+  const sucursales = useMemo(
+    () =>
+      [
+        ...new Set(
+          vendedores
+            .map((v) => v.sucursal_nombre?.trim())
+            .filter((s): s is string => !!s),
+        ),
+      ].sort(),
+    [vendedores],
   );
 
   const vendedoresFiltrados = useMemo(() => {
@@ -1780,8 +1792,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       mapToolMode === "objetivo_zona" ||
       (mapToolMode === "crear_rutas" && rutasZonasTab === "dibujar");
     const sucursalSlot = glass ? (
-      <div className="flex items-center gap-1.5 bg-white/8 rounded-lg px-2.5 py-1 border border-white/10">
-        <Building2 className="w-3.5 h-3.5 text-amber-400" />
+      <div className="flex items-center gap-1.5 bg-black/45 rounded-lg px-2.5 py-1 border border-white/25 shadow-sm">
+        <Building2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
         {loading && sucursales.length === 0 ? (
           <div className="h-4 w-28 rounded bg-white/10 animate-pulse" />
         ) : (

@@ -34,6 +34,8 @@ interface DashboardKpiCarouselProps {
   /** Año/mes del período del gráfico (para día de la semana en picos) */
   chartYear?: number;
   chartMonth?: number;
+  /** Vista mobile del dashboard: sin tragaperras (labels legibles en grid 2×2). */
+  mobileOptimized?: boolean;
 }
 
 type SlideKey = 0 | 1 | 2;
@@ -276,44 +278,57 @@ function KpiCardsGrid({
   cards,
   spinGen,
   isDark,
+  mobileOptimized = false,
 }: {
   cards: KpiCardConfig[];
   spinGen: number;
   isDark: boolean;
+  mobileOptimized?: boolean;
 }) {
   const phase = useSlotPhase();
   const lastIndex = Math.max(cards.length - 1, 0);
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 h-full min-h-0 w-full">
+    <div className={cn(
+      "grid h-full min-h-0 w-full",
+      mobileOptimized ? "grid-cols-2 gap-1.5" : "grid-cols-2 md:grid-cols-4 gap-2 md:gap-3",
+    )}>
       {cards.map((card, index) => {
         const accent = COLOR_MAP[card.colorName].hex;
         const baseDelay = phase === "exit"
           ? (lastIndex - index) * 45
           : index * 60;
+        const cardNode = (
+          <KpiCard
+            variant="compact"
+            immersive={isDark}
+            mobileTight={mobileOptimized}
+            slotSpinKey={mobileOptimized ? undefined : spinGen}
+            slotDelayMs={mobileOptimized ? undefined : baseDelay}
+            label={card.label}
+            value={card.value}
+            icon={card.icon}
+            colorName={card.colorName}
+            bgColor={card.bgColor}
+            suffix={card.suffix}
+            isDecimal={card.isDecimal}
+            tooltip={card.tooltip}
+          />
+        );
         return (
           <div key={`${card.label}-${index}`} className="h-full min-h-0">
-            <KpiCardSlotWrapper
-              spinKey={spinGen}
-              delayMs={baseDelay}
-              accentColor={accent}
-              immersive={isDark}
-            >
-              <KpiCard
-                variant="compact"
+            {mobileOptimized ? (
+              cardNode
+            ) : (
+              <KpiCardSlotWrapper
+                spinKey={spinGen}
+                delayMs={baseDelay}
+                accentColor={accent}
                 immersive={isDark}
-                slotSpinKey={spinGen}
-                slotDelayMs={baseDelay}
-                label={card.label}
-                value={card.value}
-                icon={card.icon}
-                colorName={card.colorName}
-                bgColor={card.bgColor}
-                suffix={card.suffix}
-                isDecimal={card.isDecimal}
-                tooltip={card.tooltip}
-              />
-            </KpiCardSlotWrapper>
+              >
+                {cardNode}
+              </KpiCardSlotWrapper>
+            )}
           </div>
         );
       })}
@@ -771,6 +786,7 @@ export function DashboardKpiCarousel({
   bandHeightPx,
   chartYear,
   chartMonth,
+  mobileOptimized = false,
 }: DashboardKpiCarouselProps) {
   const band = kpiBandSizing(bandHeightPx);
   const cal = arCalendarRef();
@@ -883,7 +899,7 @@ export function DashboardKpiCarousel({
               transition={slideMotionTransition}
             >
               <KpiSlidePanel>
-                <KpiCardsGrid cards={estadosCards} spinGen={spinGen} isDark={isDark} />
+                <KpiCardsGrid cards={estadosCards} spinGen={spinGen} isDark={isDark} mobileOptimized={mobileOptimized} />
               </KpiSlidePanel>
             </motion.div>
           )}
@@ -917,7 +933,7 @@ export function DashboardKpiCarousel({
               transition={slideMotionTransition}
             >
               <KpiSlidePanel>
-                <KpiCardsGrid cards={rendimientoCards} spinGen={spinGen} isDark={isDark} />
+                <KpiCardsGrid cards={rendimientoCards} spinGen={spinGen} isDark={isDark} mobileOptimized={mobileOptimized} />
               </KpiSlidePanel>
             </motion.div>
           )}

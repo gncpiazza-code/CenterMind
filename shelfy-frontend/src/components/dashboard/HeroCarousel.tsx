@@ -17,6 +17,8 @@ interface HeroCarouselProps {
   className?: string;
   /** Si true, desactiva la animación 3D cube entre vendedores (recomendado en mobile). */
   disableCube?: boolean;
+  /** Mobile: contenedor 9:16, imagen cover (estilo IG). Desktop sin cambios. */
+  portraitMobile?: boolean;
 }
 
 const AUTOPLAY_MS = 8000;
@@ -276,7 +278,17 @@ function StoriesFrame({
   );
 }
 
-function StoryImage({ src, alt, onError }: { src: string; alt: string; onError: () => void }) {
+function StoryImage({
+  src,
+  alt,
+  onError,
+  portraitMobile = false,
+}: {
+  src: string;
+  alt: string;
+  onError: () => void;
+  portraitMobile?: boolean;
+}) {
   const [ready, setReady] = useState(false);
   const prevSrc = useRef(src);
 
@@ -296,7 +308,8 @@ function StoryImage({ src, alt, onError }: { src: string; alt: string; onError: 
         decoding="async"
         fetchPriority="high"
         className={cn(
-          "absolute inset-0 w-full h-full object-contain transition-opacity duration-150",
+          "absolute inset-0 w-full h-full transition-opacity duration-150",
+          portraitMobile ? "object-cover object-center" : "object-contain",
           ready ? "opacity-100" : "opacity-0",
         )}
         onLoad={() => setReady(true)}
@@ -375,11 +388,13 @@ function StoryPdvFooter({
 function HeroSlide({
   item,
   compact,
+  portraitMobile,
   direction,
   transitionKind,
 }: {
   item: UltimaEvaluada;
   compact?: boolean;
+  portraitMobile?: boolean;
   direction: number;
   transitionKind: StoryTransition;
 }) {
@@ -416,7 +431,12 @@ function HeroSlide({
       style={transitionKind === "cube" ? { transformStyle: "preserve-3d" } : undefined}
     >
       {imgSrc && !imgErr ? (
-        <StoryImage src={imgSrc} alt="Exhibición" onError={() => setImgErr(true)} />
+        <StoryImage
+          src={imgSrc}
+          alt="Exhibición"
+          onError={() => setImgErr(true)}
+          portraitMobile={portraitMobile}
+        />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-black">
           <ImageOff size={36} className="text-neutral-600" />
@@ -459,7 +479,14 @@ function preloadStoryImage(item: UltimaEvaluada) {
   if (src) void preloadStoryImageUrl(src);
 }
 
-export function HeroCarousel({ items, compact = false, isDark: _isDark = false, className, disableCube = false }: HeroCarouselProps) {
+export function HeroCarousel({
+  items,
+  compact = false,
+  isDark: _isDark = false,
+  className,
+  disableCube = false,
+  portraitMobile = false,
+}: HeroCarouselProps) {
   const notRejected = items.filter((e) => !/rechaz/i.test(e.estado ?? ""));
   const coherent = notRejected.filter((e) => isUltimaCoherenteConVendedor(e));
   const assigned = notRejected.filter((e) => e.pdv_asignado_vendedor !== false);
@@ -579,7 +606,11 @@ export function HeroCarousel({ items, compact = false, isDark: _isDark = false, 
   const slideKey = `ex-${item.id_exhibicion}`;
 
   return (
-    <StoriesFrame className={cn("group/shell h-full min-h-0", className)}>
+    <StoriesFrame className={cn(
+      "group/shell h-full min-h-0",
+      portraitMobile && "rounded-[1.25rem] shadow-xl shadow-black/25",
+      className,
+    )}>
       <style>{`
         @keyframes shelfy-story-progress {
           from { width: 0%; }
@@ -599,6 +630,7 @@ export function HeroCarousel({ items, compact = false, isDark: _isDark = false, 
             key={slideKey}
             item={item}
             compact={compact}
+            portraitMobile={portraitMobile}
             direction={direction}
             transitionKind={transitionKind}
           />

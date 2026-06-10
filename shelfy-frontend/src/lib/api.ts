@@ -41,6 +41,8 @@ export interface AuthResponse {
   sucursales_restringidas?: boolean;
   sucursales_permitidas_ids?: number[];
   sucursales_permitidas_nombres?: string[];
+  /** Rol espectador: navegación completa, mutaciones bloqueadas en API. */
+  read_only?: boolean;
 }
 
 export interface ERPUploadResponse {
@@ -378,6 +380,38 @@ class ApiError extends Error {
   }
 }
 
+const ESPECTADOR_BLOCK_MSG =
+  "Modo demostración: los espectadores pueden navegar pero no guardar cambios.";
+
+const ESPECTADOR_WRITE_ALLOW_EXACT = new Set(["/auth/login", "/login"]);
+const ESPECTADOR_WRITE_ALLOW_PREFIXES = ["/api/bundle/warm/"];
+
+function espectadorWriteAllowed(path: string): boolean {
+  if (ESPECTADOR_WRITE_ALLOW_EXACT.has(path)) return true;
+  if (path.includes("/preview")) return true;
+  return ESPECTADOR_WRITE_ALLOW_PREFIXES.some((p) => path.startsWith(p));
+}
+
+function isReadOnlyFromToken(): boolean {
+  if (typeof window === "undefined") return false;
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return false;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.read_only === true || payload.rol === "espectador";
+  } catch {
+    return false;
+  }
+}
+
+function guardReadOnlyMutation(path: string, method: string): void {
+  const m = (method || "GET").toUpperCase();
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(m)) return;
+  if (!isReadOnlyFromToken()) return;
+  if (espectadorWriteAllowed(path)) return;
+  throw new ApiError(ESPECTADOR_BLOCK_MSG, 403);
+}
+
 function toNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -406,6 +440,7 @@ function handleSessionExpired401(requestPath: string, status: number): void {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  guardReadOnlyMutation(path, options?.method ?? "GET");
   const url = `${API_URL}${path}`;
   const res = await fetch(url, {
     ...options,

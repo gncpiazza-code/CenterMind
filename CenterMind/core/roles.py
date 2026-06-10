@@ -9,7 +9,12 @@ mediante normalize_rol().
 
 ROL_COMPANIA = "compania"
 ROL_SUPERADMIN = "superadmin"
+ROL_ESPECTADOR = "espectador"
 ROLES_COMPANIA_SCOPE = frozenset({"superadmin", "compania"})
+
+
+def is_espectador_rol(rol: str | None) -> bool:
+    return (rol or "").lower() == ROL_ESPECTADOR
 
 
 def normalize_rol(rol: str) -> str:

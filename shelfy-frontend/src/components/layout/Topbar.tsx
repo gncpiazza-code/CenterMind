@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TopModeTabs } from "./TopModeTabs";
+import { EspectadorBanner } from "./EspectadorBanner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -404,7 +405,8 @@ export function Topbar({ title, live = false }: TopbarProps) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50 gap-2">
+      <div className="shrink-0 z-50">
+      <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2">
 
         {/* Left: icono + wordmark SHELFY (morado #2B0C66 en LOGO_NUEVO.svg) */}
         <div className="flex items-center gap-2 shrink-0">
@@ -603,6 +605,8 @@ export function Topbar({ title, live = false }: TopbarProps) {
           </div>
         )}
       </header>
+      <EspectadorBanner />
+      </div>
       {ticketOpen && <TicketPanel onClose={() => setTicketOpen(false)} />}
     </TooltipProvider>
   );

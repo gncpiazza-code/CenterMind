@@ -31,6 +31,8 @@ interface AuthContextType {
   switchDistributor: (id: number, nombre: string) => void;
   setTutorialSeen: () => void;
   hasPermiso: (key: string) => boolean;
+  /** Rol espectador: UI completa, escrituras bloqueadas en cliente y API. */
+  isReadOnly: boolean;
   loading: boolean;
   error: string | null;
   isAuthenticated: boolean;
@@ -80,6 +82,7 @@ function parseStoredUser(): AuthResponse | null {
       sucursales_restringidas: Boolean(payload.sucursales_restringidas),
       sucursales_permitidas_ids: payload.sucursales_permitidas_ids ?? [],
       sucursales_permitidas_nombres: payload.sucursales_permitidas_nombres ?? [],
+      read_only: Boolean(payload.read_only) || payload.rol === "espectador",
     };
   } catch {
     return null;
@@ -151,6 +154,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (Object.keys(permisos).length === 0) return true;
     return permisos[key] ?? true;
   }, [user]);
+
+  const isReadOnly = React.useMemo(
+    () => Boolean(user?.read_only) || user?.rol === "espectador",
+    [user],
+  );
 
   const effectiveDistribuidorId = React.useMemo((): number | null => {
     if (!user) return null;
@@ -233,6 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       switchDistributor,
       setTutorialSeen,
       hasPermiso,
+      isReadOnly,
       loading,
       error,
       isAuthenticated: !!user

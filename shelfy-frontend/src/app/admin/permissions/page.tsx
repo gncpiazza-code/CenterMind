@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const ROLES = ["superadmin", "compania", "admin", "supervisor", "evaluador"] as const;
+const ROLES = ["superadmin", "compania", "admin", "supervisor", "evaluador", "espectador"] as const;
 type Role = (typeof ROLES)[number];
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -25,6 +25,7 @@ const ROLE_LABELS: Record<Role, string> = {
   admin: "Admin",
   supervisor: "Supervisor",
   evaluador: "Evaluador",
+  espectador: "Espectador",
 };
 
 const PERMISSION_KEYS: { key: string; label: string; group: string }[] = [
@@ -44,6 +45,7 @@ const PERMISSION_KEYS: { key: string; label: string; group: string }[] = [
   { key: "action_switch_tenant",         label: "Cambiar de Entorno (Tenant)", group: "Acciones" },
   { key: "action_edit_fuerza_ventas",    label: "Editar Fuerza de Ventas",  group: "Acciones" },
   { key: "action_view_galeria_detalle",  label: "Ver Detalle Galería",      group: "Acciones" },
+  { key: "read_only",                    label: "Solo lectura (espectador)", group: "Acciones" },
 ];
 
 const PERMISSION_GROUPS = Array.from(new Set(PERMISSION_KEYS.map(p => p.group)));

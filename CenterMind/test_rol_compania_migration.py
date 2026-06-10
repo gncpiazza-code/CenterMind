@@ -16,7 +16,7 @@ def test_normalize_compania_unchanged():
 
 
 def test_normalize_other_roles_unchanged():
-    for rol in ("admin", "supervisor", "evaluador", "superadmin"):
+    for rol in ("admin", "supervisor", "evaluador", "espectador", "superadmin"):
         assert normalize_rol(rol) == rol, f"Expected {rol} unchanged, got {normalize_rol(rol)}"
 
 

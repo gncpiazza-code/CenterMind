@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update
 
 from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
+from core.espectador_guard import espectador_read_only_middleware
 from core.lifespan import bots, manager, lifespan, SUPERADMIN_WS_DIST_ID
 from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos, bot_settings, vendedor_app, app_settings
 
@@ -42,6 +43,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Espectador: bloquea POST/PUT/PATCH/DELETE antes de routers (demos sin mutar DB).
+app.middleware("http")(espectador_read_only_middleware)
 
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router)

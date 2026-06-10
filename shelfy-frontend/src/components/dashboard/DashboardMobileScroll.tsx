@@ -49,6 +49,9 @@ export function DashboardMobileScroll({
   onSucursal,
   onToggleTheme,
 }: DashboardMobileScrollProps) {
+  /** Banda KPI más alta en mobile: grid 2×2 + labels de 2 líneas sin recorte */
+  const mobileKpiHeight = Math.max(kpiHeightPx, 200);
+
   return (
     <div className="flex flex-col h-full overflow-y-auto pb-20 overscroll-y-contain">
       {/* Filtros sticky */}
@@ -71,7 +74,7 @@ export function DashboardMobileScroll({
       {/* KPI carousel */}
       <div
         className="shrink-0 px-4 pt-3"
-        style={{ height: kpiHeightPx, minHeight: kpiHeightPx }}
+        style={{ height: mobileKpiHeight, minHeight: mobileKpiHeight }}
         data-testid="mobile-kpi-section"
       >
         <DashboardKpiCarousel
@@ -79,25 +82,29 @@ export function DashboardMobileScroll({
           evolucion={evolucion}
           loading={loading && !kpis}
           isDark={isDark}
-          bandHeightPx={kpiHeightPx}
+          bandHeightPx={mobileKpiHeight}
           chartYear={chartYear}
           chartMonth={chartMonth}
+          mobileOptimized
         />
       </div>
 
-      {/* Hero stories */}
-      <div className="shrink-0 px-4 pt-3" style={{ height: 260 }}>
-        {loading ? (
-          <HeroCarouselSkeleton className="h-full" />
-        ) : (
-          <HeroCarousel
-            items={ultimasHero}
-            compact
-            isDark={isDark}
-            className="h-full"
-            disableCube
-          />
-        )}
+      {/* Hero stories — 9:16 en mobile (IG), desktop sin cambios */}
+      <div className="shrink-0 px-4 pt-3 w-full flex justify-center">
+        <div className="w-full max-w-[min(100%,22rem)] aspect-[9/16]">
+          {loading ? (
+            <HeroCarouselSkeleton className="h-full w-full" />
+          ) : (
+            <HeroCarousel
+              items={ultimasHero}
+              compact
+              portraitMobile
+              isDark={isDark}
+              className="h-full w-full"
+              disableCube
+            />
+          )}
+        </div>
       </div>
 
       {/* Ranking estático — el usuario controla el scroll */}
@@ -133,10 +140,10 @@ export function DashboardMobileScroll({
                   {i + 1}
                 </span>
                 <span className={cn(
-                  "flex-1 min-w-0 text-sm font-semibold truncate",
+                  "flex-1 min-w-0 text-sm font-semibold leading-snug line-clamp-2",
                   isDark ? "text-slate-100" : "text-slate-800",
                 )}>
-                  {v.nombre ?? v.id_vendedor_erp}
+                  {v.vendedor || "Sin vendedor"}
                 </span>
                 <span className={cn(
                   "text-sm font-black shrink-0",

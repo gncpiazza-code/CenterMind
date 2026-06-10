@@ -8,7 +8,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
 import TabSupervision from "@/components/admin/TabSupervision";
 
-const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio", "compania"];
+const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio", "compania", "espectador"];
 
 export default function ModoMapaPage() {
   const { user } = useAuth();

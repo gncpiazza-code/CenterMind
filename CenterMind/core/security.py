@@ -7,7 +7,7 @@ import logging
 from fastapi import HTTPException, Header
 
 from core.config import API_KEY, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
-from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
+from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE, is_espectador_rol
 from db import sb
 
 logger = logging.getLogger("ShelfyAPI")
@@ -122,3 +122,10 @@ def check_dist_permission(payload: dict, required_dist_id: int):
     """Lanza 403 si el usuario no tiene acceso a la distribuidora solicitada."""
     assert_dist_access(payload, required_dist_id)
     return True
+
+
+def is_read_only_user(payload: dict) -> bool:
+    """True si el JWT corresponde a un usuario espectador (sin escritura en DB)."""
+    if payload.get("read_only"):
+        return True
+    return is_espectador_rol(payload.get("rol"))

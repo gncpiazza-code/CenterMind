@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.config import JWT_AVAILABLE, JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS, _jwt
-from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
+from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE, is_espectador_rol
 from core.security import verify_auth
 from core.usuario_sucursal_scope import load_sucursal_scope_for_user, jwt_sucursal_claims
 from db import sb
@@ -69,6 +69,7 @@ def auth_login(req: LoginRequest):
             is_superadmin=is_superadmin,
         )
         sucursal_claims = jwt_sucursal_claims(scope)
+        read_only = is_espectador_rol(rol_normalizado) or bool(permisos.get("read_only"))
 
         payload = {
             "sub":                  user["usuario_login"],
@@ -77,6 +78,7 @@ def auth_login(req: LoginRequest):
             "id_distribuidor":      dist_id,
             "nombre_empresa":       user.get("nombre_empresa"),
             "is_superadmin":        is_superadmin,
+            "read_only":            read_only,
             "usa_quarentena":       flags.get("usa_quarentena", False),
             "usa_contexto_erp":     flags.get("usa_contexto_erp", False),
             "usa_mapeo_vendedores": flags.get("usa_mapeo_vendedores", False),
@@ -97,6 +99,7 @@ def auth_login(req: LoginRequest):
             usa_mapeo_vendedores=payload["usa_mapeo_vendedores"],
             show_tutorial=show_tutorial,
             permisos=permisos,
+            read_only=read_only,
             **sucursal_claims,
         )
     except HTTPException:

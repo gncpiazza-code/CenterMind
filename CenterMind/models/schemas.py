@@ -84,6 +84,7 @@ class TokenResponse(BaseModel):
     usa_mapeo_vendedores: bool = False
     show_tutorial: bool = False
     permisos: dict = {}
+    read_only: bool = False
     sucursales_restringidas: bool = False
     sucursales_permitidas_ids: list[int] = []
     sucursales_permitidas_nombres: list[str] = []

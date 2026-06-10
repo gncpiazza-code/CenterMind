@@ -90,7 +90,7 @@ export function DashboardMobile(props: DashboardMobileProps) {
               >
                 <div className="min-w-0">
                   <p className="text-[11px] text-[var(--shelfy-muted)] font-semibold">#{idx + 1}</p>
-                  <p className="text-sm font-bold text-[var(--shelfy-text)] truncate">{entry.vendedor}</p>
+                  <p className="text-sm font-bold text-[var(--shelfy-text)] leading-snug line-clamp-2">{entry.vendedor}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-black text-[var(--shelfy-primary)] leading-none">{entry.puntos ?? 0}</p>

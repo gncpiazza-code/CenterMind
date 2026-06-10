@@ -44,7 +44,7 @@ Resumen: dedup `(vendedor_erp, cliente_key, calendar_day_AR)` solo vía `core/ex
 ## 8) Seguridad
 
 - Bots/RPA: `X-Api-Key` · Portal: JWT
-- Roles: `superadmin`, `admin`, `compania`, `supervisor`, `evaluador`
+- Roles: `superadmin`, `admin`, `compania`, `supervisor`, `evaluador`, `espectador` (solo lectura — demos)
 - `normalize_rol()` — legacy `directorio` → `compania`
 - `check_dist_permission()` cross-tenant
 

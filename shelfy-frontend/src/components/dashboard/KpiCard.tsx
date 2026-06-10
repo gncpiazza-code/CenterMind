@@ -46,6 +46,8 @@ interface KpiCardProps {
   slotSpinKey?: number;
   /** Retraso escalonado por card (ms) */
   slotDelayMs?: number;
+  /** Mobile dashboard: icono/label más compactos, label en 2 líneas */
+  mobileTight?: boolean;
 }
 
 // Mejora #1: Contador animado easeOut
@@ -376,7 +378,7 @@ export function KpiCardSlotWrapper({
 export function KpiCard({
   label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle,
   variant = "default", tooltip, suffix, isDecimal, immersive = false,
-  slotSpinKey, slotDelayMs = 0,
+  slotSpinKey, slotDelayMs = 0, mobileTight = false,
 }: KpiCardProps) {
   const isCompact = variant === 'compact';
   const animatedValue = useAnimatedCounter(value);
@@ -411,11 +413,19 @@ export function KpiCard({
   const valueSpinDelay = slotDelayMs;
   const labelSpinDelay = slotDelayMs;
   const compactValueClass = immersive
-    ? "text-[clamp(1.35rem,5vw,2.625rem)] tracking-[-0.04em]"
-    : "text-[clamp(1.35rem,5vw,2.625rem)] tracking-[-0.04em]";
+    ? mobileTight
+      ? "text-[clamp(1.1rem,4.5vw,1.65rem)] tracking-[-0.03em]"
+      : "text-[clamp(1.35rem,5vw,2.625rem)] tracking-[-0.04em]"
+    : mobileTight
+      ? "text-[clamp(1.1rem,4.5vw,1.65rem)] tracking-[-0.03em]"
+      : "text-[clamp(1.35rem,5vw,2.625rem)] tracking-[-0.04em]";
   const compactLabelClass = immersive
-    ? "text-[11px] text-slate-400 tracking-[0.12em]"
-    : "text-[11px] text-slate-600 tracking-[0.12em] group-hover:text-slate-800 transition-colors";
+    ? mobileTight
+      ? "text-[9px] text-slate-400 tracking-[0.08em] leading-[1.2] line-clamp-2 normal-case"
+      : "text-[11px] text-slate-400 tracking-[0.12em]"
+    : mobileTight
+      ? "text-[9px] text-slate-600 tracking-[0.08em] leading-[1.2] line-clamp-2 normal-case group-hover:text-slate-800 transition-colors"
+      : "text-[11px] text-slate-600 tracking-[0.12em] group-hover:text-slate-800 transition-colors";
   const compactSuffixClass = immersive ? "text-xl" : "text-lg";
   const compactBorder = colorName ? COMPACT_BORDER[colorName] : "border-slate-200/90";
   const compactShadow = colorName ? COMPACT_SHADOW[colorName] : "shadow-slate-500/8";
@@ -452,10 +462,21 @@ export function KpiCard({
 
         {isCompact ? (
           /* ── Compact Figma ref: bloque icono+nro+label centrado, acento izq 4px ── */
-          <CardContent className="p-0 flex h-full w-full items-center justify-start pl-3 pr-2 py-2 sm:pl-4 sm:pr-3 sm:py-2.5 min-h-0">
-            <div className="flex min-w-0 max-w-full flex-row items-center gap-2.5 sm:gap-3">
+          <CardContent className={cn(
+            "p-0 flex h-full w-full items-center justify-start min-h-0",
+            mobileTight ? "pl-2 pr-1.5 py-1.5" : "pl-3 pr-2 py-2 sm:pl-4 sm:pr-3 sm:py-2.5",
+          )}>
+            <div className={cn(
+              "flex min-w-0 max-w-full flex-row items-center",
+              mobileTight ? "gap-2" : "gap-2.5 sm:gap-3",
+            )}>
             <div
-              className="flex size-12 sm:size-14 shrink-0 items-center justify-center rounded-2xl text-white [&_svg]:size-7 sm:[&_svg]:size-7"
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-2xl text-white",
+                mobileTight
+                  ? "size-10 [&_svg]:size-5"
+                  : "size-12 sm:size-14 [&_svg]:size-7 sm:[&_svg]:size-7",
+              )}
               style={{
                 backgroundColor: hexColor,
                 boxShadow: immersive ? undefined : `0 4px 14px ${hexColor}40`,

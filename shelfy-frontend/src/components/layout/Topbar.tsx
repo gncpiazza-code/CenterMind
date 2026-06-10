@@ -414,7 +414,7 @@ export function Topbar({ title, live = false }: TopbarProps) {
           <img
             src="/LOGO_NUEVO.svg"
             alt="Shelfy"
-            className="hidden md:block h-8 w-auto shrink-0"
+            className="hidden md:block h-12 w-auto max-h-[calc(100%-2px)] shrink-0"
           />
         </div>
 

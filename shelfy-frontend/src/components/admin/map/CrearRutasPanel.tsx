@@ -5,9 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
-  anclarMapaCapa,
   createMapaCapa,
   fetchMapaCapas,
   fetchRutasSupervision,
@@ -25,6 +25,8 @@ interface CrearRutasPanelProps {
   geoJson: DrawnPolygon["geoJson"] | null;
   onSaved?: (capa: MapaCapaPlanificacion) => void;
   onClearPolygon?: () => void;
+  /** Panel oscuro embebido en mapa (sin borde/card propio) */
+  embedded?: boolean;
 }
 
 export function CrearRutasPanel({
@@ -35,6 +37,7 @@ export function CrearRutasPanel({
   geoJson,
   onSaved,
   onClearPolygon,
+  embedded = false,
 }: CrearRutasPanelProps) {
   const qc = useQueryClient();
   const [nombre, setNombre] = useState("");
@@ -87,43 +90,48 @@ export function CrearRutasPanel({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const anclarMut = useMutation({
-    mutationFn: async (capaId: number) => {
-      if (idRutaAnclada === "") throw new Error("Elegí una ruta ERP");
-      return anclarMapaCapa(capaId, distId, Number(idRutaAnclada));
-    },
-    onSuccess: () => {
-      toast.success("Capa anclada a ruta");
-      void qc.invalidateQueries({ queryKey: ["mapa-capas", distId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
+  const saveLabel =
+    idRutaAnclada !== ""
+      ? "Guardar zona y vincular a ruta"
+      : "Guardar zona";
+
+  const shellClass = embedded
+    ? "space-y-3 text-sm"
+    : "w-80 max-w-full rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-lg p-4 space-y-3 text-sm";
+
+  const labelClass = embedded ? "text-white/60" : "text-[var(--shelfy-muted)]";
+  const titleClass = embedded ? "text-white" : "text-[var(--shelfy-text)]";
 
   return (
-    <div className="w-80 max-w-full rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-lg p-4 space-y-3 text-sm">
+    <div className={shellClass}>
       <div>
-        <p className="font-bold text-[var(--shelfy-text)]">Crear Rutas</p>
-        <p className="text-xs text-[var(--shelfy-muted)]">{vendedorNombre} · {pdvIds.length} PDV en polígono</p>
+        <p className={cn("font-bold", titleClass)}>Nueva zona</p>
+        <p className={cn("text-xs", labelClass)}>{vendedorNombre} · {pdvIds.length} PDV en polígono</p>
       </div>
 
       <Input
-        placeholder="Nombre de la capa"
+        placeholder="Nombre de la zona (ej. Zona norte martes)"
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
-        className="h-8 text-sm"
+        className={cn("h-8 text-sm", embedded && "bg-black/40 border-white/15 text-white placeholder:text-white/35")}
       />
       <div className="flex items-center gap-2">
-        <label className="text-xs text-[var(--shelfy-muted)]">Color</label>
+        <label className={cn("text-xs", labelClass)}>Color</label>
         <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-10 rounded border-0" />
       </div>
 
       <div>
-        <label className="text-xs font-semibold text-[var(--shelfy-muted)]">Anclar a ruta ERP</label>
+        <label className={cn("text-xs font-semibold", labelClass)}>Vincular a ruta ERP (CHESS)</label>
         {loadingRutas ? (
           <div className="flex items-center gap-2 text-xs py-2"><Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas…</div>
         ) : (
           <select
-            className="mt-1 w-full h-8 rounded-md border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-xs px-2"
+            className={cn(
+              "mt-1 w-full h-8 rounded-md border text-xs px-2",
+              embedded
+                ? "border-white/15 bg-black/40 text-white"
+                : "border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]",
+            )}
             value={idRutaAnclada}
             onChange={(e) => setIdRutaAnclada(e.target.value ? Number(e.target.value) : "")}
           >
@@ -147,13 +155,21 @@ export function CrearRutasPanel({
 
       <Button
         size="sm"
-        className="w-full gap-1.5"
-        disabled={saveMut.isPending || pdvIds.length === 0}
+        className={cn(
+          "w-full gap-1.5 font-bold",
+          embedded && "bg-sky-500 hover:bg-sky-600 text-white shadow-md h-10",
+        )}
+        disabled={saveMut.isPending || pdvIds.length === 0 || !nombre.trim()}
         onClick={() => saveMut.mutate()}
       >
-        {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-        Guardar capa
+        {saveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+        {saveLabel}
       </Button>
+      {idRutaAnclada === "" && (
+        <p className={cn("text-[10px] text-center", labelClass)}>
+          Podés guardar sin ruta y vincular después desde Ver capas.
+        </p>
+      )}
     </div>
   );
 }

@@ -45,7 +45,7 @@ export function SupervisionMapLayerPanel({
   if (groups.length === 0) {
     return (
       <div className="p-3 text-xs text-[var(--shelfy-muted)]">
-        Sin capas guardadas. Usá <strong>Crear Rutas</strong> para agregar polígonos tenant-wide.
+        Sin capas guardadas. Usá <strong>Rutas y Zonas</strong> para agregar polígonos tenant-wide.
       </div>
     );
   }

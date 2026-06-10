@@ -13,6 +13,8 @@ interface SupervisionMapToolbarProps {
   canEdit: boolean;
   vertexCount?: number;
   onFinishPolygon?: () => void;
+  /** Mostrar hint de dibujo (objetivo_zona o rutas en sub-tab dibujar) */
+  showDrawHint?: boolean;
 }
 
 export function SupervisionMapToolbar({
@@ -23,6 +25,7 @@ export function SupervisionMapToolbar({
   canEdit,
   vertexCount = 0,
   onFinishPolygon,
+  showDrawHint = false,
 }: SupervisionMapToolbarProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/90 shrink-0 flex-wrap">
@@ -42,9 +45,9 @@ export function SupervisionMapToolbar({
               <Target className="w-3.5 h-3.5" />
               Objetivo por zona
             </ToggleGroupItem>
-            <ToggleGroupItem value="crear_rutas" aria-label="Crear Rutas" className="text-xs gap-1.5 px-3">
+            <ToggleGroupItem value="crear_rutas" aria-label="Rutas y Zonas" className="text-xs gap-1.5 px-3">
               <Route className="w-3.5 h-3.5" />
-              Crear Rutas
+              Rutas y Zonas
             </ToggleGroupItem>
           </>
         )}
@@ -61,7 +64,7 @@ export function SupervisionMapToolbar({
         Ocultar todos
       </Button>
 
-            {mapToolMode !== "explorar" && (
+            {showDrawHint && (
         <div className="flex items-center gap-2 ml-auto text-xs text-violet-400">
           <Layers className="w-3.5 h-3.5" />
           {vertexCount >= 3 ? (

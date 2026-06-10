@@ -470,6 +470,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     toggleRouteBuild,
     mapToolMode,
     setMapToolMode,
+    rutasZonasTab,
     visibleCapaIds,
     toggleCapaVisibility,
     setVisibleCapaIds,
@@ -924,7 +925,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const handleMapToolModeChange = useCallback((mode: typeof mapToolMode) => {
     setMapToolMode(mode);
     if (mode === 'explorar') clearRouteBuildState();
-    else toast.info(mode === 'objetivo_zona' ? 'Dibujá la zona del objetivo' : 'Dibujá la capa de ruteo');
+    else if (mode === 'objetivo_zona') toast.info('Dibujá la zona del objetivo');
+    else toast.info('Rutas y Zonas: revisá capas guardadas o pasá a Dibujar zona');
   }, [setMapToolMode, clearRouteBuildState]);
 
   useEffect(() => {
@@ -1743,6 +1745,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   // ── Map layer controls (My Maps toolbar) ───────────────────────────────────
   function MapLayerControls() {
     const drawVertexCount = useSupervisionStore((s) => s.drawVertexCount);
+    const showDrawHint =
+      mapToolMode === "objetivo_zona" ||
+      (mapToolMode === "crear_rutas" && rutasZonasTab === "dibujar");
     return (
       <SupervisionMapToolbar
         mapToolMode={mapToolMode}
@@ -1752,6 +1757,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         canEdit={hasPermiso("action_edit_objetivos")}
         vertexCount={drawVertexCount}
         onFinishPolygon={() => finishPolygonRef.current?.()}
+        showDrawHint={showDrawHint}
       />
     );
   }

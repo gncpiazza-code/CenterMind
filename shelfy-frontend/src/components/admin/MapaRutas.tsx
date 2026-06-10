@@ -51,6 +51,10 @@ export const STATUS_COLORS: Record<PinStatus, string> = {
   inactivo:            "#ef4444",
 };
 
+/** Opacidad pins en modo dibujo (referencia visual sin ocultarlos). */
+const PIN_OPACITY_DRAW = 0.72;
+const PIN_OPACITY_DRAG_LARGE = 0.55;
+
 export const STATUS_LABELS: Record<PinStatus, string> = {
   activo_exhibicion:   "Activo + Exhibición",
   activo:              "Activo",
@@ -599,7 +603,7 @@ function MapaRutas({
       if (routeBuildEnabledRef.current) return;
       if (filteredPinesRef.current.length <= 600) return;
       interacting = true;
-      markersMapRef.current.forEach((m) => m.setOpacity(0.15));
+      markersMapRef.current.forEach((m) => m.setOpacity(PIN_OPACITY_DRAG_LARGE));
     };
 
     const onInteractEnd = () => {
@@ -607,7 +611,7 @@ function MapaRutas({
       interacting = false;
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const targetOpacity = routeBuildEnabledRef.current ? 0.35 : 1;
+        const targetOpacity = routeBuildEnabledRef.current ? PIN_OPACITY_DRAW : 1;
         markersMapRef.current.forEach((m) => m.setOpacity(targetOpacity));
       });
     };
@@ -630,7 +634,7 @@ function MapaRutas({
     if (!map || !mapLoaded || !window.google) return;
 
     const inDrawMode = routeBuildEnabledRef.current;
-    const targetOpacity = inDrawMode ? 0.35 : 1;
+    const targetOpacity = inDrawMode ? PIN_OPACITY_DRAW : 1;
 
     const nextIds = new Set<number>();
     const conCoords = filteredPinesRef.current.filter(p => p.lat && p.lng);
@@ -1174,7 +1178,7 @@ function MapaRutas({
       }}>
         {(layerPanelSlot || (capas.length > 0 && onToggleCapa)) && (
           <div style={{
-            width: 280, maxHeight: 220, overflow: 'hidden',
+            width: layerPanelSlot ? 352 : 280, maxHeight: layerPanelSlot ? 420 : 220, overflow: 'hidden',
             background: 'rgba(15,23,42,0.88)', backdropFilter: 'blur(10px)',
             border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
           }}>

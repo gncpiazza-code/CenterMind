@@ -5,7 +5,8 @@ import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { VendedorSupervision } from "@/lib/api";
-import { useMapaCapasQuery, CrearRutasPanel } from "./CrearRutasPanel";
+import { useMapaCapasQuery } from "./CrearRutasPanel";
+import { RutasZonasPanel } from "./RutasZonasPanel";
 import { useSupervisionStore, type DrawnPolygon } from "@/store/useSupervisionStore";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useShallow } from "zustand/react/shallow";
@@ -53,7 +54,9 @@ function SupervisionMapViewInner({
     activePolygonGeoJson,
     toggleCapaVisibility,
     togglePDVForObjective,
-    clearRouteBuildState,
+    clearActivePolygon,
+    rutasZonasTab,
+    setRutasZonasTab,
   } = useSupervisionStore(
     useShallow((s) => ({
       mapToolMode: s.mapToolMode,
@@ -65,7 +68,9 @@ function SupervisionMapViewInner({
       activePolygonGeoJson: s.activePolygonGeoJson,
       toggleCapaVisibility: s.toggleCapaVisibility,
       togglePDVForObjective: s.togglePDVForObjective,
-      clearRouteBuildState: s.clearRouteBuildState,
+      clearActivePolygon: s.clearActivePolygon,
+      rutasZonasTab: s.rutasZonasTab,
+      setRutasZonasTab: s.setRutasZonasTab,
     })),
   );
 
@@ -105,14 +110,21 @@ function SupervisionMapViewInner({
   }, []);
 
   const layerPanelSlot =
-    mapToolMode === "crear_rutas" && activePolygonPdvIds.length > 0 && visibleVends.size === 1 ? (
-      <CrearRutasPanel
+    mapToolMode === "crear_rutas" ? (
+      <RutasZonasPanel
         distId={distId}
-        idVendedor={[...visibleVends][0]}
-        vendedorNombre={vendorNamesMap[[...visibleVends][0]] ?? ""}
+        capas={mapCapas}
+        vendedores={vendedores}
+        vendorNames={vendorNamesMap}
+        visibleCapaIds={visibleCapaIds}
+        visibleVends={visibleVends}
+        activeTab={rutasZonasTab}
+        onTabChange={setRutasZonasTab}
+        onToggleCapa={toggleCapaVisibility}
+        onToggleVendorCapas={handleToggleVendorCapas}
         pdvIds={activePolygonPdvIds}
         geoJson={activePolygonGeoJson}
-        onClearPolygon={clearRouteBuildState}
+        onClearPolygon={clearActivePolygon}
       />
     ) : undefined;
 

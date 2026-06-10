@@ -66,10 +66,15 @@ type Props = {
   evaluarRef: React.RefObject<HTMLElement | null>;
 };
 
-function measureGeometry(header: HTMLElement, tab: HTMLElement): Geometry | null {
+function measureGeometry(
+  header: HTMLElement,
+  tab: HTMLElement,
+  logoSlot: HTMLElement,
+): Geometry | null {
   const hr = header.getBoundingClientRect();
   const er = tab.getBoundingClientRect();
-  const homeX = 16;
+  const lr = logoSlot.getBoundingClientRect();
+  const homeX = lr.left - hr.left;
   const targetX = er.left - hr.left - ICON_PX - 12;
   const travel = targetX - homeX;
   if (travel < 64) return null;
@@ -190,49 +195,52 @@ function WordTrail({
 function AnimatedSweep({
   geometry,
   phase,
-  cycle,
   onSweepComplete,
   onBounceComplete,
 }: {
   geometry: Geometry;
-  phase: Exclude<Phase, "rest">;
-  cycle: number;
+  phase: Phase;
   onSweepComplete: () => void;
   onBounceComplete: () => void;
 }) {
   const { homeX, travel, wordmarkH } = geometry;
+  const isRest = phase === "rest";
   const isOut = phase === "sweepOut";
   const isHold = phase === "holdAtEnd";
   const isBack = phase === "bounceBack";
-  const [iconX, setIconX] = useState(isOut ? 0 : travel);
+  const [iconX, setIconX] = useState(0);
 
   useEffect(() => {
     if (isHold) setIconX(travel);
-  }, [isHold, travel]);
+    if (isRest) setIconX(0);
+  }, [isHold, isRest, travel]);
 
-  const iconTargetX = isHold ? travel : isOut ? travel : 0;
+  const iconTargetX = isHold || isOut ? travel : 0;
+  const showEraser = isBack && iconX > 6;
 
   return (
     <>
-      <WordTrail
-        homeX={homeX}
-        travel={travel}
-        wordmarkH={wordmarkH}
-        phase={phase}
-        iconX={iconX}
-        neonActive={isHold}
-      />
+      {!isRest && (
+        <WordTrail
+          homeX={homeX}
+          travel={travel}
+          wordmarkH={wordmarkH}
+          phase={phase}
+          iconX={iconX}
+          neonActive={isHold}
+        />
+      )}
 
-      {/* Un solo motion.div en todo el ciclo — evita parpadeo al entrar/salir de hold. */}
       <motion.div
-        key={`${cycle}-icon`}
         className="absolute top-1/2 -translate-y-1/2 will-change-transform"
         style={{ left: homeX, zIndex: 10 }}
-        initial={{ x: isOut ? 0 : travel }}
+        initial={false}
         animate={{ x: iconTargetX }}
-        transition={isHold ? { duration: 0 } : SWEEP_TRANSITION}
+        transition={
+          isHold || isRest ? { duration: 0 } : SWEEP_TRANSITION
+        }
         onUpdate={(latest) => {
-          if (isHold) return;
+          if (isHold || isRest) return;
           const x = typeof latest.x === "number" ? latest.x : 0;
           setIconX(x);
         }}
@@ -241,7 +249,7 @@ function AnimatedSweep({
           if (isBack) onBounceComplete();
         }}
       >
-        <BrandIcon eraser={isBack} />
+        <BrandIcon eraser={showEraser} />
       </motion.div>
     </>
   );
@@ -265,9 +273,9 @@ function DevPlayButton({ onPlay }: { onPlay: () => void }) {
 
 export function TopbarBrandSweep({ headerRef, evaluarRef }: Props) {
   const reduceMotion = useReducedMotion();
+  const logoSlotRef = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<Geometry | null>(null);
   const [phase, setPhase] = useState<Phase>("rest");
-  const [cycle, setCycle] = useState(0);
 
   const phaseRef = useRef<Phase>("rest");
   const animatingRef = useRef(false);
@@ -288,8 +296,9 @@ export function TopbarBrandSweep({ headerRef, evaluarRef }: Props) {
   const remeasure = useCallback(() => {
     const header = headerRef.current;
     const tab = evaluarRef.current;
-    if (!header || !tab) return;
-    const geo = measureGeometry(header, tab);
+    const logoSlot = logoSlotRef.current;
+    if (!header || !tab || !logoSlot) return;
+    const geo = measureGeometry(header, tab, logoSlot);
     if (geo) setGeometry(geo);
   }, [headerRef, evaluarRef]);
 
@@ -308,7 +317,6 @@ export function TopbarBrandSweep({ headerRef, evaluarRef }: Props) {
     if (animatingRef.current || phaseRef.current !== "rest") return;
     clearTimers();
     remeasure();
-    setCycle((c) => c + 1);
     syncPhase("sweepOut");
   }, [clearTimers, remeasure, syncPhase]);
 
@@ -318,7 +326,6 @@ export function TopbarBrandSweep({ headerRef, evaluarRef }: Props) {
     syncPhase("rest");
     window.requestAnimationFrame(() => {
       remeasure();
-      setCycle((c) => c + 1);
       syncPhase("sweepOut");
       animatingRef.current = true;
     });
@@ -334,11 +341,12 @@ export function TopbarBrandSweep({ headerRef, evaluarRef }: Props) {
       if (cancelled) return;
       const header = headerRef.current;
       const tab = evaluarRef.current;
-      if (!header || !tab) {
+      const logoSlot = logoSlotRef.current;
+      if (!header || !tab || !logoSlot) {
         if (attempts++ < 48) requestAnimationFrame(tryMeasure);
         return;
       }
-      const geo = measureGeometry(header, tab);
+      const geo = measureGeometry(header, tab, logoSlot);
       if (geo) setGeometry(geo);
     };
 
@@ -404,32 +412,23 @@ export function TopbarBrandSweep({ headerRef, evaluarRef }: Props) {
     </div>
   );
 
-  if (staticOnly || !geometry) return restIcon;
+  if (staticOnly) return restIcon;
 
   return (
     <>
+      {/* Spacer reserva el hueco; el ícono vive siempre en el overlay (sin swap al volver a rest). */}
       <div
-        className="hidden md:flex shrink-0 items-center justify-center overflow-hidden"
-        style={{ width: ICON_PX, height: ICON_PX, borderRadius: ICON_RADIUS }}
-      >
-        {phase === "rest" && (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src="/WEBICON.svg"
-            alt="Shelfy"
-            draggable={false}
-            className="block select-none"
-            style={{ width: ICON_PX, height: ICON_PX, transform: "scale(1.06)" }}
-          />
-        )}
-      </div>
+        ref={logoSlotRef}
+        className="hidden md:block shrink-0"
+        style={{ width: ICON_PX, height: ICON_PX }}
+        aria-hidden
+      />
 
-      {phase !== "rest" && (
+      {geometry && (
         <div className="hidden md:block absolute inset-0 pointer-events-none z-[45] overflow-visible" aria-hidden>
           <AnimatedSweep
             geometry={geometry}
             phase={phase}
-            cycle={cycle}
             onSweepComplete={handleSweepComplete}
             onBounceComplete={handleBounceComplete}
           />

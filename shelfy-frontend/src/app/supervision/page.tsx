@@ -250,17 +250,27 @@ export default function SupervisionPage() {
     () => clientesOrdenados.reduce((s, c) => s + (c.deuda_total ?? 0), 0),
     [clientesOrdenados],
   );
+  const vendorScoped = !!selectedVendedorNombre;
+  const globalCcMeta = cuentasData?.metadatos;
   const deudaTotalDisplay =
-    clientesOrdenados.length > 0 ? deudaFromClientes : (kpis?.total_deuda ?? cuentasData?.metadatos?.total_deuda ?? 0);
+    clientesOrdenados.length > 0
+      ? deudaFromClientes
+      : vendorScoped
+        ? (kpis?.total_deuda ?? 0)
+        : (kpis?.total_deuda ?? globalCcMeta?.total_deuda ?? 0);
   const clientesDeudoresDisplay =
     clientesOrdenados.length > 0
       ? clientesOrdenados.length
-      : (kpis?.clientes_deudores ?? cuentasData?.metadatos?.clientes_deudores ?? 0);
+      : vendorScoped
+        ? (kpis?.clientes_deudores ?? 0)
+        : (kpis?.clientes_deudores ?? globalCcMeta?.clientes_deudores ?? 0);
   const pdvsAtraso15 =
     clientesOrdenados.length > 0
       ? clientesOrdenados.filter((c) => (c.antiguedad ?? 0) > 15).length
       : (kpis?.pdvs_atraso_15 ?? 0);
-  const diasPromedio = kpis?.dias_promedio_atraso ?? (cuentasData?.metadatos?.promedio_dias_retraso ?? 0);
+  const diasPromedio = vendorScoped
+    ? (kpis?.dias_promedio_atraso ?? 0)
+    : (kpis?.dias_promedio_atraso ?? globalCcMeta?.promedio_dias_retraso ?? 0);
 
   const deudaPorAntiguedad = useMemo(
     () => computeDeudaPorAntiguedad(clientesOrdenados),
@@ -562,8 +572,10 @@ export default function SupervisionPage() {
                             ))}
                           </div>
                         ) : clientesOrdenados.length === 0 ? (
-                          <p className="text-center text-xs text-muted-foreground py-8 flex-1 flex items-center justify-center min-h-0">
-                            Sin datos de CC disponibles
+                          <p className="text-center text-xs text-muted-foreground py-8 flex-1 flex items-center justify-center min-h-0 px-6">
+                            {cuentasData?.fecha
+                              ? "Este vendedor no tiene clientes deudores en la última corrida de CC."
+                              : "Sin datos de CC disponibles."}
                           </p>
                         ) : (
                           <div

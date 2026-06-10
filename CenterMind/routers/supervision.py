@@ -2308,6 +2308,67 @@ def _enrich_clientes_contact(d_id: int, vendors_result: list[dict]) -> None:
 
 # ── Nuevo endpoint: KPIs CC con deltas por vendedor ──────────────────────────
 
+
+def _lookup_vendedor_row_for_cc(
+    d_id: int,
+    *,
+    id_vendedor: int | None = None,
+    vendedor: str | None = None,
+) -> dict | None:
+    """Resuelve fila vendedores_v2 para matchear cc_detalle (nombre ERP + código)."""
+    if id_vendedor is None and not vendedor:
+        return None
+    try:
+        t_vend_filter = tenant_table_name("vendedores_v2", d_id)
+        vend_lookup = (
+            sb.table(t_vend_filter)
+            .select("id_vendedor, id_vendedor_erp, nombre_erp")
+            .eq("id_distribuidor", d_id)
+            .execute()
+        )
+        if id_vendedor is not None:
+            for vr in vend_lookup.data or []:
+                try:
+                    if int(vr.get("id_vendedor")) == int(id_vendedor):
+                        return vr
+                except (TypeError, ValueError):
+                    continue
+        if vendedor:
+            target = _norm_name(vendedor)
+            for vr in vend_lookup.data or []:
+                if _norm_name(vr.get("nombre_erp") or "") == target:
+                    return vr
+    except Exception as e:
+        logger.warning(f"[supervision_cc_kpis] lookup vendedor dist={d_id}: {e}")
+    return None
+
+
+def _filter_cc_rows_for_vendedor(
+    rows: list[dict],
+    *,
+    vend_row: dict | None,
+    id_vendedor: int | None = None,
+    vendedor: str | None = None,
+) -> list[dict]:
+    """Filtra cc_detalle por vendedor (id, nombre ERP o código CHESS en vendedor_nombre)."""
+    if id_vendedor is None and not vendedor:
+        return rows
+    nombre_filtro = (vend_row or {}).get("nombre_erp") or vendedor or ""
+    vid_filtro = (vend_row or {}).get("id_vendedor") or id_vendedor
+    erp_filtro = (vend_row or {}).get("id_vendedor_erp")
+    return [
+        r
+        for r in rows
+        if cc_row_matches_vendedor_erp(
+            r.get("vendedor_nombre") or "",
+            r.get("id_vendedor"),
+            nombre_filtro,
+            id_vendedor=vid_filtro,
+            id_vendedor_erp=erp_filtro,
+        )
+    ]
+
+
 @router.get("/api/supervision/cc-kpis/{dist_id}", tags=["Supervisión"])
 def supervision_cc_kpis(
     dist_id: int,
@@ -2322,13 +2383,41 @@ def supervision_cc_kpis(
     try:
         from core.helpers import build_cc_kpi_deltas, fetch_cc_kpi_reference_snapshot
 
+        snap_res = (
+            sb.table("cc_detalle")
+            .select("fecha_snapshot")
+            .eq("id_distribuidor", int(dist_id))
+            .order("fecha_snapshot", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not snap_res.data:
+            return {"kpis": None, "deltas": None, "trends_available": False}
+
+        fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
+        d_id = int(dist_id)
+
+        vend_row = None
+        if id_vendedor is not None:
+            vend_row = _lookup_vendedor_row_for_cc(d_id, id_vendedor=id_vendedor)
+
+        all_rows = _fetch_cc_detalle_rows(d_id, str(fecha_snapshot))
+        if id_vendedor is not None:
+            detalle_rows = _filter_cc_rows_for_vendedor(
+                all_rows, vend_row=vend_row, id_vendedor=id_vendedor
+            )
+        else:
+            detalle_rows = all_rows
+
+        computed = _compute_cc_kpis_from_detalle(d_id, detalle_rows)
+
         q = (
             sb.table("cc_kpi_snapshot")
             .select(
                 "fecha_snapshot, created_at, total_deuda, clientes_deudores, "
                 "pdvs_atraso_15, dias_promedio_atraso"
             )
-            .eq("id_distribuidor", int(dist_id))
+            .eq("id_distribuidor", d_id)
             .order("created_at", desc=True)
             .limit(1)
         )
@@ -2337,22 +2426,18 @@ def supervision_cc_kpis(
         else:
             q = q.is_("id_vendedor", "null")
 
-        rows = q.execute().data or []
-
-        if not rows:
-            return {"kpis": None, "deltas": None}
-
-        actual = rows[0]
-        fecha_snapshot = actual.get("fecha_snapshot")
-        detalle_rows = _fetch_cc_detalle_rows(
-            int(dist_id),
-            str(fecha_snapshot),
-            id_vendedor=int(id_vendedor) if id_vendedor is not None else None,
-        )
-        computed = _compute_cc_kpis_from_detalle(int(dist_id), detalle_rows)
+        snap_rows = q.execute().data or []
+        actual = snap_rows[0] if snap_rows else {
+            "fecha_snapshot": fecha_snapshot,
+            "created_at": None,
+            "total_deuda": computed.get("total_deuda"),
+            "clientes_deudores": computed.get("clientes_deudores"),
+            "pdvs_atraso_15": computed.get("pdvs_atraso_15"),
+            "dias_promedio_atraso": computed.get("dias_promedio_atraso"),
+        }
 
         referencia = fetch_cc_kpi_reference_snapshot(
-            int(dist_id), id_vendedor, actual, lookback_days=7
+            d_id, id_vendedor, actual, lookback_days=7
         )
         deltas = build_cc_kpi_deltas(actual, referencia, lookback_days=7)
         if deltas and "pdvs_atraso_15" in deltas:

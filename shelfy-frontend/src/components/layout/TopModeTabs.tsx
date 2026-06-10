@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, type Ref } from "react";
+import { useMemo } from "react";
 import {
   Eye, LayoutDashboard, BarChart2, Map, Target, Images, Radio, FileBarChart2, UserCog, TrendingUp,
 } from "lucide-react";
@@ -88,11 +88,7 @@ const TABS: TabItem[] = [
   },
 ];
 
-export function TopModeTabs({
-  firstTabRef,
-}: {
-  firstTabRef?: Ref<HTMLAnchorElement>;
-}) {
+export function TopModeTabs() {
   const pathname = usePathname();
   const { user, hasPermiso, effectiveDistribuidorId } = useAuth();
   const { prefetchRoute } = usePortalCache();
@@ -125,14 +121,13 @@ export function TopModeTabs({
       className="hidden md:flex items-center gap-2 overflow-x-auto px-1"
       style={{ scrollbarWidth: "none" }}
     >
-      {visibleTabs.map(({ href, label, icon: Icon }, index) => {
+      {visibleTabs.map(({ href, label, icon: Icon }) => {
         const active =
           pathname === href ||
           (href !== "/" && pathname.startsWith(href + "/"));
         return (
           <Link
             key={href}
-            ref={index === 0 ? firstTabRef : undefined}
             href={href}
             onMouseEnter={() => prefetchRoute(href)}
             onFocus={() => prefetchRoute(href)}

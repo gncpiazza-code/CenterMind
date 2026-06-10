@@ -273,8 +273,6 @@ interface TopbarProps {
 }
 
 export function Topbar({ title, live = false }: TopbarProps) {
-  const headerRef = useRef<HTMLElement>(null);
-  const evaluarTabRef = useRef<HTMLAnchorElement>(null);
   const {
     user,
     logout,
@@ -409,16 +407,13 @@ export function Topbar({ title, live = false }: TopbarProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="shrink-0 z-50">
-      <header
-        ref={headerRef}
-        className="relative h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2"
-      >
+      <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2">
 
-        <TopbarBrandSweep headerRef={headerRef} evaluarRef={evaluarTabRef} />
+        <TopbarBrandSweep />
 
         {/* Center: TopModeTabs (desktop) / title (mobile) */}
         <div className="flex-1 flex items-center justify-center overflow-hidden">
-          <TopModeTabs firstTabRef={evaluarTabRef} />
+          <TopModeTabs />
 
           {/* Mobile: page title */}
           {title && (

@@ -408,13 +408,20 @@ export function Topbar({ title, live = false }: TopbarProps) {
       <div className="shrink-0 z-50">
       <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2">
 
-        {/* Left: logo completo (icono + SHELFY tipografía original) */}
-        <div className="flex items-center shrink-0">
+        {/* Left: ícono compacto + wordmark original (tipografías de LOGO_NUEVO.svg) */}
+        <div className="hidden md:flex items-center gap-2.5 shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/LOGO_NUEVO.svg"
+            src="/WEBICON.svg"
+            alt=""
+            aria-hidden
+            className="h-8 w-8 shrink-0"
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/SHELFY_WORDMARK.svg"
             alt="Shelfy"
-            className="hidden md:block h-12 w-auto max-h-[calc(100%-2px)] shrink-0"
+            className="h-12 w-auto max-h-[calc(100%-2px)] shrink-0"
           />
         </div>
 

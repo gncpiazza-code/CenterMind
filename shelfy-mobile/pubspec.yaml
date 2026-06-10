@@ -2,7 +2,7 @@ name: shelfy_mobile
 description: "SHELFYAPP — app de campo para vendedores Shelfy."
 publish_to: 'none'
 
-version: 1.0.2+6
+version: 1.0.2+7
 
 environment:
   sdk: ^3.12.1

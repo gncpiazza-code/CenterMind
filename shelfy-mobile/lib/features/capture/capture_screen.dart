@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/build_info.dart';
 import '../../theme/shelfy_tokens.dart';
 import '../home/home_tab_controller.dart';
 import 'capture_provider.dart';
@@ -179,6 +180,17 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         children: [
                           // GPS status chip — nunca en Center, siempre top-left
                           _GpsStatusChip(provider: provider),
+                          if (provider.photoCount == 0) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              BuildInfo.tag,
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.white.withValues(alpha: 0.45),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                           const Spacer(),
                           // Contador N/6 — visible desde foto 1
                           if (provider.photoCount > 0) ...[

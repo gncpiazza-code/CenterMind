@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/config/build_info.dart';
 import '../../core/utils/device_profile.dart';
 import '../../theme/shelfy_tokens.dart';
 
@@ -73,6 +74,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _SectionHeader(label: 'App'),
+                _SettingsTile(
+                  title: 'Versión instalada',
+                  subtitle:
+                      '${BuildInfo.versionLabel} · ${BuildInfo.tag}',
+                  trailing: const SizedBox.shrink(),
+                ),
+                const SizedBox(height: 16),
                 _SectionHeader(label: 'Cámara'),
                 _SettingsTile(
                   title: 'Usar cámara del sistema',

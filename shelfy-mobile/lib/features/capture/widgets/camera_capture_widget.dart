@@ -11,13 +11,16 @@ import '../capture_provider.dart';
 import '../models/capture_photo.dart';
 
 /// Preview de cámara pro — zoom pinch, tap-to-focus, flash, grilla de encuadre.
-/// El shutter está integrado en el widget con un diseño Apple-like.
+/// Soporta modo nativo (gama baja): muestra pantalla estática con botón tomar foto.
 class CameraCaptureWidget extends StatefulWidget {
   final void Function(File photo, CapturePhotoMetadata metadata) onPhotoTaken;
   final void Function(bool capturing)? onCapturingChanged;
   final void Function(Future<void> Function() takePhoto)? onCameraReady;
   /// Número de fotos ya capturadas (para el contador top-left).
   final int photoCount;
+  /// Posición GPS ya cacheada — se usa en metadata para evitar GPS por foto.
+  final double? lastKnownLat;
+  final double? lastKnownLng;
 
   const CameraCaptureWidget({
     super.key,
@@ -25,6 +28,8 @@ class CameraCaptureWidget extends StatefulWidget {
     this.onCapturingChanged,
     this.onCameraReady,
     this.photoCount = 0,
+    this.lastKnownLat,
+    this.lastKnownLng,
   });
 
   @override
@@ -46,7 +51,7 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
   double _scaleBaseZoom = 1.0;
   double _prevZoom = 1.0;
   Offset? _focusPoint;
-  bool _showGrid = false; // Off by default — toggle via grid button
+  bool _showGrid = false;
   bool _showZoomIndicator = false;
   Timer? _zoomIndicatorTimer;
 
@@ -245,11 +250,29 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
 
     _setCapturing(true);
     HapticFeedback.mediumImpact();
+
+    final sw = Stopwatch()..start();
     try {
-      final metadata = await CaptureProvider.captureMetadataNow();
+      // Usa GPS cacheado del provider — evita petición GPS por disparo en burst.
+      final metadata = widget.lastKnownLat != null && widget.lastKnownLng != null
+          ? CapturePhotoMetadata(
+              capturedAtUtc: DateTime.now().toUtc(),
+              lat: widget.lastKnownLat,
+              lng: widget.lastKnownLng,
+            )
+          : await CaptureProvider.captureMetadataNow();
+
       final xfile = await controller.takePicture();
+      sw.stop();
+
+      // Auto-detectar gama baja: primer disparo > 800 ms → marcar para fallback nativo.
+      if (sw.elapsedMilliseconds > 800 && DeviceProfile.isAndroid) {
+        DeviceProfile.markSlowCameraDetected();
+      }
+
       widget.onPhotoTaken(File(xfile.path), metadata);
     } catch (_) {
+      sw.stop();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Error al tomar la foto')),
@@ -271,7 +294,6 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
     }
   }
 
-  // Flash icon has a yellow tint when ON to indicate it's active
   Color get _flashIconColor {
     if (_flashMode == FlashMode.always) return const Color(0xFFFFD60A);
     if (_flashMode == FlashMode.off) return Colors.white38;
@@ -370,22 +392,23 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
         // ── Camera preview (full bleed) ──────────────────────────────────────
         Positioned.fill(child: _buildCoverPreview(controller)),
 
-        // ── Top controls: flash + grid (top-right), photo counter (top-left) ─
+        // ── Top controls: flash + grid (top-right) ─────────────────────────
         Positioned(
           top: 0,
-          left: 0,
           right: 0,
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.only(right: 14, top: 10),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Photo counter pill — top-left
-                  if (widget.photoCount > 0)
-                    _PhotoCounterPill(count: widget.photoCount),
-                  const Spacer(),
-                  // Flash + flip + grid buttons — top-right
+                  // Zoom badge — top-right junto flash (transitorio 2s)
+                  if (hasZoom && _showZoomIndicator)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _ZoomBadge(zoom: _currentZoom),
+                    ),
                   _CameraToolButton(
                     icon: _flashIcon,
                     iconColor: _flashIconColor,
@@ -402,20 +425,6 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
           ),
         ),
 
-        // ── Transient zoom indicator — fades out after 2 s post-pinch ────────
-        if (hasZoom && _showZoomIndicator)
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Center(
-                child: _ZoomBadge(zoom: _currentZoom),
-              ),
-            ),
-          ),
-
         // ── Bottom gradient + shutter ─────────────────────────────────────────
         Positioned(
           bottom: 0,
@@ -427,34 +436,6 @@ class CameraCaptureWidgetState extends State<CameraCaptureWidget> {
           ),
         ),
       ],
-    );
-  }
-}
-
-// ─── Photo counter pill ────────────────────────────────────────────────────────
-
-class _PhotoCounterPill extends StatelessWidget {
-  final int count;
-  const _PhotoCounterPill({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        '$count/$kMaxPhotosPerExhibicion',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-        ),
-      ),
     );
   }
 }
@@ -491,7 +472,7 @@ class _CameraToolButton extends StatelessWidget {
   }
 }
 
-// ─── Transient zoom badge ──────────────────────────────────────────────────────
+// ─── Transient zoom badge (top-right, no center) ──────────────────────────────
 
 class _ZoomBadge extends StatelessWidget {
   final double zoom;
@@ -505,7 +486,7 @@ class _ZoomBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(20),
@@ -515,7 +496,7 @@ class _ZoomBadge extends StatelessWidget {
         _label,
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 15,
+          fontSize: 13,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.5,
         ),
@@ -542,8 +523,8 @@ class _BottomShutterArea extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Color(0x00000000), // transparent top
-            Color(0xCC000000), // ~80 % black bottom
+            Color(0x00000000),
+            Color(0xCC000000),
           ],
         ),
       ),
@@ -621,7 +602,6 @@ class _NativeShutterButtonState extends State<_NativeShutterButton>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: widget.capturing ? Colors.white.withValues(alpha: 0.55) : Colors.white,
-            // Subtle inner shadow via nested containers
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.35),
@@ -646,7 +626,6 @@ class _NativeShutterButtonState extends State<_NativeShutterButton>
                       color: Colors.black.withValues(alpha: 0.12),
                       width: 1,
                     ),
-                    // Inner shadow effect via a slightly darker inner circle
                     color: Colors.white,
                     boxShadow: [
                       BoxShadow(
@@ -717,7 +696,6 @@ class _FocusSquareState extends State<_FocusSquare>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    // Appear quickly, linger, then fade out
     _opacity = TweenSequence<double>([
       TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 10),
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 60),
@@ -754,4 +732,3 @@ class _FocusSquareState extends State<_FocusSquare>
     );
   }
 }
-

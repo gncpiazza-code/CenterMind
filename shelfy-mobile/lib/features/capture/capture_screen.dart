@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -14,10 +15,10 @@ import 'widgets/camera_capture_widget.dart';
 /// Pantalla de captura — un solo Scaffold/Stack.
 ///
 /// Estructura:
-///   Z0  Cámara siempre visible de fondo
-///   Z1  Barra superior: GPS status + foto counter
-///   Z2  (usado por CameraCaptureWidget para shutter)
-///   Z3  ShelfyGlassPanel deslizable — todo el flujo PDV/ingreso/éxito
+///   Z0  Cámara siempre en fondo
+///   Z1  Barra superior: GPS chip + N/6 + Listo (solo burstLive)
+///   Z2  Filmstrip sobre shutter (solo burstLive con fotos)
+///   Z3  ShelfyGlassPanel sheet — sube solo después de "Listo"
 class CaptureScreen extends StatefulWidget {
   const CaptureScreen({super.key});
 
@@ -35,6 +36,9 @@ class _CaptureScreenState extends State<CaptureScreen>
   CaptureProvider? _captureProvider;
   CaptureOverlayPhase? _lastAnimatedPhase;
 
+  /// NRO pendiente de Cartera CTA — se pre-llena al abrir la fase assignPdv.
+  String? _pendingPdvNro;
+
   @override
   void initState() {
     super.initState();
@@ -50,13 +54,8 @@ class _CaptureScreenState extends State<CaptureScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _startBackgroundGps();
-      // Pre-fill search if launched from Cartera CTA
-      final pendingNro =
+      _pendingPdvNro =
           context.read<HomeTabController>().takePendingCapturePdvNro();
-      if (pendingNro != null && pendingNro.isNotEmpty) {
-        _searchController.text = pendingNro;
-        context.read<CaptureProvider>().searchPdv(pendingNro);
-      }
     });
   }
 
@@ -74,13 +73,21 @@ class _CaptureScreenState extends State<CaptureScreen>
 
   void _onProviderPhaseChanged() {
     if (!mounted) return;
-    _syncSheetToPhase(_captureProvider?.phase);
+    final phase = _captureProvider?.phase;
+    // Al entrar en assignPdv: pre-fill de Cartera CTA si hay pendiente
+    if (phase == CaptureOverlayPhase.assignPdv && _pendingPdvNro != null) {
+      final nro = _pendingPdvNro!;
+      _pendingPdvNro = null;
+      _searchController.text = nro;
+      _captureProvider?.searchPdv(nro);
+    }
+    _syncSheetToPhase(phase);
   }
 
   void _syncSheetToPhase(CaptureOverlayPhase? phase) {
     if (phase == null || _lastAnimatedPhase == phase) return;
     _lastAnimatedPhase = phase;
-    final showSheet = phase != CaptureOverlayPhase.live;
+    final showSheet = phase != CaptureOverlayPhase.burstLive;
     if (showSheet) {
       _sheetAnim.forward();
     } else {
@@ -137,27 +144,83 @@ class _CaptureScreenState extends State<CaptureScreen>
   Widget build(BuildContext context) {
     return Consumer<CaptureProvider>(
       builder: (context, provider, _) {
+        final bottomPad = MediaQuery.paddingOf(context).bottom;
+        final isBurst = provider.phase == CaptureOverlayPhase.burstLive;
+
         return Scaffold(
           backgroundColor: Colors.black,
           body: Stack(
             fit: StackFit.expand,
             children: [
-              // Z0: Cámara a pantalla completa (solo con tab activo)
+              // Z0: Cámara a pantalla completa
               Positioned.fill(
                 child: CameraCaptureWidget(
                   key: _cameraKey,
                   onPhotoTaken: provider.onPhotoTaken,
                   onCapturingChanged: (_) {},
                   photoCount: provider.photoCount,
+                  lastKnownLat: provider.currentLat,
+                  lastKnownLng: provider.currentLng,
                 ),
               ),
 
-              // Atenuar cámara durante upload
+              // Atenuar cámara cuando el sheet está activo
+              if (!isBurst)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.40),
+                  ),
+                ),
+
+              // Atenuar extra durante upload
               if (provider.phase == CaptureOverlayPhase.uploading)
                 Positioned.fill(
                   child: ColoredBox(
-                    color: Colors.black.withValues(alpha: 0.55),
+                    color: Colors.black.withValues(alpha: 0.15),
                   ),
+                ),
+
+              // Z1: Barra superior GPS + N/6 + Listo (solo en burst)
+              if (isBurst)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // GPS status chip — nunca en Center, siempre top-left
+                          _GpsStatusChip(provider: provider),
+                          const Spacer(),
+                          // Contador N/6 — visible desde foto 1
+                          if (provider.photoCount > 0) ...[
+                            _PhotoCounterPill(
+                              count: provider.photoCount,
+                              atMax: !provider.canAddMorePhotos,
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          // Botón Listo — habilitado desde foto 1
+                          _ListoButton(
+                            enabled: provider.hasPhotos,
+                            onTap: provider.finishBurst,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Z2: Filmstrip sobre el shutter (solo burst con fotos)
+              if (isBurst && provider.hasPhotos)
+                Positioned(
+                  bottom: 120 + bottomPad + 8,
+                  left: 16,
+                  right: 16,
+                  child: _BurstFilmstrip(provider: provider),
                 ),
 
               // Z3: Sheet de overlay con las fases
@@ -178,6 +241,189 @@ class _CaptureScreenState extends State<CaptureScreen>
           ),
         );
       },
+    );
+  }
+}
+
+// ─── GPS status chip (top — nunca overlay central) ────────────────────────────
+
+class _GpsStatusChip extends StatelessWidget {
+  final CaptureProvider provider;
+  const _GpsStatusChip({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    String label;
+    Color color;
+    IconData icon;
+
+    if (provider.nearbyLoading) {
+      label = 'GPS...';
+      color = Colors.white54;
+      icon = Icons.gps_not_fixed;
+    } else if (provider.gpsAvailable && provider.nearbyPdvs.isNotEmpty) {
+      label = '${provider.nearbyPdvs.length} cercanos';
+      color = Colors.white70;
+      icon = Icons.location_on_rounded;
+    } else if (provider.gpsAvailable) {
+      label = 'Sin PDVs cerca';
+      color = Colors.white38;
+      icon = Icons.location_searching;
+    } else {
+      label = 'Sin GPS';
+      color = Colors.white38;
+      icon = Icons.location_off_outlined;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Photo counter pill (top-left) ────────────────────────────────────────────
+
+class _PhotoCounterPill extends StatelessWidget {
+  final int count;
+  final bool atMax;
+  const _PhotoCounterPill({required this.count, required this.atMax});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: atMax
+            ? ShelfyTokens.warning.withValues(alpha: 0.8)
+            : Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: atMax
+              ? ShelfyTokens.warning.withValues(alpha: 0.6)
+              : Colors.white.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Text(
+        '$count/$kMaxPhotosPerExhibicion',
+        style: TextStyle(
+          color: atMax ? Colors.black : Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Botón Listo ──────────────────────────────────────────────────────────────
+
+class _ListoButton extends StatelessWidget {
+  final bool enabled;
+  final VoidCallback onTap;
+  const _ListoButton({required this.enabled, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          color: enabled ? Colors.white : Colors.white.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: enabled
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          'Listo',
+          style: TextStyle(
+            color: enabled ? Colors.black : Colors.white38,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Filmstrip sobre shutter (burst) ─────────────────────────────────────────
+
+class _BurstFilmstrip extends StatelessWidget {
+  final CaptureProvider provider;
+  const _BurstFilmstrip({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 72,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        reverse: true, // Última foto a la derecha (Apple-like)
+        itemCount: provider.photos.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final photo = provider.photos[index];
+          return Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(
+                  photo.file,
+                  width: 64,
+                  height: 64,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              Positioned(
+                top: 2,
+                right: 2,
+                child: GestureDetector(
+                  onTap: () => provider.removePhoto(index),
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.65),
+                    ),
+                    child: const Icon(Icons.close, size: 12, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -231,17 +477,13 @@ class _OverlaySheet extends StatelessWidget {
 
   Widget _sheetContent(BuildContext context) {
     switch (provider.phase) {
-      case CaptureOverlayPhase.postPhoto:
-        return _PostPhotoContent(
+      case CaptureOverlayPhase.assignPdv:
+        return _AssignPdvContent(
           provider: provider,
           searchController: searchController,
-          onBack: () => provider.backToCamera(),
         );
-      case CaptureOverlayPhase.confirmPdv:
-        return _ConfirmPdvContent(
-          provider: provider,
-          onBack: provider.backToPostPhoto,
-        );
+      case CaptureOverlayPhase.suggestIngreso:
+        return _SuggestIngresoContent(provider: provider);
       case CaptureOverlayPhase.ingreso:
         return _IngresoContent(provider: provider);
       case CaptureOverlayPhase.uploading:
@@ -251,7 +493,7 @@ class _OverlaySheet extends StatelessWidget {
           provider: provider,
           onReset: onReset,
         );
-      case CaptureOverlayPhase.live:
+      case CaptureOverlayPhase.burstLive:
         return const SizedBox.shrink();
     }
   }
@@ -278,18 +520,15 @@ class _SheetHandle extends StatelessWidget {
   }
 }
 
-// ─── Miniatura de fotos capturadas ────────────────────────────────────────────
+// ─── Photo strip para fases post-burst ────────────────────────────────────────
 
-class _PhotoStrip extends StatelessWidget {
+class _PhotoStripSheet extends StatelessWidget {
   final CaptureProvider provider;
-
-  const _PhotoStrip({required this.provider});
+  const _PhotoStripSheet({required this.provider});
 
   @override
   Widget build(BuildContext context) {
-    final photos = provider.photoFiles;
-    if (photos.isEmpty) return const SizedBox.shrink();
-
+    if (provider.photos.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -309,61 +548,20 @@ class _PhotoStrip extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          height: 72,
+          height: 56,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: photos.length,
+            itemCount: provider.photos.length,
             separatorBuilder: (_, _) => const SizedBox(width: 6),
             itemBuilder: (context, index) {
-              return Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      photos[index],
-                      width: 72,
-                      height: 72,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  Positioned(
-                    top: 2,
-                    right: 2,
-                    child: GestureDetector(
-                      onTap: () => provider.removePhoto(index),
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.black.withValues(alpha: 0.55),
-                        ),
-                        child: const Icon(Icons.close, size: 12, color: Colors.white),
-                      ),
-                    ),
-                  ),
-                  if (index == 0)
-                    Positioned(
-                      bottom: 2,
-                      left: 2,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'Principal',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.file(
+                  provider.photos[index].file,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                ),
               );
             },
           ),
@@ -374,17 +572,15 @@ class _PhotoStrip extends StatelessWidget {
   }
 }
 
-// ─── Fase postPhoto ───────────────────────────────────────────────────────────
+// ─── Fase assignPdv ───────────────────────────────────────────────────────────
 
-class _PostPhotoContent extends StatelessWidget {
+class _AssignPdvContent extends StatelessWidget {
   final CaptureProvider provider;
   final TextEditingController searchController;
-  final VoidCallback onBack;
 
-  const _PostPhotoContent({
+  const _AssignPdvContent({
     required this.provider,
     required this.searchController,
-    required this.onBack,
   });
 
   @override
@@ -396,9 +592,11 @@ class _PostPhotoContent extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const _SheetHandle(),
-          _PhotoStrip(provider: provider),
 
-          // PDVs cercanos como chips — ocultar si el vendedor ya está buscando por texto
+          // Fotos ya tomadas — solo miniatura compacta en el sheet
+          _PhotoStripSheet(provider: provider),
+
+          // PDVs cercanos como chips (dentro del sheet, nunca sobre cámara)
           if (provider.nearbyPdvs.isNotEmpty && searchController.text.isEmpty) ...[
             const Text(
               'PDVs cercanos',
@@ -430,11 +628,10 @@ class _PostPhotoContent extends StatelessWidget {
             provider: provider,
           ),
 
-          // Botón volver
           const SizedBox(height: 8),
           TextButton(
-            onPressed: onBack,
-            child: const Text('Volver a tomar foto'),
+            onPressed: provider.backToBurst,
+            child: const Text('← Volver a fotos'),
           ),
         ],
       ),
@@ -667,17 +864,50 @@ class _PdvSearchField extends StatelessWidget {
   }
 }
 
-// ─── Fase confirmPdv ──────────────────────────────────────────────────────────
+// ─── Fase suggestIngreso (memoria + countdown 5s) ─────────────────────────────
 
-class _ConfirmPdvContent extends StatelessWidget {
+class _SuggestIngresoContent extends StatefulWidget {
   final CaptureProvider provider;
-  final VoidCallback onBack;
+  const _SuggestIngresoContent({required this.provider});
 
-  const _ConfirmPdvContent({required this.provider, required this.onBack});
+  @override
+  State<_SuggestIngresoContent> createState() => _SuggestIngresoContentState();
+}
+
+class _SuggestIngresoContentState extends State<_SuggestIngresoContent> {
+  int _countdown = 5;
+  bool _autoConfirmCancelled = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted || _autoConfirmCancelled) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        _countdown--;
+        if (_countdown <= 0) {
+          t.cancel();
+          widget.provider.confirmSuggestion();
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final pdv = provider.selectedPdv!;
+    final tipo = widget.provider.suggestedTipo ?? '';
+    final conIngreso = tipo.toLowerCase().contains('con');
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
@@ -685,11 +915,14 @@ class _ConfirmPdvContent extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const _SheetHandle(),
-          _PhotoStrip(provider: provider),
 
-          // Resumen PDV seleccionado
+          // PDV elegido
+          _PdvSummaryTile(provider: widget.provider),
+          const SizedBox(height: 12),
+
+          // Banner memoria
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: ShelfyTokens.primary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
@@ -705,35 +938,41 @@ class _ConfirmPdvContent extends StatelessWidget {
                     color: ShelfyTokens.primary.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.store_rounded,
+                  child: Icon(
+                    conIngreso ? Icons.login_rounded : Icons.storefront_outlined,
                     color: ShelfyTokens.primary,
                     size: 20,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        pdv.nombreDisplay.isNotEmpty
-                            ? pdv.nombreDisplay
-                            : 'NRO ${pdv.idClienteErp}',
+                        'Última visita: ${conIngreso ? "CON INGRESO" : "SIN INGRESO"}',
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14,
                           color: ShelfyTokens.text,
                         ),
                       ),
-                      Text(
-                        'NRO ${pdv.idClienteErp}'
-                        '${pdv.distanciaM > 0 ? ' · ${pdv.distanciaM.toStringAsFixed(0)} m' : ''}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: ShelfyTokens.muted,
+                      if (!_autoConfirmCancelled)
+                        Text(
+                          'Confirmando en ${_countdown}s...',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: ShelfyTokens.muted,
+                          ),
+                        )
+                      else
+                        const Text(
+                          'Auto-avance cancelado',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: ShelfyTokens.muted,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -743,29 +982,115 @@ class _ConfirmPdvContent extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Otra foto (si hay cupo) — colapsa el sheet y vuelve a la cámara sin resetear PDV
-          if (provider.canAddMorePhotos)
-            OutlinedButton.icon(
-              onPressed: provider.addExtraPhoto,
-              icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-              label: const Text('Agregar otra foto'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: ShelfyTokens.primary,
-                side: const BorderSide(color: ShelfyTokens.primary),
-              ),
+          // Acciones
+          if (!_autoConfirmCancelled) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: widget.provider.overrideIngreso,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ShelfyTokens.textSoft,
+                      side: const BorderSide(color: ShelfyTokens.border),
+                    ),
+                    child: const Text('Cambiar'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => setState(() {
+                      _autoConfirmCancelled = true;
+                      _timer?.cancel();
+                    }),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: ShelfyTokens.textSoft,
+                      side: const BorderSide(color: ShelfyTokens.border),
+                    ),
+                    child: const Text('Cancelar auto'),
+                  ),
+                ),
+              ],
             ),
-          if (provider.canAddMorePhotos) const SizedBox(height: 8),
-
-          _ShelfyFilledButton(
-            onPressed: provider.confirmPdv,
-            label: 'Confirmar PDV',
-            icon: Icons.check_rounded,
-          ),
+          ] else ...[
+            _ShelfyFilledButton(
+              onPressed: widget.provider.confirmSuggestion,
+              label: conIngreso ? 'Confirmar con ingreso' : 'Confirmar sin ingreso',
+              icon: Icons.check_rounded,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: widget.provider.overrideIngreso,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: ShelfyTokens.textSoft,
+                side: const BorderSide(color: ShelfyTokens.border),
+              ),
+              child: const Text('Cambiar tipo de visita'),
+            ),
+          ],
 
           const SizedBox(height: 6),
           TextButton(
-            onPressed: onBack,
-            child: const Text('Elegir otro PDV'),
+            onPressed: widget.provider.backToAssignPdv,
+            child: const Text('← Elegir otro PDV'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Tile resumen PDV seleccionado ────────────────────────────────────────────
+
+class _PdvSummaryTile extends StatelessWidget {
+  final CaptureProvider provider;
+  const _PdvSummaryTile({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    final pdv = provider.selectedPdv;
+    final nombre = pdv != null
+        ? (pdv.nombreDisplay.isNotEmpty ? pdv.nombreDisplay : 'NRO ${pdv.idClienteErp}')
+        : (provider.nroCliente.isNotEmpty ? 'NRO: ${provider.nroCliente}' : '');
+    final sub = pdv != null ? 'NRO ${pdv.idClienteErp}' : '';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ShelfyTokens.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(ShelfyTokens.radiusMd),
+        border: Border.all(color: ShelfyTokens.primary.withValues(alpha: 0.20)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: ShelfyTokens.primary.withValues(alpha: 0.10),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.store_rounded, color: ShelfyTokens.primary, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nombre,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: ShelfyTokens.text,
+                  ),
+                ),
+                if (sub.isNotEmpty)
+                  Text(
+                    sub,
+                    style: const TextStyle(fontSize: 12, color: ShelfyTokens.muted),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -777,7 +1102,6 @@ class _ConfirmPdvContent extends StatelessWidget {
 
 class _IngresoContent extends StatelessWidget {
   final CaptureProvider provider;
-
   const _IngresoContent({required this.provider});
 
   @override
@@ -790,30 +1114,10 @@ class _IngresoContent extends StatelessWidget {
         children: [
           const _SheetHandle(),
 
-          // Nombre del PDV
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(
-              Icons.store_outlined,
-              color: ShelfyTokens.primary,
-            ),
-            title: Text(
-              provider.pdvDisplayName.isNotEmpty
-                  ? provider.pdvDisplayName
-                  : 'NRO: ${provider.nroCliente}',
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                color: ShelfyTokens.text,
-              ),
-            ),
-            subtitle: Text(
-              'NRO ${provider.nroCliente}',
-              style: const TextStyle(fontSize: 12, color: ShelfyTokens.muted),
-            ),
-          ),
+          _PdvSummaryTile(provider: provider),
+          const SizedBox(height: 12),
 
-          _PhotoStrip(provider: provider),
+          _PhotoStripSheet(provider: provider),
 
           const Text(
             'Tipo de visita',
@@ -865,8 +1169,8 @@ class _IngresoContent extends StatelessWidget {
 
           const SizedBox(height: 6),
           TextButton(
-            onPressed: provider.backToCamera,
-            child: const Text('Cancelar y retomar foto'),
+            onPressed: provider.backToAssignPdv,
+            child: const Text('← Elegir otro PDV'),
           ),
         ],
       ),
@@ -919,7 +1223,7 @@ class _IngresoOptionButton extends StatelessWidget {
                     color: ShelfyTokens.primary.withValues(alpha: 0.30),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
-                  )
+                  ),
                 ]
               : null,
         ),
@@ -1025,7 +1329,6 @@ class _DoneContent extends StatelessWidget {
         children: [
           const _SheetHandle(),
 
-          // Banner éxito
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -1081,7 +1384,6 @@ class _DoneContent extends StatelessWidget {
             ),
           ),
 
-          // Resumen rico post-upload (solo si online y summary disponible)
           if (!isOffline && provider.postUploadSummary != null) ...[
             const SizedBox(height: 12),
             _PostUploadRichSummary(summary: provider.postUploadSummary!),
@@ -1091,7 +1393,7 @@ class _DoneContent extends StatelessWidget {
 
           _ShelfyFilledButton(
             onPressed: onReset,
-            label: 'Nueva captura',
+            label: 'Nueva visita',
             icon: Icons.add_a_photo_outlined,
           ),
         ],
@@ -1103,8 +1405,7 @@ class _DoneContent extends StatelessWidget {
 // ─── Post-upload resumen rico ─────────────────────────────────────────────────
 
 class _PostUploadRichSummary extends StatelessWidget {
-  final dynamic summary; // PostUploadSummary
-
+  final dynamic summary;
   const _PostUploadRichSummary({required this.summary});
 
   @override
@@ -1123,7 +1424,6 @@ class _PostUploadRichSummary extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Stats mes
           Row(
             children: [
               const Icon(Icons.bar_chart, size: 14, color: ShelfyTokens.primary),
@@ -1138,8 +1438,6 @@ class _PostUploadRichSummary extends StatelessWidget {
               ),
             ],
           ),
-
-          // Objetivo badge
           if (badge != null) ...[
             const SizedBox(height: 6),
             Row(
@@ -1153,8 +1451,6 @@ class _PostUploadRichSummary extends StatelessWidget {
               ],
             ),
           ],
-
-          // Últimas visitas PDV
           if (historial.isNotEmpty) ...[
             const SizedBox(height: 8),
             const Text(

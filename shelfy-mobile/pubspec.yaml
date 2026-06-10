@@ -2,7 +2,7 @@ name: shelfy_mobile
 description: "SHELFYAPP — app de campo para vendedores Shelfy."
 publish_to: 'none'
 
-version: 1.0.2+4
+version: 1.0.2+5
 
 environment:
   sdk: ^3.12.1
@@ -29,6 +29,8 @@ dependencies:
   provider: ^6.1.2
   go_router: ^14.6.2
   url_launcher: ^6.3.0
+  image_picker: ^1.1.2
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:

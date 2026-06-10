@@ -8,6 +8,7 @@ import '../../core/offline/sync_worker.dart';
 import '../../core/offline/upload_queue.dart';
 import '../../shared/widgets/shelfy/shelfy_widgets.dart';
 import '../../theme/shelfy_tokens.dart';
+import '../settings/settings_screen.dart';
 import '../capture/capture_provider.dart';
 import '../capture/capture_screen.dart';
 import '../cartera/cartera_provider.dart';
@@ -149,6 +150,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           );
                         },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.settings_outlined),
+                        tooltip: 'Ajustes',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.logout_outlined),

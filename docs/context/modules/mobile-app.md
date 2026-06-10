@@ -49,19 +49,42 @@ Directorio: `shelfy-mobile/lib/features/` — **5 tabs MVP** (Captura·CC·Carte
 - **Counter:** pill "N/6" top-left, solo visible si hay fotos
 - **Oleada 3 (herencia):** double-tap toggle zoom, haptic en presets
 
-## Captura (Oleada 2)
+## Captura — Burst Apple (2026-06-10)
 
-- **1 pantalla / Stack único:** `CaptureScreen` — cámara Z0 + barra GPS Z1 + sheet glass Z3
-- **Fases:** `CaptureOverlayPhase` { live, postPhoto, confirmPdv, ingreso, uploading, done }
-- **Sin Navigator.push:** todo el flujo en el mismo `Scaffold`; sheet sube/baja con `SlideTransition`
-- **Flash:** toggle auto/on/off en `CameraCaptureWidget`
-- **Radio GPS:** 100 m (era 150)
-- **Autocompletado:** `pdv/buscar?q=` endpoint + debounce 300 ms en provider
+- **1 pantalla / Stack único:** `CaptureScreen` — Z0 cámara · Z1 top bar · Z2 filmstrip · Z3 sheet glass
+- **Fases:** `CaptureOverlayPhase` { `burstLive`, `assignPdv`, `suggestIngreso`, `ingreso`, `uploading`, `done` }
+- **Sheet oculto en `burstLive`** — sube SOLO tras botón "Listo" (`finishBurst()`, ≥1 foto)
+- **`onPhotoTaken()`** → agrega al filmstrip; fase permanece `burstLive` siempre
+- **Filmstrip Z2** — thumbnails 64px sobre shutter, con botón `×` borrar por foto; `reverse: true` (última foto a la derecha)
+- **GPS chip Z1 top-left** — `_GpsStatusChip` 11px; nunca overlay center sobre preview
+- **PDVs cercanos:** dentro del sheet (`assignPdv`), no sobre cámara
+- **Sin Navigator.push:** todo en el mismo Scaffold
 
-## Captura — multifoto (campo ruta 2026-06-09)
+## Captura — memoria ingreso (2026-06-10)
 
-- **addExtraPhoto()** en `CaptureProvider` — colapsa sheet volviendo a `live` con `_addingExtraPhoto=true`; el shutter agrega la foto y vuelve a `confirmPdv` sin resetear PDV
-- Botón "Agregar otra foto" en fase `confirmPdv` wired a `provider.addExtraPhoto()`
+- **`CapturePdvMemory`** (`lib/features/capture/capture_pdv_memory.dart`): SharedPreferences key `capture_ingreso_{dist}_{vendor}_{nro}`
+- Tras PDV elegido → lookup memoria → `suggestIngreso` (banner + countdown 5s) o `ingreso` (sin memoria)
+- **Countdown 5s**: `_SuggestIngresoContent` StatefulWidget — auto-confirm cancelable; botones "Cambiar" / "Cancelar auto"
+- Guarda tipo elegido en memoria tras submit exitoso (online y offline)
+
+## Captura — perf (2026-06-10)
+
+- **GPS una vez** en `_startBackgroundGps()` — lat/lng se pasan como `lastKnownLat`/`lastKnownLng` a `CameraCaptureWidget`
+- `_takePhoto()` usa `CapturePhotoMetadata` con GPS cacheado — sin petición GPS por disparo
+- Timing disparo: si > 800 ms en Android → `DeviceProfile.markSlowCameraDetected()` (async fire-and-forget)
+- **Zoom badge** top-right junto flash (no `Center` sobre preview)
+
+## Fallback cámara nativa (2026-06-10)
+
+- **`NativeCaptureService`** (`lib/features/capture/native_capture_service.dart`): `image_picker` + `ImageSource.camera`
+- **`DeviceProfile.shouldUseNativeCamera()`**: auto-detect (slow timing) O toggle manual persistido
+- Toggle **«Usar cámara del sistema»** en `SettingsScreen` (`lib/features/settings/settings_screen.dart`)
+- iOS: siempre Flutter preview; Android gama baja: nativo si flag activo
+
+## Ajustes app (2026-06-10)
+
+- `SettingsScreen` accesible desde AppBar (botón ⚙ en tabs no-Captura)
+- Sección Cámara: toggle nativo + info auto-detección + "Restaurar auto-detección"
 
 ## Offline bundle (Auditor 2026-06-09)
 

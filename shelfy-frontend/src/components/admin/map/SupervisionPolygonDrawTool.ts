@@ -127,7 +127,7 @@ export function useVertexPolygonDraw({
     }
   }, [mapRef]);
 
-  const addVertexMarker = (latLng: google.maps.LatLng, index: number) => {
+  const addVertexMarker = (latLng: google.maps.LatLng, index: number, onClose?: () => void) => {
     const map = mapRef.current;
     if (!map || !window.google) return;
     const color = strokeColorRef.current;
@@ -135,7 +135,8 @@ export function useVertexPolygonDraw({
     const marker = new window.google.maps.Marker({
       position: latLng,
       map,
-      clickable: false,
+      clickable: isFirst,
+      cursor: isFirst ? "pointer" : "crosshair",
       optimized: false,
       zIndex: 2900,
       label: isFirst
@@ -150,6 +151,9 @@ export function useVertexPolygonDraw({
         strokeWeight: isFirst ? 3 : 2,
       },
     });
+    if (isFirst && onClose) {
+      marker.addListener("click", onClose);
+    }
     vertexMarkersRef.current.push(marker);
   };
 
@@ -201,11 +205,39 @@ export function useVertexPolygonDraw({
         }
       }
       for (let i = 0; i < path.length; i++) {
-        if (distanceMeters(latLng, path[i]) <= VERTEX_HIT_METERS) return;
+        if (distanceMeters(latLng, path[i]) <= VERTEX_HIT_METERS) {
+          // Clicking near vertex 0 with ≥3 pts closes the polygon
+          if (i === 0 && path.length >= 3) finishPolygon();
+          return;
+        }
       }
 
+      const isFirstVertex = path.length === 0;
       pathRef.current = [...path, latLng];
-      addVertexMarker(latLng, pathRef.current.length - 1);
+      const newIndex = pathRef.current.length - 1;
+
+      if (isFirstVertex) {
+        // Pass onClose so click on vertex 1 closes polygon when ≥3 vertices
+        addVertexMarker(latLng, 0, () => {
+          if (pathRef.current.length >= 3) finishPolygon();
+        });
+      } else {
+        addVertexMarker(latLng, newIndex);
+      }
+
+      // When we reach 3+ vertices, update vertex 0 icon to signal it's closeable
+      if (pathRef.current.length === 3 && vertexMarkersRef.current[0]) {
+        const color = strokeColorRef.current;
+        vertexMarkersRef.current[0].setIcon({
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 13,
+          fillColor: "#ffffff",
+          fillOpacity: 1,
+          strokeColor: color,
+          strokeWeight: 4,
+        });
+      }
+
       updatePreview();
       notifyVertexCount(pathRef.current.length);
     },

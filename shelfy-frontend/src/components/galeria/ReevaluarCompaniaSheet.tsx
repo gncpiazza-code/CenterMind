@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { reevaluarExhibicionCompania, type EstadoCompania } from "@/lib/api";
+import { galeriaKeys } from "@/lib/galeria-queries";
 import { toast } from "sonner";
 
 interface Props {
@@ -64,7 +65,7 @@ export function ReevaluarCompaniaSheet({
       }),
     onSuccess: () => {
       toast.success("Re-evaluación registrada correctamente");
-      queryClient.invalidateQueries({ queryKey: ["galeria-timeline", distId] });
+      queryClient.invalidateQueries({ queryKey: galeriaKeys.all });
       queryClient.invalidateQueries({ queryKey: ["ranking-compania", distId] });
       onSuccess?.();
       handleClose();
@@ -87,7 +88,7 @@ export function ReevaluarCompaniaSheet({
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && handleClose()}>
-      <SheetContent side="bottom" className="rounded-t-2xl max-h-[90dvh] overflow-y-auto">
+      <SheetContent side="bottom" className="rounded-t-2xl max-h-[90dvh] overflow-y-auto z-[100]" overlayClassName="z-[99]">
         <SheetHeader className="pb-4">
           <SheetTitle className="font-black text-base" style={{ color: "var(--shelfy-text)" }}>
             Re-evaluar exhibición

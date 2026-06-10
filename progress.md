@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 9 Jun 2026 (v22 — SHELFYAPP auditor paridad: PDV prefix strict + pendientes padrón + offline bundle + cámara Apple-like + 6 tabs)  
+**Última actualización:** 10 Jun 2026 (v23 — Fixes mapa supervisión + galería web)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -30,12 +30,11 @@
 
 ## Cambios recientes (máx 5)
 
-1. **SHELFYAPP Auditor Paridad (2026-06-09):** PDV prefix strict (fix HERNN BENETTI); pendientes padrón (`POST /pdv/pendiente` + tabla + UI); offline bundle (BundleCache TTL 24h + BundleProvider); 6 tabs nav (Galería integrada); cámara Apple-like (shutter nativo, zoom badge, bottom gradient, focus square 600ms); CC aging visual bars; Cartera CTA → Capture pre-fill NRO; Objetivos resumen_mobile action banner; skill permanente `mobile-vendedor-auditor`; 45 tests pytest verde.
-2. **SHELFYAPP Oleada 3 (2026-06-09):** Cámara pro (double-tap zoom + dial glass presets); CC enrich BE (geo+FUC) + FE (antigüedad chip + FUC + Maps); Objetivos UI (suprimir HTML Telegram, ShelfyInsightList, tokens); Stats hero bultos + SKU progress rows + KPI grid 2col; 5 shared widgets nuevos; design polish 8.3/10; `resumen_mobile` en objetivos detalle BE.
-2. **SHELFYAPP MVP campo ruta (2026-06-09):** nav 5 tabs directos (Captura·CC·Cartera·Objetivos·Stats); tab inicial=Captura; fix multifoto (`addExtraPhoto()`); BE wrappers `/estadisticas/resumen` + cartera +3 campos + objetivos `recomendaciones[]`; FE visor KPIs+ficha PDV+recomendaciones.
-3. **SHELFYAPP perf + nav (2026-06-09):** tab único montado (sin IndexedStack OOM); cache providers `fetch(force)`; cámara `medium` Android / `high` iOS; Maestro nav stress.
-4. **SHELFYAPP Oleada 2 (2026-06-09):** P0 fix upload portal; espíritu Shelfy tokens; captura 1 pantalla Stack; `pdv/buscar` endpoint.
-5. **Alta Ippolibaz dist 13 (2026-06-09):** registry + tablas `*_d13`; padrón 1111 PDVs.
+1. **Mapa supervisión + Galería web — fixes (2026-06-10):** M1 pins visibles translúcidos (opacity 0.35) en modo dibujo; M2 anti-flicker drag con `setOpacity` condicional (skip si ≤600 pins); M3 panel UI inferior unificado (LayerPanel+FilterLegend+MapLegend en columna izquierda sin botón fullscreen suelto); M4 polígono cierra al clic en vértice 0 (cursor pointer + visual hint 3+); G1 fix navegación galería (pendingInitRef + externalPubIdxRef anti race-condition); G2 z-index sheet reevaluar sobre visor (`z-[100]`/`z-[99]`); G3 strip timeline horizontal PDV con dots de color por estado; G4 cross-ref timeline↔carrusel por `dia_ar`.
+2. **SHELFYAPP Auditor Paridad (2026-06-09):** PDV prefix strict (fix HERNN BENETTI); pendientes padrón (`POST /pdv/pendiente` + tabla + UI); offline bundle (BundleCache TTL 24h + BundleProvider); 6 tabs nav (Galería integrada); cámara Apple-like (shutter nativo, zoom badge, bottom gradient, focus square 600ms); CC aging visual bars; Cartera CTA → Capture pre-fill NRO; Objetivos resumen_mobile action banner; skill permanente `mobile-vendedor-auditor`; 45 tests pytest verde.
+3. **SHELFYAPP Oleada 3 (2026-06-09):** Cámara pro (double-tap zoom + dial glass presets); CC enrich BE (geo+FUC) + FE (antigüedad chip + FUC + Maps); Objetivos UI (suprimir HTML Telegram, ShelfyInsightList, tokens); Stats hero bultos + SKU progress rows + KPI grid 2col; 5 shared widgets nuevos; design polish 8.3/10; `resumen_mobile` en objetivos detalle BE.
+4. **SHELFYAPP MVP campo ruta (2026-06-09):** nav 5 tabs directos (Captura·CC·Cartera·Objetivos·Stats); tab inicial=Captura; fix multifoto (`addExtraPhoto()`); BE wrappers `/estadisticas/resumen` + cartera +3 campos + objetivos `recomendaciones[]`; FE visor KPIs+ficha PDV+recomendaciones.
+5. **SHELFYAPP Oleada 2 + Alta Ippolibaz dist 13 (2026-06-09):** P0 fix upload; espíritu Shelfy tokens; captura 1 pantalla; `pdv/buscar`; registry + tablas `*_d13`; padrón 1111 PDVs.
 
 ## Guardrails activos
 

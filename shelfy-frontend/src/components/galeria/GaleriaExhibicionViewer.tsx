@@ -11,12 +11,18 @@ import {
   pickFotoEvaluadaParaReeval,
   type GaleriaPublicacion,
 } from "@/lib/galeria-publicaciones";
-import { galeriaKeys, prefetchGaleriaTimeline, prefetchGaleriaPdvDetalle } from "@/lib/galeria-queries";
+import {
+  galeriaKeys,
+  prefetchGaleriaTimeline,
+  prefetchGaleriaPdvDetalle,
+  fetchAllGaleriaTimeline,
+} from "@/lib/galeria-queries";
 import { formatGaleriaMesLabel } from "@/lib/galeria-month";
 import {
   GaleriaPublicationCarousel,
   type GaleriaCarouselHandle,
 } from "./GaleriaPublicationCarousel";
+import { GaleriaExhibicionTimeline } from "./GaleriaExhibicionTimeline";
 import { ReevaluarCompaniaSheet } from "./ReevaluarCompaniaSheet";
 import { GaleriaPdvInsightPanel } from "./GaleriaPdvInsightPanel";
 import { useGaleriaViewerNav, type GaleriaViewerNavTarget } from "@/hooks/useGaleriaViewerNav";
@@ -71,6 +77,8 @@ export function GaleriaExhibicionViewer({
   const [currentPub, setCurrentPub] = useState<GaleriaPublicacion | null>(null);
   const [currentPubIdx, setCurrentPubIdx] = useState(0);
   const [reevalOpen, setReevalOpen] = useState(false);
+  // Tracks whether we've initialized to the most-recent pub for the current client
+  const pendingInitRef = useRef(true);
 
   useEffect(() => {
     setIdCliente(initialIdCliente);
@@ -87,6 +95,13 @@ export function GaleriaExhibicionViewer({
     initialLat,
     initialLng,
   ]);
+
+  // Mark as pending whenever idCliente changes so we re-initialize to most recent pub
+  useEffect(() => {
+    pendingInitRef.current = true;
+    setCurrentPub(null);
+    setCurrentPubIdx(0);
+  }, [idCliente]);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: galeriaKeys.timeline(
@@ -112,22 +127,35 @@ export function GaleriaExhibicionViewer({
     [data],
   );
 
+  // Full (unfiltered) timeline for the PDV — used for the timeline strip
+  const { data: dataFull } = useQuery({
+    queryKey: galeriaKeys.timelineFull(distId, idCliente ?? 0, idVendedor),
+    queryFn: () => fetchAllGaleriaTimeline(idCliente!, distId, idVendedor ?? undefined),
+    enabled: open && idCliente != null,
+    staleTime: 120_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const publicacionesFull: GaleriaPublicacion[] = useMemo(
+    () => (dataFull ? groupTimelinePublicaciones(dataFull) : []),
+    [dataFull],
+  );
+
   useEffect(() => {
     if (idClienteErp?.trim()) return;
     const pin = mapPins.find((p) => p.id_cliente === idCliente);
     if (pin?.id_cliente_erp) setIdClienteErp(pin.id_cliente_erp);
   }, [idCliente, idClienteErp, mapPins]);
 
+  // Initialize to most-recent pub when data arrives — only once per client change
   useEffect(() => {
-    if (publicaciones.length === 0) {
-      setCurrentPub(null);
-      setCurrentPubIdx(0);
-      return;
-    }
+    if (!pendingInitRef.current) return;
+    if (publicaciones.length === 0) return;
+    pendingInitRef.current = false;
     const lastIdx = publicaciones.length - 1;
     setCurrentPub(publicaciones[lastIdx]);
     setCurrentPubIdx(lastIdx);
-  }, [idCliente, data]);
+  }, [publicaciones]);
 
   const handlePublicacionChange = (idx: number, pub: GaleriaPublicacion) => {
     setCurrentPub(pub);
@@ -170,6 +198,12 @@ export function GaleriaExhibicionViewer({
       onPhotoPrev: () => carouselRef.current?.photoPrev(),
       onPhotoNext: () => carouselRef.current?.photoNext(),
     });
+
+  // Index of the current pub in the full (unfiltered) list — for timeline strip dot
+  const activeTimelineIdx = useMemo(() => {
+    if (!currentPub) return -1;
+    return publicacionesFull.findIndex((p) => p.dia_ar === currentPub.dia_ar);
+  }, [publicacionesFull, currentPub]);
 
   const activeFoto = useMemo(
     () => (currentPub ? pickFotoEvaluadaParaReeval(currentPub.fotos) : null),
@@ -280,7 +314,7 @@ export function GaleriaExhibicionViewer({
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 relative rounded-t-2xl md:rounded-none overflow-hidden mx-2 md:mx-4 mb-2 md:mb-4 shadow-2xl ring-1 ring-white/10 bg-black/30 backdrop-blur-sm">
+          <div className="flex-1 min-h-0 relative rounded-t-2xl md:rounded-none overflow-hidden mx-2 md:mx-4 shadow-2xl ring-1 ring-white/10 bg-black/30 backdrop-blur-sm">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full gap-4">
                 <Loader2 size={32} className="text-white/70 animate-spin" />
@@ -306,6 +340,21 @@ export function GaleriaExhibicionViewer({
               />
             )}
           </div>
+
+          {/* Timeline strip — all visits for this PDV, no date filter */}
+          {publicacionesFull.length > 1 && (
+            <GaleriaExhibicionTimeline
+              publicaciones={publicacionesFull}
+              activePubIdx={activeTimelineIdx}
+              onSelectPub={(idx) => {
+                const pub = publicacionesFull[idx];
+                if (!pub) return;
+                // Navigate carousel only if date is within the filtered set
+                const filteredIdx = publicaciones.findIndex((p) => p.dia_ar === pub.dia_ar);
+                if (filteredIdx >= 0) handlePublicacionChange(filteredIdx, publicaciones[filteredIdx]);
+              }}
+            />
+          )}
         </div>
 
         {/* Panel insights — desktop siempre; mobile sheet inferior */}

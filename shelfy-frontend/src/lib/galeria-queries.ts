@@ -5,6 +5,7 @@ import {
   fetchGaleriaMeses,
   fetchGaleriaVendedores,
   fetchGaleriaPdvInsight,
+  type GaleriaTimelineItem,
 } from "@/lib/api";
 
 export const galeriaKeys = {
@@ -37,6 +38,8 @@ export const galeriaKeys = {
       desde,
       hasta,
     ] as const,
+  timelineFull: (distId: number, idCliente: number, idVendedor?: number | null) =>
+    [...galeriaKeys.all, "timeline-full", distId, idCliente, idVendedor ?? "all"] as const,
   pdvDetalle: (distId: number, idClienteErp: string, desde: string, hasta: string) =>
     [...galeriaKeys.all, "pdv-detalle", distId, idClienteErp, desde, hasta] as const,
 };
@@ -92,4 +95,30 @@ export async function prefetchGaleriaPdvDetalle(
     queryFn: () => fetchGaleriaPdvInsight(distId, idClienteErp, { desde, hasta }),
     staleTime: 120_000,
   });
+}
+
+/** Fetch ALL timeline pages for a PDV (no date filter). Returns flat item array. */
+export async function fetchAllGaleriaTimeline(
+  idCliente: number,
+  distId: number,
+  idVendedor?: number,
+): Promise<GaleriaTimelineItem[]> {
+  const LIMIT = 120;
+  const allItems: GaleriaTimelineItem[] = [];
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const res = await fetchGaleriaTimelineCliente(idCliente, distId, {
+      offset,
+      limit: LIMIT,
+      idVendedor,
+    });
+    allItems.push(...res.items);
+    hasMore = res.has_more;
+    offset += LIMIT;
+    if (allItems.length >= 2000) break; // safety cap
+  }
+
+  return allItems;
 }

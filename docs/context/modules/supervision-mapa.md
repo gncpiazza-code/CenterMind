@@ -34,4 +34,24 @@
 
 - Entrada al mapa: ningún vendedor visible (`visibleVends` vacío)
 - Precarga background vendedores/rutas/clientes (React Query, stale 15 min)
-- Dibujo: click = vértice, doble clic / botón = cerrar, ESC = cancelar (sin freehand)
+- Dibujo: click = vértice, clic en vértice 0 (≥3 vértices) = cerrar, ESC = cancelar (sin freehand)
+
+## Pins en modo dibujo (M1)
+
+- Al entrar en `routeBuildEnabled`, pins no se eliminan (`setMap(null)` reemplazado)
+- Pins en modo dibujo: `opacity: 0.35` (translúcido, referencia visual)
+- Al salir de modo dibujo: `opacity: 1` restaurado
+- Skip anti-flicker (M2): si ≤600 pins, no se aplica opacity 0.15 en drag (sin coste visible)
+
+## Panel UI inferior (M3)
+
+- Columna izquierda única (`bottom: 12, left: panelOffset + 12`, `transition: left 0.2s`)
+- Orden: LayerPanel (arriba, scrollable) → FilterLegend → MapLegendTooltip
+- El antiguo botón "Dibujar Zona" fullscreen fue eliminado (la toolbar lateral gestiona el modo)
+
+## Polígono — cierre por vértice (M4)
+
+- Vértice 0 es `clickable: true`, `cursor: "pointer"`
+- Al alcanzar 3 vértices, el ícono del vértice 0 aumenta (scale 13, strokeWeight 4) como hint visual
+- Clic en vértice 0 con ≥3 vértices llama `finishPolygon()` directamente
+- `SupervisionPolygonDrawTool.ts` → función `addVertexMarker(latLng, index, onClose?)`

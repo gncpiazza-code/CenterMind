@@ -587,7 +587,7 @@ function MapaRutas({
     if (!isFullscreen) setShowSidePanel(true);
   }, [isFullscreen]);
 
-  // Ocultar pins mientras se arrastra/hace zoom — reduce lag con muchos PDVs
+  // Anti-flicker pan/zoom: fade opacity for large sets, skip for ≤600 pins
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
@@ -595,14 +595,11 @@ function MapaRutas({
     let raf: number | null = null;
     let interacting = false;
 
-    const setMarkersVisible = (visible: boolean) => {
-      markersMapRef.current.forEach((m) => m.setVisible(visible));
-    };
-
     const onInteractStart = () => {
       if (routeBuildEnabledRef.current) return;
+      if (filteredPinesRef.current.length <= 600) return;
       interacting = true;
-      setMarkersVisible(false);
+      markersMapRef.current.forEach((m) => m.setOpacity(0.15));
     };
 
     const onInteractEnd = () => {
@@ -610,7 +607,8 @@ function MapaRutas({
       interacting = false;
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        if (!routeBuildEnabledRef.current) setMarkersVisible(true);
+        const targetOpacity = routeBuildEnabledRef.current ? 0.35 : 1;
+        markersMapRef.current.forEach((m) => m.setOpacity(targetOpacity));
       });
     };
 
@@ -631,11 +629,8 @@ function MapaRutas({
     const map = mapRef.current;
     if (!map || !mapLoaded || !window.google) return;
 
-    // Modo dibujo: ocultar pins para que no intercepten clicks del mapa
-    if (routeBuildEnabledRef.current) {
-      markersMapRef.current.forEach((marker) => marker.setMap(null));
-      return;
-    }
+    const inDrawMode = routeBuildEnabledRef.current;
+    const targetOpacity = inDrawMode ? 0.35 : 1;
 
     const nextIds = new Set<number>();
     const conCoords = filteredPinesRef.current.filter(p => p.lat && p.lng);
@@ -648,10 +643,11 @@ function MapaRutas({
       if (!marker) {
         marker = new window.google.maps.Marker({
           position: { lat: p.lat, lng: p.lng },
-          clickable: !routeBuildEnabledRef.current,
+          clickable: !inDrawMode,
           icon: getCachedMarkerIcon(p, false, pinConfig),
           optimized: true,
           zIndex: p.activo ? 10 : 5,
+          opacity: targetOpacity,
         });
         markerIconKeysRef.current.set(p.id, iconKey);
 
@@ -688,6 +684,7 @@ function MapaRutas({
         const z = p.activo ? 10 : 5;
         if (marker.getZIndex() !== z) marker.setZIndex(z);
         if (!marker.getMap()) marker.setMap(map);
+        marker.setOpacity(targetOpacity);
       }
     }
 
@@ -853,9 +850,15 @@ function MapaRutas({
     if (!map || !mapLoaded) return;
     if (routeBuildEnabled) {
       infoWindowRef.current?.close();
-      markersMapRef.current.forEach(m => m.setClickable(false));
+      markersMapRef.current.forEach(m => {
+        m.setClickable(false);
+        m.setOpacity(0.35);
+      });
     } else {
-      markersMapRef.current.forEach(m => m.setClickable(true));
+      markersMapRef.current.forEach(m => {
+        m.setClickable(true);
+        m.setOpacity(1);
+      });
     }
   }, [routeBuildEnabled, mapLoaded]);
 
@@ -1120,55 +1123,6 @@ function MapaRutas({
         </div>
       )}
 
-      {/* Fullscreen Armar Ruta toggle */}
-      {isFullscreen && onToggleRouteBuild && (
-        <div style={{
-          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 31, display: 'flex', gap: 6,
-          background: 'rgba(15,23,42,0.78)', backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 4,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-        }}>
-          <button
-            onClick={onToggleRouteBuild}
-            style={{
-              border: 'none',
-              borderRadius: 8,
-              padding: '6px 10px',
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: 'pointer',
-              color: routeBuildEnabled ? '#0f172a' : '#cbd5e1',
-              background: routeBuildEnabled ? '#8b5cf6' : 'transparent',
-            }}
-          >
-            Dibujar Zona
-          </button>
-        </div>
-      )}
-
-      {/* Layer panel + custom slot */}
-      {(layerPanelSlot || (capas.length > 0 && onToggleCapa)) && (
-        <div style={{
-          position: 'absolute', bottom: 12, left: panelOffset + 12, zIndex: 30,
-          width: 280, maxHeight: 280, overflow: 'hidden',
-          background: 'rgba(15,23,42,0.88)', backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
-        }}>
-          {layerPanelSlot ?? (
-            onToggleCapa && onToggleVendorCapas ? (
-              <SupervisionMapLayerPanel
-                capas={capas}
-                vendorNames={vendorNames}
-                visibleCapaIds={visibleCapaIds}
-                onToggleCapa={onToggleCapa}
-                onToggleVendorCapas={onToggleVendorCapas}
-              />
-            ) : null
-          )}
-        </div>
-      )}
-
       {/* Top-right controls */}
       <div style={{
         position: 'absolute', top: 10, right: 10,
@@ -1212,16 +1166,32 @@ function MapaRutas({
         >🖨️</button>
       </div>
 
-      {/* Filter legend */}
+      {/* Bottom-left controls — stacked column (layer → filters → legend), no overlap */}
       <div style={{
-        position: 'absolute', bottom: 52, left: panelOffset + 12,
-        zIndex: 30, transition: 'left 0.2s ease',
+        position: 'absolute', bottom: 12, left: panelOffset + 12,
+        zIndex: 30, display: 'flex', flexDirection: 'column', gap: 6,
+        alignItems: 'flex-start', transition: 'left 0.2s ease',
       }}>
+        {(layerPanelSlot || (capas.length > 0 && onToggleCapa)) && (
+          <div style={{
+            width: 280, maxHeight: 220, overflow: 'hidden',
+            background: 'rgba(15,23,42,0.88)', backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12,
+          }}>
+            {layerPanelSlot ?? (
+              onToggleCapa && onToggleVendorCapas ? (
+                <SupervisionMapLayerPanel
+                  capas={capas}
+                  vendorNames={vendorNames}
+                  visibleCapaIds={visibleCapaIds}
+                  onToggleCapa={onToggleCapa}
+                  onToggleVendorCapas={onToggleVendorCapas}
+                />
+              ) : null
+            )}
+          </div>
+        )}
         <FilterLegend />
-      </div>
-
-      {/* MapLegendTooltip */}
-      <div style={{ position: 'absolute', bottom: 16, left: panelOffset + 12, zIndex: 30 }}>
         <MapLegendTooltip />
       </div>
 

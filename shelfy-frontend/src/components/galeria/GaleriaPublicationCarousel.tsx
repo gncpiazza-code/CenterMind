@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
+import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -59,8 +59,13 @@ export const GaleriaPublicationCarousel = forwardRef<
   const [fotoIdx, setFotoIdx] = useState(0);
   const [direction, setDirection] = useState(0);
 
+  // Track last externally-set activePubIdx to avoid reacting to internal navigation
+  const externalPubIdxRef = useRef<number | undefined>(undefined);
+
   useEffect(() => {
     if (typeof activePubIdx !== "number") return;
+    if (activePubIdx === externalPubIdxRef.current) return; // no external change
+    externalPubIdxRef.current = activePubIdx;
     if (activePubIdx < 0 || activePubIdx >= publicaciones.length) return;
     if (activePubIdx === pubIdx) return;
     setDirection(activePubIdx > pubIdx ? 1 : -1);

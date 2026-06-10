@@ -613,22 +613,34 @@ def build_avance_ventas(
             vendedor_norm=vendedor_norm,
         )
 
-    agg = _agg_rango(periodo["desde"], periodo["hasta"])
+    # Actual + referencias + cartera en paralelo (fetches PostgREST independientes).
+    from concurrent.futures import ThreadPoolExecutor
 
     agg_refs: dict[str, dict | None] = {}
-    for ref_key, rango in refs.items():
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        fut_actual = pool.submit(_agg_rango, periodo["desde"], periodo["hasta"])
+        fut_cartera = pool.submit(
+            _cartera_scope_count, dist_id, sucursal_clean or None, vendedor_clean or None
+        )
+        fut_refs = {
+            ref_key: pool.submit(_agg_rango, rango["desde"], rango["hasta"])
+            for ref_key, rango in refs.items()
+        }
+        agg = fut_actual.result()
+        for ref_key, fut in fut_refs.items():
+            try:
+                ref_agg = fut.result()
+                agg_refs[ref_key] = ref_agg if ref_agg["comprobantes"] > 0 else None
+            except Exception as e:
+                logger.warning(
+                    "[avance-ventas] referencia %s dist=%s: %s", ref_key, dist_id, e
+                )
+                agg_refs[ref_key] = None
         try:
-            ref_agg = _agg_rango(rango["desde"], rango["hasta"])
-            agg_refs[ref_key] = ref_agg if ref_agg["comprobantes"] > 0 else None
+            cartera_count = fut_cartera.result()
         except Exception as e:
-            logger.warning(
-                "[avance-ventas] referencia %s dist=%s: %s", ref_key, dist_id, e
-            )
-            agg_refs[ref_key] = None
-
-    cartera_count = _cartera_scope_count(
-        dist_id, sucursal_clean or None, vendedor_clean or None
-    )
+            logger.warning("[avance-ventas] cartera dist=%s: %s", dist_id, e)
+            cartera_count = None
 
     # ── Metadatos + comparativas ────────────────────────────────────────────
     metadatos = {

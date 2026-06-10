@@ -37,11 +37,13 @@ galeriaKeys.timelineFull(distId, id, vend?)  // timeline sin filtro (strip)
 
 ## Strip timeline (G3/G4)
 
-- `GaleriaExhibicionTimeline` recibe `publicaciones` (lista completa unfiltered) + `activePubIdx` (índice en lista completa)
-- El visor mantiene `publicacionesFull` (de `timelineFull`) y calcula `activeTimelineIdx = publicacionesFull.findIndex(p => p.dia_ar === currentPub.dia_ar)`
-- Al hacer clic en un ítem del strip, se busca el `dia_ar` en la lista filtrada del carrusel para navegar correctamente
-- Solo se renderiza si `publicaciones.length > 1`
-- Auto-scroll del ítem activo con `scrollIntoView({ inline: "center" })`
+- `GaleriaExhibicionTimeline` — barra prominente **arriba del carrusel** con thumbnails, título y fecha activa
+- Carrusel usa `publicacionesFull` (historial completo); el mes filtrado solo define la visita inicial
+- Tap en fecha → navega directo a esa publicación (`onSelectPub` + preload imagen)
+- `useGaleriaViewerStore` — `readyClienteId` / `transitionEpoch` evitan flash del PDV anterior
+- `placeholderData` en queries scoped por `idCliente` (no reutiliza cache de otro PDV)
+- Prefetch: `prefetchGaleriaTimelineFull` en hover mapa, ↑↓ PDV y vecinos
+- `preloadGaleriaPublication` antes de mostrar carrusel o cambiar visita
 
 ## Z-index sheet (G2)
 

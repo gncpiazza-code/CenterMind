@@ -6,6 +6,7 @@ import type { GaleriaMapaPin } from "@/lib/api";
 import {
   galeriaKeys,
   prefetchGaleriaTimeline,
+  prefetchGaleriaTimelineFull,
   prefetchGaleriaPdvDetalle,
 } from "@/lib/galeria-queries";
 
@@ -47,6 +48,11 @@ export function useGaleriaMapPrefetch(
         desde,
         hasta,
       });
+      void prefetchGaleriaTimelineFull(qc, {
+        distId,
+        idCliente,
+        idVendedor: vendedorId,
+      });
       if (pin?.id_cliente_erp) {
         void prefetchGaleriaPdvDetalle(qc, distId, pin.id_cliente_erp, { desde, hasta });
       }
@@ -65,6 +71,11 @@ export function prefetchGaleriaOnPinHover(
     idVendedor: opts.vendedorId,
     desde: opts.desde,
     hasta: opts.hasta,
+  });
+  void prefetchGaleriaTimelineFull(qc, {
+    distId: opts.distId,
+    idCliente: pin.id_cliente,
+    idVendedor: opts.vendedorId,
   });
   if (pin.id_cliente_erp) {
     void prefetchGaleriaPdvDetalle(qc, opts.distId, pin.id_cliente_erp, {

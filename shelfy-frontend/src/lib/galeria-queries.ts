@@ -7,6 +7,7 @@ import {
   fetchGaleriaPdvInsight,
   type GaleriaTimelineItem,
 } from "@/lib/api";
+import type { GaleriaPublicacion } from "@/lib/galeria-publicaciones";
 
 export const galeriaKeys = {
   all: ["galeria"] as const,
@@ -79,6 +80,61 @@ export async function prefetchGaleriaTimeline(
       }),
     staleTime: 60_000,
   });
+}
+
+export async function prefetchGaleriaTimelineFull(
+  qc: QueryClient,
+  params: {
+    distId: number;
+    idCliente: number;
+    idVendedor?: number | null;
+  },
+) {
+  const { distId, idCliente, idVendedor } = params;
+  return qc.prefetchQuery({
+    queryKey: galeriaKeys.timelineFull(distId, idCliente, idVendedor),
+    queryFn: () => fetchAllGaleriaTimeline(idCliente, distId, idVendedor ?? undefined),
+    staleTime: 120_000,
+  });
+}
+
+/** Precarga URLs de imagen en cache del navegador (best-effort). */
+export function preloadGaleriaImageUrls(urls: string[]): Promise<void> {
+  const unique = [...new Set(urls.filter((u) => u?.trim()))].slice(0, 6);
+  if (unique.length === 0) return Promise.resolve();
+  return Promise.all(
+    unique.map(
+      (url) =>
+        new Promise<void>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+          img.src = url;
+        }),
+    ),
+  ).then(() => undefined);
+}
+
+export async function preloadGaleriaPublication(
+  pub: GaleriaPublicacion | null | undefined,
+): Promise<void> {
+  if (!pub?.fotos?.length) return;
+  const urls = pub.fotos.map((f) => f.url_foto).filter(Boolean);
+  await preloadGaleriaImageUrls(urls);
+}
+
+/** Índice inicial: última visita del mes filtrado, o la más reciente del historial completo. */
+export function pickInitialPublicationIndex(
+  carouselPubs: GaleriaPublicacion[],
+  filteredPubs: GaleriaPublicacion[],
+): number {
+  if (carouselPubs.length === 0) return 0;
+  if (filteredPubs.length > 0) {
+    const last = filteredPubs[filteredPubs.length - 1];
+    const found = carouselPubs.findIndex((p) => p.dia_ar === last.dia_ar);
+    if (found >= 0) return found;
+  }
+  return carouselPubs.length - 1;
 }
 
 export async function prefetchGaleriaPdvDetalle(

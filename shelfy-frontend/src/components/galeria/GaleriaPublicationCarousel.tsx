@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { GaleriaPublicacion } from "@/lib/galeria-publicaciones";
@@ -16,8 +16,10 @@ export interface GaleriaCarouselHandle {
 interface GaleriaPublicationCarouselProps {
   publicaciones: GaleriaPublicacion[];
   onPublicacionChange?: (idx: number, pub: GaleriaPublicacion) => void;
-  /** Índice controlado desde panel historial */
+  /** Índice controlado desde panel historial / timeline */
   activePubIdx?: number;
+  /** Cambio de PDV — fuerza reset de imagen visible */
+  clienteId?: number | null;
 }
 
 const ESTADO_CHIP: Record<string, string> = {
@@ -52,31 +54,38 @@ export const GaleriaPublicationCarousel = forwardRef<
   GaleriaCarouselHandle,
   GaleriaPublicationCarouselProps
 >(function GaleriaPublicationCarousel(
-  { publicaciones, onPublicacionChange, activePubIdx },
+  { publicaciones, onPublicacionChange, activePubIdx, clienteId },
   ref,
 ) {
   const [pubIdx, setPubIdx] = useState(0);
   const [fotoIdx, setFotoIdx] = useState(0);
   const [direction, setDirection] = useState(0);
+  const [imgLoaded, setImgLoaded] = useState(false);
 
   // Track last externally-set activePubIdx to avoid reacting to internal navigation
   const externalPubIdxRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (typeof activePubIdx !== "number") return;
-    if (activePubIdx === externalPubIdxRef.current) return; // no external change
+    if (activePubIdx === externalPubIdxRef.current) return;
     externalPubIdxRef.current = activePubIdx;
     if (activePubIdx < 0 || activePubIdx >= publicaciones.length) return;
     if (activePubIdx === pubIdx) return;
     setDirection(activePubIdx > pubIdx ? 1 : -1);
     setPubIdx(activePubIdx);
     setFotoIdx(0);
+    setImgLoaded(false);
   }, [activePubIdx, publicaciones.length, pubIdx]);
 
   const pub = publicaciones[pubIdx];
   const totalPubs = publicaciones.length;
   const totalFotos = pub?.fotos.length ?? 0;
   const currentFoto = pub?.fotos[fotoIdx];
+  const currentFotoUrl = currentFoto?.url_foto ?? "";
+
+  useEffect(() => {
+    setImgLoaded(false);
+  }, [clienteId, pubIdx, fotoIdx, currentFotoUrl]);
   const visitaFecha = pub
     ? formatGaleriaFechaVisita(pub.dia_ar, currentFoto?.timestamp_subida)
     : { fecha: "—", relativo: "" };
@@ -88,6 +97,7 @@ export const GaleriaPublicationCarousel = forwardRef<
       setDirection(dir);
       setPubIdx(nextIdx);
       setFotoIdx(0);
+      setImgLoaded(false);
       if (onPublicacionChange) {
         onPublicacionChange(nextIdx, publicaciones[nextIdx]);
       }
@@ -99,6 +109,7 @@ export const GaleriaPublicationCarousel = forwardRef<
     (nextFoto: number) => {
       if (nextFoto < 0 || nextFoto >= totalFotos) return;
       setFotoIdx(nextFoto);
+      setImgLoaded(false);
     },
     [totalFotos],
   );
@@ -203,9 +214,15 @@ export const GaleriaPublicationCarousel = forwardRef<
           </div>
         )}
 
+        {!imgLoaded && currentFotoUrl && (
+          <div className="absolute inset-2 z-[7] flex items-center justify-center pointer-events-none">
+            <Loader2 className="w-8 h-8 text-white/60 animate-spin" />
+          </div>
+        )}
+
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div
-            key={`${pubIdx}-${fotoIdx}`}
+            key={`${clienteId ?? 0}-${pubIdx}-${fotoIdx}`}
             custom={direction}
             variants={variants}
             initial="enter"
@@ -214,13 +231,18 @@ export const GaleriaPublicationCarousel = forwardRef<
             transition={{ type: "spring", stiffness: 320, damping: 32, mass: 0.85 }}
             className="absolute inset-2 flex items-center justify-center z-[6]"
           >
-            {currentFoto?.url_foto ? (
+            {currentFotoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={currentFoto.url_foto}
+                src={currentFotoUrl}
                 alt={`Exhibición ${pub.dia_ar}`}
-                className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-2xl ring-1 ring-white/10"
+                className={cn(
+                  "max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-2xl ring-1 ring-white/10 transition-opacity duration-200",
+                  imgLoaded ? "opacity-100" : "opacity-0",
+                )}
                 draggable={false}
+                onLoad={() => setImgLoaded(true)}
+                onError={() => setImgLoaded(true)}
               />
             ) : (
               <p className="text-white/50 text-sm">Sin imagen</p>

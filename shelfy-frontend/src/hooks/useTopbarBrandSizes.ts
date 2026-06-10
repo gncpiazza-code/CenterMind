@@ -7,7 +7,7 @@ const STORAGE_KEY = "shelfy-topbar-brand-dev";
 /** Tamaños finales topbar desktop (ajustados en dev Brand panel). */
 export const TOPBAR_BRAND_DEFAULTS = {
   iconPx: 42,
-  wordmarkPx: 32,
+  wordmarkPx: 29,
   gapPx: 17,
 } as const;
 

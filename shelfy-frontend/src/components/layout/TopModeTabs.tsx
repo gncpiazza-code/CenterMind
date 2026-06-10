@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, type Ref } from "react";
 import {
   Eye, LayoutDashboard, BarChart2, Map, Target, Images, Radio, FileBarChart2, UserCog, TrendingUp,
 } from "lucide-react";
@@ -88,7 +88,11 @@ const TABS: TabItem[] = [
   },
 ];
 
-export function TopModeTabs() {
+export function TopModeTabs({
+  firstTabRef,
+}: {
+  firstTabRef?: Ref<HTMLAnchorElement>;
+}) {
   const pathname = usePathname();
   const { user, hasPermiso, effectiveDistribuidorId } = useAuth();
   const { prefetchRoute } = usePortalCache();
@@ -121,25 +125,26 @@ export function TopModeTabs() {
       className="hidden md:flex items-center gap-2 overflow-x-auto px-1"
       style={{ scrollbarWidth: "none" }}
     >
-      {visibleTabs.map(({ href, label, icon: Icon }) => {
+      {visibleTabs.map(({ href, label, icon: Icon }, index) => {
         const active =
           pathname === href ||
           (href !== "/" && pathname.startsWith(href + "/"));
         return (
           <Link
             key={href}
+            ref={index === 0 ? firstTabRef : undefined}
             href={href}
             onMouseEnter={() => prefetchRoute(href)}
             onFocus={() => prefetchRoute(href)}
             className={cn(
-              "flex flex-col items-center gap-1 px-3.5 py-2 rounded-xl transition-all duration-200 min-w-[64px] shrink-0 group",
+              "flex flex-col items-center gap-1.5 px-3.5 py-2.5 rounded-xl transition-all duration-200 min-w-[68px] shrink-0 group",
               active
                 ? "bg-[var(--shelfy-primary)]/10 text-[var(--shelfy-primary)]"
                 : "text-[var(--shelfy-muted)] hover:bg-[var(--shelfy-primary)]/6 hover:text-[var(--shelfy-primary)]",
             )}
           >
             <Icon
-              size={16}
+              size={17}
               strokeWidth={active ? 2.5 : 1.8}
               className="transition-transform duration-200 group-hover:scale-110"
             />

@@ -1,7 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Settings } from "lucide-react";
-import { MarkerClusterer } from '@googlemaps/markerclusterer';
 import { loadGoogleMapsFull, getGoogleMapsApiKey, ensureGoogleMapsConfigured, subscribeGoogleMapsAuthFailure, googleMapsReferrerWhitelistHint } from "@/lib/googleMapsLoader";
 import type { DrawnPolygon, MapToolMode } from "@/store/useSupervisionStore";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
@@ -430,7 +429,6 @@ function MapaRutas({
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
   const markersMapRef = useRef<Map<number, google.maps.Marker>>(new Map());
-  const clustererRef  = useRef<MarkerClusterer | null>(null);
   const markerIconKeysRef = useRef<Map<number, string>>(new Map());
   const prevSelectedPdvRef = useRef<Set<number>>(new Set());
   const prevPinDataSyncKeyRef = useRef("");
@@ -760,33 +758,6 @@ function MapaRutas({
     map.fitBounds(bounds, 60);
     if (conCoords.length === 1) map.setZoom(14);
   }, [pineIdsKey, mapLoaded]);
-
-  // ── MarkerClusterer (explorar mode, >800 pins) ────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapLoaded || !window.google) return;
-    const shouldCluster = filteredPines.length > 800 && mapToolMode === 'explorar';
-
-    if (!shouldCluster) {
-      if (clustererRef.current) {
-        clustererRef.current.clearMarkers();
-        clustererRef.current.setMap(null);
-        clustererRef.current = null;
-        markersMapRef.current.forEach(m => { if (!m.getMap()) m.setMap(map); });
-      }
-      return;
-    }
-
-    const allMarkers = [...markersMapRef.current.values()];
-    if (!clustererRef.current) {
-      allMarkers.forEach(m => m.setMap(null));
-      clustererRef.current = new MarkerClusterer({ map, markers: allMarkers });
-    } else {
-      clustererRef.current.clearMarkers();
-      allMarkers.forEach(m => m.setMap(null));
-      clustererRef.current.addMarkers(allMarkers);
-    }
-  }, [filteredPines.length, mapToolMode, mapLoaded, pinDataSyncKey]);
 
   // ── Selection ring (solo iconos que cambiaron de estado) ───────────────────
   useEffect(() => {

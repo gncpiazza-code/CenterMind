@@ -37,8 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import Link from "next/link";
-import { useTopbarBrandSizes, TOPBAR_BRAND_DEFAULTS } from "@/hooks/useTopbarBrandSizes";
-import { TopbarBrandTuner } from "./TopbarBrandTuner";
+import { TopbarBrandSweep } from "./TopbarBrandSweep";
 
 // ── Ticket flotante ───────────────────────────────────────────────────────────
 
@@ -274,6 +273,8 @@ interface TopbarProps {
 }
 
 export function Topbar({ title, live = false }: TopbarProps) {
+  const headerRef = useRef<HTMLElement>(null);
+  const evaluarTabRef = useRef<HTMLAnchorElement>(null);
   const {
     user,
     logout,
@@ -281,10 +282,6 @@ export function Topbar({ title, live = false }: TopbarProps) {
     switchDistributor,
     canSwitchDistribuidor,
   } = useAuth();
-  const { sizes: brandSizes, update: updateBrandSizes, reset: resetBrandSizes } =
-    useTopbarBrandSizes();
-  const brand =
-    process.env.NODE_ENV === "development" ? brandSizes : TOPBAR_BRAND_DEFAULTS;
   const isSuperadmin = user?.is_superadmin;
   const qc = useQueryClient();
 
@@ -412,34 +409,16 @@ export function Topbar({ title, live = false }: TopbarProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="shrink-0 z-50">
-      <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2">
+      <header
+        ref={headerRef}
+        className="relative h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] gap-2"
+      >
 
-        {/* Left: ícono + wordmark (tamaños ajustables en dev vía panel Brand) */}
-        <div
-          className="hidden md:flex items-center shrink-0"
-          style={{ gap: brand.gapPx }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/WEBICON.svg"
-            alt=""
-            aria-hidden
-            className="shrink-0"
-            style={{ width: brand.iconPx, height: brand.iconPx }}
-          />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/SHELFY_WORDMARK.svg"
-            alt="Shelfy"
-            className="w-auto max-h-[calc(100%-2px)] shrink-0"
-            style={{ height: brand.wordmarkPx }}
-          />
-        </div>
+        <TopbarBrandSweep headerRef={headerRef} evaluarRef={evaluarTabRef} />
 
         {/* Center: TopModeTabs (desktop) / title (mobile) */}
         <div className="flex-1 flex items-center justify-center overflow-hidden">
-          {/* Desktop: navigation tabs */}
-          <TopModeTabs />
+          <TopModeTabs firstTabRef={evaluarTabRef} />
 
           {/* Mobile: page title */}
           {title && (
@@ -619,11 +598,6 @@ export function Topbar({ title, live = false }: TopbarProps) {
       <EspectadorBanner />
       </div>
       {ticketOpen && <TicketPanel onClose={() => setTicketOpen(false)} />}
-      <TopbarBrandTuner
-        sizes={brandSizes}
-        onChange={updateBrandSizes}
-        onReset={resetBrandSizes}
-      />
     </TooltipProvider>
   );
 }

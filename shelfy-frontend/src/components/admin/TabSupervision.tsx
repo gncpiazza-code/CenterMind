@@ -58,6 +58,7 @@ import { useSupervisionMapPreload } from "@/hooks/useSupervisionMapPreload";
 import { useSupervisionMapPinsEngine } from "@/hooks/useSupervisionMapPinsEngine";
 import { SupervisionMapToolbar } from "./map/SupervisionMapToolbar";
 import { SupervisionMapView } from "./map/SupervisionMapView";
+import { SupervisionMapShell } from "./map/SupervisionMapShell";
 import { ObjetivoPorZonaPanel } from "./map/ObjetivoPorZonaPanel";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -495,6 +496,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
   // loading states for async operations
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
+  const [vendorDockOpen, setVendorDockOpen]     = useState(false);
+  const [showAllProgress, setShowAllProgress]   = useState<{ done: number; total: number } | null>(null);
   /** Re-render conteos alineados al mapa cuando cambia caché de rutas/clientes */
   const [mapStatsTick, setMapStatsTick]         = useState(0);
   const lastPadronTsByDistRef = useRef<Record<number, string>>({});
@@ -897,10 +900,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
   const handleShowAllVendors = useCallback(async () => {
     if (!selectedDist || vendedoresFiltrados.length === 0) return;
+    const total = vendedoresFiltrados.length;
+    setShowAllProgress({ done: 0, total });
     const ids = new Set(vendedoresFiltrados.map((v) => v.id_vendedor));
     setLoadingMap(ids);
     const rutaIds = new Set<number>();
     const clienteIds = new Set<number>();
+    let done = 0;
     try {
       await Promise.all(
         vendedoresFiltrados.map(async (v) => {
@@ -922,6 +928,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               if (c.latitud != null && c.longitud != null) clienteIds.add(c.id_cliente);
             }
           }
+          done += 1;
+          setShowAllProgress({ done, total });
         }),
       );
       setVisibleVends(ids);
@@ -933,6 +941,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       toast.error("No se pudieron cargar todos los PDVs. Probá por vendedor o revisá la conexión.");
     } finally {
       setLoadingMap(new Set());
+      setShowAllProgress(null);
     }
   }, [vendedoresFiltrados, selectedDist, queryClient, setVisibleVends, setVisibleRutas, setVisibleClientes, flushMapPins]);
 
@@ -1765,11 +1774,40 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   };
 
   // ── Map layer controls (My Maps toolbar) ───────────────────────────────────
-  function MapLayerControls() {
+  function MapLayerControls({ glass, showDock }: { glass?: boolean; showDock?: boolean } = {}) {
     const drawVertexCount = useSupervisionStore((s) => s.drawVertexCount);
     const showDrawHint =
       mapToolMode === "objetivo_zona" ||
       (mapToolMode === "crear_rutas" && rutasZonasTab === "dibujar");
+    const sucursalSlot = glass ? (
+      <div className="flex items-center gap-1.5 bg-white/8 rounded-lg px-2.5 py-1 border border-white/10">
+        <Building2 className="w-3.5 h-3.5 text-amber-400" />
+        {loading && sucursales.length === 0 ? (
+          <div className="h-4 w-28 rounded bg-white/10 animate-pulse" />
+        ) : (
+          <select
+            value={selectedSucursal || ""}
+            onChange={e => {
+              setSelectedSucursal(e.target.value || null);
+              setVisibleVends(new Set());
+              setVisibleRutas(new Set());
+              setVisibleClientes(new Set());
+            }}
+            className="bg-transparent text-white text-xs font-semibold focus:outline-none min-w-[100px]"
+          >
+            {sucursales.length === 0 ? (
+              <option value="">Sin sucursales</option>
+            ) : (
+              <>
+                {sucursales.length > 1 && <option value="">Sucursal…</option>}
+                {sucursales.map(s => <option key={s} value={s}>{s}</option>)}
+              </>
+            )}
+          </select>
+        )}
+      </div>
+    ) : undefined;
+
     return (
       <SupervisionMapToolbar
         mapToolMode={mapToolMode}
@@ -1780,6 +1818,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         vertexCount={drawVertexCount}
         onFinishPolygon={() => finishPolygonRef.current?.()}
         showDrawHint={showDrawHint}
+        glass={glass}
+        sucursalSlot={sucursalSlot}
+        vendorsDockOpen={showDock ? vendorDockOpen : undefined}
+        onVendorsDockToggle={showDock ? () => setVendorDockOpen(v => !v) : undefined}
+        showAllProgress={showAllProgress}
       />
     );
   }
@@ -1997,8 +2040,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   return (
     <div className={fullscreen ? "flex flex-col h-full gap-0" : "flex flex-col gap-4"}>
 
-      {/* Top bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      {/* Top bar — hidden in mapOnly (sucursal lives in glass chrome overlay) */}
+      {!mapOnly && <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-base font-bold text-[var(--shelfy-text)]">Rutas de Venta</h2>
           {selectedSucursal && totalPdv > 0 && (
@@ -2060,7 +2103,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Error */}
       {error && (
@@ -2094,69 +2137,130 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
       )}
 
-      {/* Main split — en modo dibujo/zona el mapa ocupa todo el ancho hasta el hub superior */}
-      <div className={`${mapOnly ? "flex flex-col lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col lg:grid lg:grid-cols-5 gap-3 ${fullscreen || mapFocusMode ? "flex-1 min-h-0 lg:min-h-[calc(100vh-11rem)]" : "lg:h-[680px]"}`}`}>
-
-        {/* ── MAP — responsive: tabs en mobile, siempre visible en lg+ ──── */}
-        <div className={`${mapOnly || mapFocusMode ? "flex flex-1 min-h-0 lg:col-span-5" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col ${mapFocusMode ? "rounded-xl" : "rounded-2xl"} overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
-          <MapLayerControls />
-          <div className="flex-1 relative">
-            {loading && !selectedSucursal ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
-                <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
-                <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
-              </div>
-            ) : !selectedSucursal ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
-                <MapIcon className="w-12 h-12 opacity-15" />
-                <p className="text-sm font-medium text-center px-8 leading-relaxed">
-                  Seleccioná una sucursal para comenzar
-                </p>
-              </div>
-            ) : (
-              <>
-                {loadingMap.size > 0 && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/50 pointer-events-none">
-                    <Loader2 className="w-6 h-6 animate-spin text-amber-400/80" />
-                    <p className="text-sm text-[var(--shelfy-muted)]">Cargando PDVs…</p>
-                  </div>
-                )}
-                {loadingMap.size === 0 && visibleVends.size === 0 && visibleRutas.size === 0 && visibleClientes.size === 0 && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none">
-                    <MapIcon className="w-12 h-12 opacity-15" />
-                    <p className="text-sm font-medium text-center px-8 leading-relaxed">
-                      Activá un vendedor, ruta o PDV para verlos en el mapa
-                    </p>
-                  </div>
-                )}
-                {loadingMap.size === 0 &&
-                  (visibleVends.size > 0 || visibleRutas.size > 0 || visibleClientes.size > 0) &&
-                  mapPins.length === 0 && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none">
-                    <MapIcon className="w-12 h-12 opacity-15" />
-                    <p className="text-sm font-medium text-center px-8 leading-relaxed">
-                      Las capas activas no tienen PDVs con ubicación en el mapa
-                    </p>
-                  </div>
-                )}
-                <div className="absolute inset-0 h-full w-full min-h-[280px]">
-                  <SupervisionMapView
-                    distId={selectedDist}
-                    isSuperadmin={isSuperadmin}
-                    canEditObjetivos={hasPermiso("action_edit_objetivos")}
-                    vendedores={vendedores}
-                    vendedorKpis={vendedorKpis}
-                    getFullscreenPanel={getFullscreenPanel}
-                    onFinishPolygonRef={finishPolygonRef}
-                  />
+      {/* Main area — integrated map (mapOnly) or grid split (!mapOnly) */}
+      {mapOnly ? (
+        <SupervisionMapShell
+          chrome={<MapLayerControls glass showDock />}
+          dock={vendorPanelContent}
+          dockOpen={vendorDockOpen}
+        >
+          {loading && !selectedSucursal ? (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
+              <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
+              <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
+            </div>
+          ) : !selectedSucursal ? (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]" style={{ paddingTop: 52 }}>
+              <MapIcon className="w-12 h-12 opacity-15" />
+              <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                Seleccioná una sucursal para comenzar
+              </p>
+            </div>
+          ) : (
+            <>
+              {loadingMap.size > 0 && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/50 pointer-events-none" style={{ paddingTop: 52 }}>
+                  <Loader2 className="w-6 h-6 animate-spin text-amber-400/80" />
+                  <p className="text-sm text-[var(--shelfy-muted)]">Cargando PDVs…</p>
                 </div>
-              </>
-            )}
-          </div>
-        </div>
+              )}
+              {loadingMap.size === 0 && visibleVends.size === 0 && visibleRutas.size === 0 && visibleClientes.size === 0 && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none" style={{ paddingTop: 52 }}>
+                  <MapIcon className="w-12 h-12 opacity-15" />
+                  <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                    Activá un vendedor, ruta o PDV para verlos en el mapa
+                  </p>
+                </div>
+              )}
+              {loadingMap.size === 0 &&
+                (visibleVends.size > 0 || visibleRutas.size > 0 || visibleClientes.size > 0) &&
+                mapPins.length === 0 && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none" style={{ paddingTop: 52 }}>
+                  <MapIcon className="w-12 h-12 opacity-15" />
+                  <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                    Las capas activas no tienen PDVs con ubicación en el mapa
+                  </p>
+                </div>
+              )}
+              <div className="absolute inset-0 h-full w-full">
+                <SupervisionMapView
+                  distId={selectedDist}
+                  isSuperadmin={isSuperadmin}
+                  canEditObjetivos={hasPermiso("action_edit_objetivos")}
+                  vendedores={vendedores}
+                  vendedorKpis={vendedorKpis}
+                  getFullscreenPanel={getFullscreenPanel}
+                  onFinishPolygonRef={finishPolygonRef}
+                  integratedMap
+                  mapChromeTop={52}
+                />
+              </div>
+            </>
+          )}
+        </SupervisionMapShell>
+      ) : (
+        <div className={`flex flex-col lg:grid lg:grid-cols-5 gap-3 ${fullscreen || mapFocusMode ? "flex-1 min-h-0 lg:min-h-[calc(100vh-11rem)]" : "lg:h-[680px]"}`}>
 
-        {/* ── RIGHT PANEL — lista vendedores/rutas (oculto en modo dibujo fullscreen integrado) ─ */}
-        <div className={`${mapFocusMode ? "hidden" : `lg:col-span-2 ${!mapOnly && mobileView === "mapa" ? "hidden" : "flex"} lg:flex`} flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] lg:min-h-0`}>
+          {/* ── MAP col-span-3 (o full width en modo dibujo) */}
+          <div className={`${mapFocusMode ? "flex flex-1 min-h-0 lg:col-span-5" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col ${mapFocusMode ? "rounded-xl" : "rounded-2xl"} overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
+            <MapLayerControls />
+            <div className="flex-1 relative">
+              {loading && !selectedSucursal ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
+                  <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
+                  <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
+                </div>
+              ) : !selectedSucursal ? (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
+                  <MapIcon className="w-12 h-12 opacity-15" />
+                  <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                    Seleccioná una sucursal para comenzar
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {loadingMap.size > 0 && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/50 pointer-events-none">
+                      <Loader2 className="w-6 h-6 animate-spin text-amber-400/80" />
+                      <p className="text-sm text-[var(--shelfy-muted)]">Cargando PDVs…</p>
+                    </div>
+                  )}
+                  {loadingMap.size === 0 && visibleVends.size === 0 && visibleRutas.size === 0 && visibleClientes.size === 0 && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none">
+                      <MapIcon className="w-12 h-12 opacity-15" />
+                      <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                        Activá un vendedor, ruta o PDV para verlos en el mapa
+                      </p>
+                    </div>
+                  )}
+                  {loadingMap.size === 0 &&
+                    (visibleVends.size > 0 || visibleRutas.size > 0 || visibleClientes.size > 0) &&
+                    mapPins.length === 0 && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)] pointer-events-none">
+                      <MapIcon className="w-12 h-12 opacity-15" />
+                      <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                        Las capas activas no tienen PDVs con ubicación en el mapa
+                      </p>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 h-full w-full min-h-[280px]">
+                    <SupervisionMapView
+                      distId={selectedDist}
+                      isSuperadmin={isSuperadmin}
+                      canEditObjetivos={hasPermiso("action_edit_objetivos")}
+                      vendedores={vendedores}
+                      vendedorKpis={vendedorKpis}
+                      getFullscreenPanel={getFullscreenPanel}
+                      onFinishPolygonRef={finishPolygonRef}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ── RIGHT PANEL col-span-2 — lista vendedores/rutas (oculto en modo dibujo) */}
+          <div className={`${mapFocusMode ? "hidden" : `lg:col-span-2 ${mobileView === "mapa" ? "hidden" : "flex"} lg:flex`} flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] lg:min-h-0`}>
 
           {/* Panel header */}
           <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/60 shrink-0 flex items-center gap-2">
@@ -2699,7 +2803,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           )}
         </div>}
 
-      </div>
+        </div>
+      )}
 
       {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (lg+) ─────────────────── */}
       {!mapOnly && <div ref={ccSectionRef} className="hidden lg:grid lg:grid-cols-2 gap-4">

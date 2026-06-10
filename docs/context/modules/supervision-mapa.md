@@ -4,10 +4,40 @@
 
 - `components/admin/TabSupervision.tsx` — orquestador, toolbar, preload, objetivo por zona
 - `components/admin/MapaRutas.tsx` — Google Maps, pins 4 estados, capas `google.maps.Data`
-- `components/admin/map/` — `SupervisionMapToolbar`, `SupervisionPolygonDrawTool`, `CrearRutasPanel`, `SupervisionMapLayerPanel`, `ObjetivoPorZonaPanel`
+- `components/admin/map/SupervisionMapShell.tsx` — layout integrado (mapa rellena área, chrome flota)
+- `components/admin/map/SupervisionMapView.tsx` — wrapper memo; acepta `integratedMap` y `mapChromeTop`
+- `components/admin/map/SupervisionMapToolbar.tsx` — toolbar; variante `glass` = overlay backdrop-blur
+- `components/admin/map/` — `SupervisionPolygonDrawTool`, `CrearRutasPanel`, `SupervisionMapLayerPanel`, `ObjetivoPorZonaPanel`
 - `hooks/useSupervisionMapPreload.ts` — precarga rutas/clientes sin encender visibilidad
 - `store/useSupervisionStore.ts` — `mapToolMode`, `visibleCapaIds`, visibilidad vendedor/ruta/cliente
 - `lib/supervisionMapHelpers.ts` — `isInactivo30`, fechas padrón
+
+## Layout integrado (`mapOnly` / `/modo-mapa`)
+
+Cuando `mapOnly=true` (página `/modo-mapa`) el mapa rellena toda el área bajo el Topbar sin card ni padding:
+
+```
+SupervisionMapShell
+  ├── [z-0] div absolute inset-0  → MapaRutas (mapa canvas)
+  ├── [z-30] SupervisionMapToolbar glass  → chrome backdrop-blur (h=52px)
+  └── [z-20] vendor dock  → slide translateX(-100%/0) desde la izquierda
+```
+
+- `SupervisionMapShell` recibe `chrome`, `dock`, `dockOpen`, `dockWidth` (288px default)
+- `mapChromeTop = 52` — height del chrome en px; overlays del mapa usan `topOffset = integratedMap ? mapChromeTop : 0`
+- `integratedMap={true}` en `SupervisionMapView` / `MapaRutas` → oculta botón fullscreen, suprime draw bar, ajusta posiciones
+- El vendor dock reutiliza el mismo `vendorPanelContent` que el fullscreen overlay (lista de vendedores con checkboxes)
+- Estado: `vendorDockOpen` (boolean) + `showAllProgress` (`{ done, total } | null`) en `TabSupervision`
+
+### Toolbar glass props (nuevas)
+
+| Prop | Tipo | Uso |
+|------|------|-----|
+| `glass` | boolean | Variante overlay (absolute, backdrop-blur, z-30) |
+| `sucursalSlot` | ReactNode | Selector de sucursal renderizado al inicio del chrome |
+| `vendorsDockOpen` | boolean | Estado del dock de vendedores |
+| `onVendorsDockToggle` | () => void | Toggle del dock |
+| `showAllProgress` | `{done,total}\|null` | Spinner+contador durante "Mostrar todos" |
 
 ## Modos toolbar
 
@@ -55,3 +85,16 @@
 - Al alcanzar 3 vértices, el ícono del vértice 0 aumenta (scale 13, strokeWeight 4) como hint visual
 - Clic en vértice 0 con ≥3 vértices llama `finishPolygon()` directamente
 - `SupervisionPolygonDrawTool.ts` → función `addVertexMarker(latLng, index, onClose?)`
+
+## MarkerClusterer (FE-5)
+
+- Activación automática cuando `filteredPines.length > 800 && mapToolMode === 'explorar'`
+- Paquete: `@googlemaps/markerclusterer` v2 (ya instalado)
+- `clustererRef` en `MapaRutas`; efecto separado en `[filteredPines.length, mapToolMode, mapLoaded, pinDataSyncKey]`
+- Al desactivar: `clearMarkers()` + `setMap(null)` + restaurar visibilidad individual de markers
+
+## FitBounds
+
+- Extraído a efecto propio `[pineIdsKey, mapLoaded]` (separado del efecto de sync de marcadores)
+- `fittedRef` previene re-fit en re-renders; se resetea cuando `pineIdsKey` cambia
+- Si solo hay 1 pin: `map.setZoom(14)` tras `fitBounds`

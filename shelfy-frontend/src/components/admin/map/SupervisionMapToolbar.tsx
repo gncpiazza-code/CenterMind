@@ -1,6 +1,7 @@
 "use client";
 
-import { Eye, EyeOff, Layers, MapPin, Route, Target } from "lucide-react";
+import React from "react";
+import { Eye, EyeOff, Layers, MapPin, Route, Target, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { MapToolMode } from "@/store/useSupervisionStore";
@@ -15,6 +16,16 @@ interface SupervisionMapToolbarProps {
   onFinishPolygon?: () => void;
   /** Mostrar hint de dibujo (objetivo_zona o rutas en sub-tab dibujar) */
   showDrawHint?: boolean;
+  /** Glass overlay variant — renders as absolute overlay with backdrop-blur */
+  glass?: boolean;
+  /** Sucursal selector rendered at the start of the glass chrome */
+  sucursalSlot?: React.ReactNode;
+  /** Vendor dock toggle state (glass only) */
+  vendorsDockOpen?: boolean;
+  /** Vendor dock toggle handler (glass only) */
+  onVendorsDockToggle?: () => void;
+  /** ShowAll loading progress */
+  showAllProgress?: { done: number; total: number } | null;
 }
 
 export function SupervisionMapToolbar({
@@ -26,9 +37,26 @@ export function SupervisionMapToolbar({
   vertexCount = 0,
   onFinishPolygon,
   showDrawHint = false,
+  glass,
+  sucursalSlot,
+  vendorsDockOpen,
+  onVendorsDockToggle,
+  showAllProgress,
 }: SupervisionMapToolbarProps) {
+  const wrapperClass = glass
+    ? "absolute top-0 left-0 right-0 z-30 flex items-center gap-2 px-3 py-2.5 bg-[var(--shelfy-bg)]/80 backdrop-blur-md border-b border-white/10 flex-wrap"
+    : "flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/90 shrink-0 flex-wrap";
+
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/90 shrink-0 flex-wrap">
+    <div className={wrapperClass}>
+      {/* Sucursal slot (glass only) */}
+      {glass && sucursalSlot && (
+        <>
+          {sucursalSlot}
+          <span className="w-px h-5 bg-white/15 hidden sm:block" />
+        </>
+      )}
+
       <ToggleGroup
         type="single"
         value={mapToolMode}
@@ -43,7 +71,7 @@ export function SupervisionMapToolbar({
           <>
             <ToggleGroupItem value="objetivo_zona" aria-label="Objetivo por zona" className="text-xs gap-1.5 px-3">
               <Target className="w-3.5 h-3.5" />
-              Objetivo por zona
+              Objetivo
             </ToggleGroupItem>
             <ToggleGroupItem value="crear_rutas" aria-label="Rutas y Zonas" className="text-xs gap-1.5 px-3">
               <Route className="w-3.5 h-3.5" />
@@ -55,16 +83,39 @@ export function SupervisionMapToolbar({
 
       <span className="w-px h-5 bg-[var(--shelfy-border)] mx-0.5 hidden sm:block" />
 
-      <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={onShowAllVendors}>
-        <Eye className="w-3.5 h-3.5" />
-        Mostrar todos
-      </Button>
+      {showAllProgress ? (
+        <span className="text-xs text-[var(--shelfy-muted)] flex items-center gap-1.5">
+          <span className="w-3 h-3 border-2 border-amber-400/60 border-t-amber-400 rounded-full animate-spin" />
+          Cargando {showAllProgress.done}/{showAllProgress.total}…
+        </span>
+      ) : (
+        <Button type="button" variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={onShowAllVendors}>
+          <Eye className="w-3.5 h-3.5" />
+          Mostrar todos
+        </Button>
+      )}
       <Button type="button" variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={onHideAllVendors}>
         <EyeOff className="w-3.5 h-3.5" />
         Ocultar todos
       </Button>
 
-            {showDrawHint && (
+      {/* Vendor dock toggle (glass only) */}
+      {glass && onVendorsDockToggle !== undefined && (
+        <button
+          type="button"
+          onClick={onVendorsDockToggle}
+          className={`h-7 px-2.5 flex items-center gap-1.5 text-xs font-semibold rounded-md border transition-colors
+            ${vendorsDockOpen
+              ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)] border-[var(--shelfy-primary)]/40"
+              : "bg-transparent text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:text-[var(--shelfy-text)]"
+            }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          Vendedores
+        </button>
+      )}
+
+      {showDrawHint && (
         <div className="flex items-center gap-2 ml-auto text-xs text-violet-400">
           <Layers className="w-3.5 h-3.5" />
           {vertexCount >= 3 ? (

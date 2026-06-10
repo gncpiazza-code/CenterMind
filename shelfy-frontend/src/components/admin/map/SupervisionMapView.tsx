@@ -29,6 +29,10 @@ export interface SupervisionMapViewProps {
   vendedorKpis?: VendedorKpis;
   getFullscreenPanel?: () => React.ReactNode;
   onFinishPolygonRef?: React.MutableRefObject<(() => void) | null>;
+  /** Map is the page (no card wrapper) — hides fullscreen btn, adjusts overlay positions */
+  integratedMap?: boolean;
+  /** Height of glass chrome overlay in px — overlays are shifted down by this amount */
+  mapChromeTop?: number;
 }
 
 function SupervisionMapViewInner({
@@ -39,6 +43,8 @@ function SupervisionMapViewInner({
   vendedorKpis,
   getFullscreenPanel,
   onFinishPolygonRef,
+  integratedMap,
+  mapChromeTop,
 }: SupervisionMapViewProps) {
   const mapPins = useSupervisionStore((s) => s.mapPins);
   const finishPolygonRefLocal = useRef<(() => void) | null>(null);
@@ -150,6 +156,8 @@ function SupervisionMapViewInner({
       layerPanelSlot={layerPanelSlot}
       onPolygonSelectionChange={handlePolygonSelectionChange}
       activePolygonGeoJson={activePolygonGeoJson}
+      integratedMap={integratedMap}
+      mapChromeTop={mapChromeTop}
     />
     </div>
   );

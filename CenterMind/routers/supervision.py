@@ -30,7 +30,10 @@ from core.helpers import (
 from core.exhibicion_aggregate import count_logical_per_client
 from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
-from core.usuario_sucursal_scope import assert_sucursal_nombre_allowed
+from core.usuario_sucursal_scope import (
+    assert_sucursal_nombre_allowed,
+    assert_vendedor_id_allowed,
+)
 from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
 from core.tenant_tables import (
     tenant_table_name,
@@ -272,6 +275,49 @@ def _resolve_pdv_id_from_nro_cliente(dist_id: int, nro: str | None) -> int | Non
         except (TypeError, ValueError, KeyError):
             continue
     return None
+
+
+def _assert_exhibiciones_sucursal_scope(
+    user_payload: dict,
+    dist_id: int,
+    ids_exhibicion: list[int],
+) -> None:
+    """Evaluar/revertir: solo exhibiciones de vendedores en sucursales permitidas."""
+    if not ids_exhibicion:
+        return
+    ex_rows = (
+        sb.table("exhibiciones")
+        .select("id_exhibicion, id_integrante")
+        .in_("id_exhibicion", ids_exhibicion)
+        .execute()
+        .data
+        or []
+    )
+    for ex in ex_rows:
+        vid = _resolve_vendedor_v2_from_integrante(dist_id, ex.get("id_integrante"))
+        if vid is None:
+            raise HTTPException(
+                status_code=403,
+                detail="No se pudo validar la sucursal de la exhibición",
+            )
+        assert_vendedor_id_allowed(user_payload, dist_id, vid)
+
+
+def _assert_objetivo_vendedor_scope(user_payload: dict, objetivo_id: str) -> int:
+    res = (
+        sb.table("objetivos")
+        .select("id_distribuidor, id_vendedor")
+        .eq("id", objetivo_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+    row = res.data[0]
+    dist_id = int(row["id_distribuidor"])
+    check_dist_permission(user_payload, dist_id)
+    assert_vendedor_id_allowed(user_payload, dist_id, row.get("id_vendedor"))
+    return dist_id
 
 
 def _resolve_vendedor_v2_from_integrante(dist_id: int, id_integrante: int | None) -> int | None:
@@ -587,6 +633,7 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
 
         from core.security import check_distributor_status
         check_distributor_status(dist_id, user_payload)
+        _assert_exhibiciones_sucursal_scope(user_payload, dist_id, req.ids_exhibicion)
 
         if should_apply_exhibicion_qa_filter(dist_id, user_payload):
             qa_ids = build_qa_exhibicion_integrante_ids(dist_id)
@@ -755,6 +802,7 @@ def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
             raise HTTPException(status_code=404, detail="Exhibición no encontrada")
         dist_id = ex0.data[0]["id_distribuidor"]
         check_dist_permission(user_payload, dist_id)
+        _assert_exhibiciones_sucursal_scope(user_payload, dist_id, req.ids_exhibicion)
         if should_apply_exhibicion_qa_filter(dist_id, user_payload):
             qa_ids = build_qa_exhibicion_integrante_ids(dist_id)
             if qa_ids:
@@ -3514,6 +3562,7 @@ def crear_objetivo(body: ObjetivoCreate, background_tasks: BackgroundTasks, user
         nombre_erp_vendedor = (vend_check.data[0].get("nombre_erp") or "").strip()
         if is_vendedor_excluido_objetivos(nombre_erp_vendedor):
             raise HTTPException(status_code=400, detail=f"El vendedor '{nombre_erp_vendedor}' es un bucket operativo y no puede recibir objetivos")
+    assert_vendedor_id_allowed(user_payload, body.id_distribuidor, body.id_vendedor)
 
     # Validar que todos los PDV ítems pertenecen a la distribuidora
     if not user_payload.get("is_superadmin") and body.pdv_items:
@@ -3808,7 +3857,7 @@ async def recalcular_objetivo(
     dist_id: int = Query(...),
 ):
     check_dist_permission(auth, dist_id)
-    # Verificar que el objetivo existe y pertenece a este dist
+    _assert_objetivo_vendedor_scope(auth, objetivo_id)
     res = sb.table("objetivos").select("id,id_distribuidor").eq("id", objetivo_id).eq("id_distribuidor", dist_id).limit(1).execute()
     if not (res.data or []):
         raise HTTPException(status_code=404, detail="Objetivo no encontrado")
@@ -3820,16 +3869,7 @@ async def recalcular_objetivo(
 @router.post("/api/supervision/objetivos/{obj_id}/lanzar", tags=["Supervisión"])
 def lanzar_objetivo_now(obj_id: str, user_payload=Depends(verify_auth)):
     """Lanza manualmente un objetivo planificado: envía Telegram y setea lanzado_at."""
-    dist_id = user_payload.get("id_distribuidor")
-    if not dist_id and not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Sin distribuidora asignada")
-    # Resolver dist_id desde el objetivo si es superadmin
-    if not dist_id:
-        obj_res = sb.table("objetivos").select("id_distribuidor").eq("id", obj_id).limit(1).execute()
-        if not obj_res.data:
-            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
-        dist_id = obj_res.data[0]["id_distribuidor"]
-    check_dist_permission(user_payload, dist_id)
+    dist_id = _assert_objetivo_vendedor_scope(user_payload, obj_id)
     try:
         from services.objetivos_launch_service import lanzar_un_objetivo
         result = lanzar_un_objetivo(obj_id, int(dist_id), asignado_por=user_payload.get("sub"))
@@ -3847,6 +3887,7 @@ def lanzar_objetivo_now(obj_id: str, user_payload=Depends(verify_auth)):
 def preview_telegram_objetivo(body: ObjetivoPreviewTelegramIn, user_payload=Depends(verify_auth)):
     """Retorna el texto HTML del mensaje Telegram que se enviaría para un objetivo (draft)."""
     check_dist_permission(user_payload, body.id_distribuidor)
+    assert_vendedor_id_allowed(user_payload, body.id_distribuidor, body.id_vendedor)
     try:
         from services.objetivos_notification_service import objetivos_notification
         obj_data = {
@@ -4450,11 +4491,7 @@ def listar_objetivos(
 @router.put("/api/supervision/objetivos/{objetivo_id}", tags=["Supervisión"])
 def actualizar_objetivo(objetivo_id: str, body: ObjetivoUpdate, user_payload=Depends(verify_auth)):
     try:
-        existing = sb.table("objetivos").select("id_distribuidor").eq("id", objetivo_id).execute()
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
-        dist_id = existing.data[0]["id_distribuidor"]
-        check_dist_permission(user_payload, dist_id)
+        dist_id = _assert_objetivo_vendedor_scope(user_payload, objetivo_id)
         updates: dict = {}
         if body.valor_actual  is not None: updates["valor_actual"]   = body.valor_actual
         if body.descripcion   is not None: updates["descripcion"]    = body.descripcion
@@ -4514,8 +4551,7 @@ def regenerar_pdf_ruteo(objetivo_id: str, user_payload=Depends(verify_auth)):
             raise HTTPException(status_code=404, detail="Objetivo no encontrado")
 
         obj = existing.data[0]
-        dist_id = obj["id_distribuidor"]
-        check_dist_permission(user_payload, dist_id)
+        dist_id = _assert_objetivo_vendedor_scope(user_payload, objetivo_id)
         if obj.get("tipo") != "ruteo":
             raise HTTPException(status_code=400, detail="Solo aplica a objetivos tipo ruteo")
 
@@ -4563,11 +4599,7 @@ def regenerar_pdf_ruteo(objetivo_id: str, user_payload=Depends(verify_auth)):
 @router.delete("/api/supervision/objetivos/{objetivo_id}", tags=["Supervisión"])
 def eliminar_objetivo(objetivo_id: str, user_payload=Depends(verify_auth)):
     try:
-        existing = sb.table("objetivos").select("id_distribuidor").eq("id", objetivo_id).execute()
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
-        dist_id = existing.data[0]["id_distribuidor"]
-        check_dist_permission(user_payload, dist_id)
+        dist_id = _assert_objetivo_vendedor_scope(user_payload, objetivo_id)
 
         # Best-effort: borrar el mensaje de Telegram asociado al alta del objetivo.
         try:

@@ -251,6 +251,8 @@ function AccionesSection({
 interface ObjetivoDetalleModalProps {
   obj: Objetivo | null;
   onClose: () => void;
+  /** false = solo lectura (sucursal fuera del alcance del usuario). */
+  canInteract?: boolean;
   onLanzar?: (obj: Objetivo) => void;
   onReagendar?: (obj: Objetivo) => void;
   onDownloadCertificado?: (obj: Objetivo) => void;
@@ -260,6 +262,7 @@ interface ObjetivoDetalleModalProps {
 export function ObjetivoDetalleModal({
   obj,
   onClose,
+  canInteract = true,
   onLanzar,
   onReagendar,
   onDownloadCertificado,
@@ -384,34 +387,35 @@ export function ObjetivoDetalleModal({
 
             <AccionesSection
               obj={obj}
-              onLanzar={onLanzar}
-              onReagendar={onReagendar}
+              onLanzar={canInteract ? onLanzar : undefined}
+              onReagendar={canInteract ? onReagendar : undefined}
               onDownloadCertificado={onDownloadCertificado}
-              onOpenRuteoPdf={onOpenRuteoPdf}
+              onOpenRuteoPdf={canInteract ? onOpenRuteoPdf : undefined}
               onClose={onClose}
             />
 
-            {/* Botón Recalcular avance */}
-            <div className="flex items-center justify-end pt-1">
-              <button
-                onClick={() => { void handleRecalcular(); }}
-                disabled={recalcState === 'running'}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] hover:border-[var(--shelfy-accent)]/40 transition-colors disabled:opacity-50"
-              >
-                {recalcState === 'running' ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3 h-3" />
-                )}
-                {recalcState === 'running'
-                  ? 'Recalculando…'
-                  : recalcState === 'done'
-                    ? 'Recalculado'
-                    : recalcState === 'error'
-                      ? 'Error al recalcular'
-                      : 'Recalcular avance'}
-              </button>
-            </div>
+            {canInteract && (
+              <div className="flex items-center justify-end pt-1">
+                <button
+                  onClick={() => { void handleRecalcular(); }}
+                  disabled={recalcState === 'running'}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] hover:border-[var(--shelfy-accent)]/40 transition-colors disabled:opacity-50"
+                >
+                  {recalcState === 'running' ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3" />
+                  )}
+                  {recalcState === 'running'
+                    ? 'Recalculando…'
+                    : recalcState === 'done'
+                      ? 'Recalculado'
+                      : recalcState === 'error'
+                        ? 'Error al recalcular'
+                        : 'Recalcular avance'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

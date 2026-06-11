@@ -38,6 +38,11 @@ import {
   type PDVCatalogItem,
 } from "@/lib/api";
 import { resolveObjetivoMes, collectMesesConDatos, formatObjetivoMesLabel } from "@/lib/objetivo-utils";
+import {
+  canInteractWithVendedor,
+  filterVendedoresForInteraction,
+  hasUnrestrictedSucursales,
+} from "@/lib/sucursal-scope";
 import { currentMonthAR } from "@/lib/galeria-month";
 import { ObjetivoLiquidacionToolbar } from "@/components/objetivos/ObjetivoLiquidacionToolbar";
 import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
@@ -406,9 +411,10 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
 
 // ── Objetivo row (lista) ──────────────────────────────────────────────────────
 
-function ObjetivoRow({ obj, onDelete }: {
+function ObjetivoRow({ obj, onDelete, canInteract = true }: {
   obj: Objetivo;
   onDelete: () => void;
+  canInteract?: boolean;
 }) {
   return (
     <tr className={`border-b border-[var(--shelfy-border)]/50 transition-colors hover:bg-black/[0.02] ${obj.cumplido ? "opacity-50" : ""}`}>
@@ -462,12 +468,14 @@ function ObjetivoRow({ obj, onDelete }: {
         <DateChip date={obj.fecha_objetivo} />
       </td>
       <td className="px-4 py-3">
-        <button
-          onClick={onDelete}
-          className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-red-500 hover:bg-red-500/10 transition-all"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {canInteract && (
+          <button
+            onClick={onDelete}
+            className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-red-500 hover:bg-red-500/10 transition-all"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -686,10 +694,11 @@ function RuteoAlteoItemsTree({ obj }: { obj: Objetivo }) {
 
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
-function KanbanCard({ obj, onDelete, onOpenDetalle }: {
+function KanbanCard({ obj, onDelete, onOpenDetalle, canInteract = true }: {
   obj: Objetivo;
   onDelete: () => void;
   onOpenDetalle: (obj: Objetivo) => void;
+  canInteract?: boolean;
 }) {
   const daysLeft = daysUntil(obj.fecha_objetivo);
   const pendingEvidenceCount = useMemo(() => {
@@ -755,12 +764,14 @@ function KanbanCard({ obj, onDelete, onOpenDetalle }: {
               </span>
             )}
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-red-500 transition-all print-hidden"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {canInteract && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-red-500 transition-all print-hidden"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {/* Vendedor */}
@@ -3297,6 +3308,21 @@ export default function ObjetivosPage() {
     sucursal_nombre: v.sucursal_nombre,
   }));
 
+  const vendedoresEditables = useMemo(
+    () => filterVendedoresForInteraction(vendedores, user),
+    [vendedores, user],
+  );
+
+  const sucursalRestringida = user && !hasUnrestrictedSucursales(user);
+
+  const canInteractObjetivo = useCallback(
+    (obj: Objetivo) => {
+      const vend = vendedores.find(v => v.id_vendedor === obj.id_vendedor);
+      return vend ? canInteractWithVendedor(vend, user) : hasUnrestrictedSucursales(user);
+    },
+    [vendedores, user],
+  );
+
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
     return vendedores
@@ -3517,7 +3543,13 @@ export default function ObjetivosPage() {
               </div>
               <button
                 onClick={() => setModalOpen(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                disabled={vendedoresEditables.length === 0}
+                title={
+                  vendedoresEditables.length === 0
+                    ? "Sin vendedores editables en tu sucursal"
+                    : undefined
+                }
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:pointer-events-none"
               >
                 <Plus className="w-4 h-4" />
                 <span className="hidden sm:inline">Nuevo</span>
@@ -3527,6 +3559,13 @@ export default function ObjetivosPage() {
 
           {canVerLiquidacion && viewMode === "kanban" && (
             <ObjetivoLiquidacionToolbar distId={distId} filterMes={filterMes} />
+          )}
+
+          {sucursalRestringida && (
+            <p className="mb-4 text-xs text-[var(--shelfy-muted)] print-hidden">
+              Podés ver todo el tenant; asignar y editar objetivos solo en{" "}
+              {(user?.sucursales_permitidas_nombres ?? []).join(", ") || "tu sucursal"}.
+            </p>
           )}
 
           {/* Stats (hidden on dedicated stats/timeline/supervisor views) */}
@@ -3679,6 +3718,7 @@ export default function ObjetivosPage() {
                         <ObjetivoRow
                           key={obj.id}
                           obj={obj}
+                          canInteract={canInteractObjetivo(obj)}
                           onDelete={() => deleteMut.mutate(obj.id)}
                         />
                       ))}
@@ -3710,6 +3750,7 @@ export default function ObjetivosPage() {
                 <KanbanOrListaView
                   kanbanGroups={kanbanGroups}
                   canVerLiquidacion={canVerLiquidacion}
+                  canInteractObjetivo={canInteractObjetivo}
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={handleDownloadCertificado}
@@ -3733,6 +3774,7 @@ export default function ObjetivosPage() {
       <ObjetivoDetalleModal
         obj={detalleObj}
         onClose={() => setDetalleObj(null)}
+        canInteract={detalleObj ? canInteractObjetivo(detalleObj) : true}
         onLanzar={(o) => { setDetalleObj(null); setLanzarObj(o); }}
         onReagendar={(o) => { setDetalleObj(null); setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
         onDownloadCertificado={handleDownloadCertificado}
@@ -3743,7 +3785,7 @@ export default function ObjetivosPage() {
       {modalOpen && (
         <NuevoObjetivoModal
           distId={distId}
-          vendedores={vendedores}
+          vendedores={vendedoresEditables}
           onClose={() => setModalOpen(false)}
           onCreate={items => createMut.mutate(items)}
           loading={createMut.isPending}
@@ -3885,6 +3927,7 @@ export default function ObjetivosPage() {
 function KanbanOrListaView({
   kanbanGroups,
   canVerLiquidacion,
+  canInteractObjetivo,
   onDelete,
   onReagendar,
   onDownloadCertificado,
@@ -3896,6 +3939,7 @@ function KanbanOrListaView({
 }: {
   kanbanGroups: { planificado: Objetivo[]; pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[]; liquidacion: Objetivo[] };
   canVerLiquidacion: boolean;
+  canInteractObjetivo: (obj: Objetivo) => boolean;
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
@@ -3961,6 +4005,7 @@ function KanbanOrListaView({
                 <KanbanCard
                   key={obj.id}
                   obj={obj}
+                  canInteract={canInteractObjetivo(obj)}
                   onDelete={() => onDelete(obj.id)}
                   onOpenDetalle={onOpenDetalle}
                 />

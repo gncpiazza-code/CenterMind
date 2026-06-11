@@ -1,9 +1,13 @@
 """Tests de alcance de sucursales por usuario."""
+import pytest
+from fastapi import HTTPException
+
 from core.usuario_sucursal_scope import (
-    filter_sucursal_names,
-    jwt_sucursal_claims,
-    is_unrestricted_sucursales,
     assert_sucursal_nombre_allowed,
+    assert_vendedor_id_allowed,
+    filter_sucursal_names,
+    is_unrestricted_sucursales,
+    jwt_sucursal_claims,
 )
 
 
@@ -46,3 +50,33 @@ def test_assert_sucursal_nombre_allowed_all():
         {"sucursales_restringidas": True, "sucursales_permitidas_nombres": ["Centro"]},
         "__all__",
     )
+
+
+def test_assert_vendedor_id_allowed_sin_restriccion():
+    assert_vendedor_id_allowed({"sucursales_restringidas": False}, 3, 99)
+
+
+def test_assert_vendedor_id_allowed_rechaza_otra_sucursal(monkeypatch):
+    monkeypatch.setattr(
+        "core.usuario_sucursal_scope.vendedor_sucursal_id",
+        lambda _d, _v: 5,
+    )
+    payload = {
+        "sucursales_restringidas": True,
+        "sucursales_permitidas_ids": [1],
+    }
+    with pytest.raises(HTTPException) as exc:
+        assert_vendedor_id_allowed(payload, 3, 42)
+    assert exc.value.status_code == 403
+
+
+def test_assert_vendedor_id_allowed_ok_misma_sucursal(monkeypatch):
+    monkeypatch.setattr(
+        "core.usuario_sucursal_scope.vendedor_sucursal_id",
+        lambda _d, _v: 1,
+    )
+    payload = {
+        "sucursales_restringidas": True,
+        "sucursales_permitidas_ids": [1],
+    }
+    assert_vendedor_id_allowed(payload, 3, 42)

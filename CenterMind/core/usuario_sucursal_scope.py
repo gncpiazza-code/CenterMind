@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from core.tenant_tables import tenant_table_name
 from db import sb
 
+_MSG_SUCURSAL_VENDEDOR = "No tenés permiso para operar sobre vendedores de esta sucursal"
+
 logger = logging.getLogger("ShelfyAPI")
 PAGE = 1000
 
@@ -139,6 +141,43 @@ def assert_sucursal_nombre_allowed(payload: dict, sucursal_nombre: str | None) -
     name = sucursal_nombre.strip()
     if name not in allowed:
         raise HTTPException(status_code=403, detail="No tenés acceso a esta sucursal")
+
+
+def vendedor_sucursal_id(dist_id: int, vendedor_id: int) -> int | None:
+    """id_sucursal del vendedor en vendedores_v2 (None si no existe o sin sucursal)."""
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    res = (
+        sb.table(t_vend)
+        .select("id_sucursal")
+        .eq("id_vendedor", int(vendedor_id))
+        .eq("id_distribuidor", dist_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None
+    sid = res.data[0].get("id_sucursal")
+    return int(sid) if sid is not None else None
+
+
+def assert_vendedor_id_allowed(
+    payload: dict,
+    dist_id: int,
+    vendedor_id: int | str | None,
+) -> None:
+    """Mutaciones (objetivos, evaluación): solo vendedores de sucursales permitidas."""
+    if vendedor_id is None:
+        return
+    allowed = allowed_sucursal_ids(payload)
+    if allowed is None:
+        return
+    try:
+        vid = int(vendedor_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="id_vendedor inválido")
+    sid = vendedor_sucursal_id(dist_id, vid)
+    if sid is None or sid not in allowed:
+        raise HTTPException(status_code=403, detail=_MSG_SUCURSAL_VENDEDOR)
 
 
 def filter_sucursal_names(names: list[str], payload: dict) -> list[str]:

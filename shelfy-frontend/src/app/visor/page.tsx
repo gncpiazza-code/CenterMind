@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { canInteractWithSucursal, hasUnrestrictedSucursales } from "@/lib/sucursal-scope";
 import { daysSinceFechaAR } from "@/lib/fecha-ar";
 import {
   preloadVisorCurrentGroup,
@@ -420,6 +421,11 @@ export function VisorPageContent() {
     return grupo?.sucursal?.trim() || "Sin sucursal";
   }, [erpContext?.sucursal_erp, grupo?.sucursal]);
 
+  const canEvaluarSucursal = useMemo(
+    () => canInteractWithSucursal(sucursalExhibicion, authUser),
+    [sucursalExhibicion, authUser],
+  );
+
   const remitoPanelKey = `${currentIndex}-${nroForErp ?? grupo?.nro_cliente ?? ""}`;
 
   const pdvNombreMin = (
@@ -697,6 +703,7 @@ export function VisorPageContent() {
         grupo &&
         todasVistas &&
         !isValidacion &&
+        canEvaluarSucursal &&
         !mutationEvaluar.isPending &&
         !isSubmittingRef.current;
       const withMod = e.ctrlKey || e.metaKey;
@@ -820,7 +827,7 @@ export function VisorPageContent() {
       window.removeEventListener("blur", onBlur);
     };
   }, [
-    grupo, fotosGrupo, todasVistas, isValidacion, comentario,
+    grupo, fotosGrupo, todasVistas, isValidacion, canEvaluarSucursal, publicDemo, comentario,
     mutationEvaluar, mutationRevertir, lastEvalIds,
     currentIndex, currentFotoIdx, totalFotos, totalGrupos,
     setCurrentIndex, setCurrentFotoIdx, resetGroupState,
@@ -851,7 +858,7 @@ export function VisorPageContent() {
       setTimeout(() => setFlash(null), 2200);
       return;
     }
-    if (!grupo || !user || mutationEvaluar.isPending || !todasVistas || isSubmittingRef.current) return;
+    if (!grupo || !user || mutationEvaluar.isPending || !todasVistas || !canEvaluarSucursal || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
     const ids = fotosGrupo.map((f) => f.id_exhibicion);
     setLastEvalIds(ids);
@@ -880,7 +887,7 @@ export function VisorPageContent() {
   }, [currentIndex, resetGroupState, setCurrentIndex]);
 
   function handleRevertir() {
-    if (!lastEvalIds.length || mutationRevertir.isPending) return;
+    if (!lastEvalIds.length || mutationRevertir.isPending || !canEvaluarSucursal) return;
     mutationRevertir.mutate(lastEvalIds);
   }
 
@@ -1534,10 +1541,10 @@ export function VisorPageContent() {
                           onDestacado={() => handleEvaluar("Destacado")}
                           onAprobado={() => handleEvaluar("Aprobado")}
                           onRefresh={() => queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) })}
-                          canRevertir={lastEvalIds.length > 0}
+                          canRevertir={lastEvalIds.length > 0 && canEvaluarSucursal}
                           revertirPending={mutationRevertir.isPending}
                           evaluarPending={mutationEvaluar.isPending}
-                          evaluarDisabled={publicDemo || !todasVistas || isValidacion}
+                          evaluarDisabled={publicDemo || !todasVistas || isValidacion || !canEvaluarSucursal}
                           kbdLegend={kbdLegend}
                         />
                       </VisorEvalPanel>
@@ -1548,6 +1555,12 @@ export function VisorPageContent() {
                         frasesSlot={frasesPopover(false)}
                       />
                     </div>
+                    {authUser && !hasUnrestrictedSucursales(authUser) && !canEvaluarSucursal && (
+                      <p className="text-[11px] text-[var(--shelfy-muted)] px-1">
+                        Solo lectura: esta exhibición es de otra sucursal. Podés evaluar únicamente{" "}
+                        {(authUser.sucursales_permitidas_nombres ?? []).join(", ") || "tu sucursal"}.
+                      </p>
+                    )}
                     <VisorEnviarGuiaExhibicion
                       distId={distId}
                       idExhibicion={idExhibicionActiva}
@@ -1752,28 +1765,28 @@ export function VisorPageContent() {
                         <div className="flex items-center gap-1.5 shrink-0 justify-center">
                           <button
                             onClick={handleRevertir}
-                            disabled={!lastEvalIds.length || mutationRevertir.isPending}
+                            disabled={!lastEvalIds.length || mutationRevertir.isPending || !canEvaluarSucursal}
                             className="size-9 flex items-center justify-center rounded-full bg-white/10 text-white/50 disabled:opacity-30 transition-all active:scale-90 border border-white/10"
                           >
                             <RotateCcw size={14} strokeWidth={2.5} />
                           </button>
                           <button
                             onClick={() => handleEvaluar("Rechazado")}
-                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion}
+                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion || !canEvaluarSucursal}
                             className="size-11 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_2px_10px_rgba(250,82,82,0.4)] disabled:opacity-20 transition-all active:scale-90"
                           >
                             <X size={20} strokeWidth={3.5} />
                           </button>
                           <button
                             onClick={() => handleEvaluar("Destacado")}
-                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion}
+                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion || !canEvaluarSucursal}
                             className="size-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_2px_12px_rgba(249,115,22,0.45)] disabled:opacity-20 transition-all active:scale-90"
                           >
                             <Flame size={22} strokeWidth={3} className="fill-white/20" />
                           </button>
                           <button
                             onClick={() => handleEvaluar("Aprobado")}
-                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion}
+                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion || !canEvaluarSucursal}
                             className="size-11 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_2px_10px_rgba(16,185,129,0.4)] disabled:opacity-20 transition-all active:scale-90"
                           >
                             <Check size={20} strokeWidth={3.5} />

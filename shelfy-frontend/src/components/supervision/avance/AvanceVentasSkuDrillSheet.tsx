@@ -17,7 +17,8 @@ import type {
   AvanceVentasResponse,
 } from "@/lib/api";
 import { useAvanceVentasSkuClientes } from "@/hooks/useAvanceVentasQuery";
-import { fmtBultos, fmtEntero, fmtUnidades } from "@/lib/avance-ventas-format";
+import { fmtBultos, fmtEntero, fmtVolumenCell } from "@/lib/avance-ventas-format";
+import { useVolumenModo } from "@/hooks/useVolumenModo";
 import { cn } from "@/lib/utils";
 
 interface AvanceVentasSkuDrillSheetProps {
@@ -34,7 +35,19 @@ interface AvanceVentasSkuDrillSheetProps {
   periodoLabel?: string;
 }
 
-function ClientesList({ title, rows, empty }: { title: string; rows: AvanceClienteVolumen[]; empty: string }) {
+function ClientesList({
+  title,
+  rows,
+  empty,
+  volumenKind,
+  volumenModo,
+}: {
+  title: string;
+  rows: AvanceClienteVolumen[];
+  empty: string;
+  volumenKind?: string | null;
+  volumenModo: "bultos" | "desglose";
+}) {
   return (
     <div className="min-w-0">
       <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1.5">{title}</p>
@@ -60,10 +73,20 @@ function ClientesList({ title, rows, empty }: { title: string; rows: AvanceClien
                       c.bultos < 0 ? "text-rose-600" : "text-foreground",
                     )}
                   >
-                    {fmtBultos(c.bultos)} b
-                    {c.unidades ? (
-                      <span className="text-muted-foreground font-normal"> · {fmtUnidades(c.unidades)} u</span>
-                    ) : null}
+                    {(() => {
+                      const vol = fmtVolumenCell(
+                        { bultos: c.bultos, unidades: c.unidades, volumen_kind: volumenKind },
+                        volumenModo,
+                      );
+                      return (
+                        <>
+                          {vol.primary}
+                          {vol.secondary ? (
+                            <span className="text-muted-foreground font-normal"> {vol.secondary}</span>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </span>
                 </div>
                 <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
@@ -97,6 +120,7 @@ export function AvanceVentasSkuDrillSheet({
   vendedor,
   periodoLabel,
 }: AvanceVentasSkuDrillSheetProps) {
+  const [volumenModo] = useVolumenModo();
   const [auditoriaAbierta, setAuditoriaAbierta] = useState(false);
   const [offset, setOffset] = useState(0);
   const [acumulados, setAcumulados] = useState<AvanceClienteVolumen[]>([]);
@@ -230,6 +254,8 @@ export function AvanceVentasSkuDrillSheet({
                     title={`Top ${drill.top.length} clientes`}
                     rows={drill.top}
                     empty="Sin clientes con compra en el período."
+                    volumenKind={sku?.volumen_kind}
+                    volumenModo={volumenModo}
                   />
                   {drill.bottom.length > 0 && (
                     <>
@@ -238,6 +264,8 @@ export function AvanceVentasSkuDrillSheet({
                         title={`Bottom ${drill.bottom.length} clientes`}
                         rows={drill.bottom}
                         empty=""
+                        volumenKind={sku?.volumen_kind}
+                        volumenModo={volumenModo}
                       />
                     </>
                   )}
@@ -255,6 +283,8 @@ export function AvanceVentasSkuDrillSheet({
                     }
                     rows={acumulados}
                     empty="Sin clientes con compra en el período."
+                    volumenKind={sku?.volumen_kind}
+                    volumenModo={volumenModo}
                   />
                   {totalBultos != null && (
                     <p className="text-[10px] text-muted-foreground tabular-nums -mt-2">

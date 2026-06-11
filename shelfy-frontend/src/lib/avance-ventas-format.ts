@@ -55,10 +55,18 @@ function desgloseFromUnidades(
   return { enteros: sign * enteros, resto };
 }
 
+function fmtDesgloseBultosUnidades(enteros: number, resto: number): { primary: string; secondary: string | null } {
+  const btoLabel = Math.abs(enteros) === 1 ? "bto" : "btos";
+  return {
+    primary: `${fmtEntero(enteros)} ${btoLabel}`,
+    secondary: resto > 0 ? `+ ${fmtUnidades(resto)} u` : null,
+  };
+}
+
 /**
- * Celda de volumen según modo (R2). En "desglose", cig/papelillo/mix muestran
- * bultos enteros + unidades restantes desde unidades reales; encendedores en
- * entero 1:1; el resto queda en bultos.
+ * Celda de volumen según modo (R2).
+ * - `bultos`: solo bultos netos (decimal si aplica).
+ * - `desglose`: una sola celda — bultos enteros + unidades RESTO (no el total ERP).
  */
 export function fmtVolumenCell(
   row: {
@@ -75,24 +83,18 @@ export function fmtVolumenCell(
   const factor = unidadesPorBultoFactor(row.volumen_kind);
   if (factor != null && Math.abs(row.unidades) > 0.005) {
     const { enteros, resto } = desgloseFromUnidades(row.unidades, factor);
-    return {
-      primary: fmtEntero(enteros),
-      secondary: resto > 0 ? `· ${fmtUnidades(resto)} u` : null,
-    };
+    return fmtDesgloseBultosUnidades(enteros, resto);
   }
 
   if (row.volumen_kind === "encendedor_raw" && Math.abs(row.bultos) > 0.005) {
     const qty = Math.abs(row.unidades) > 0.005 ? row.unidades : row.bultos;
     const n = Math.round(Math.abs(qty));
     const sign = qty < 0 ? -1 : 1;
-    return { primary: fmtEntero(sign * n), secondary: null };
+    return { primary: `${fmtEntero(sign * n)} u`, secondary: null };
   }
 
   if (row.bultos_enteros != null && row.unidades_resto != null) {
-    return {
-      primary: fmtEntero(row.bultos_enteros),
-      secondary: row.unidades_resto > 0 ? `· ${fmtUnidades(row.unidades_resto)} u` : null,
-    };
+    return fmtDesgloseBultosUnidades(row.bultos_enteros, row.unidades_resto);
   }
 
   return { primary: fmtBultos(row.bultos), secondary: null };

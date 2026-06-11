@@ -755,20 +755,49 @@ def _ventas_sync_info(dist_id: int) -> dict:
 
 # ─── Builders de respuesta ────────────────────────────────────────────────────
 
+def _build_delta_sku_resolver(
+    agg: dict,
+    catalogo: list[dict] | None,
+    agg_refs: dict[str, dict | None],
+    *,
+    hints: dict[str, str],
+) -> SkuKeyResolver:
+    """Resolver compartido actual + referencias + catálogo (deltas WoW/MoM)."""
+    resolver = SkuKeyResolver()
+    seed_sku_resolver(resolver, list((agg.get("por_sku") or {}).values()), hints=hints)
+    if catalogo:
+        seed_sku_resolver(resolver, catalogo, hints=hints)
+    for ref_agg in agg_refs.values():
+        if ref_agg:
+            seed_sku_resolver(
+                resolver, list((ref_agg.get("por_sku") or {}).values()), hints=hints
+            )
+    return resolver
+
+
 def _bultos_por_canon_en_agg(
     agg: dict,
     *,
     hints: dict[str, str] | None = None,
+    resolver: SkuKeyResolver | None = None,
 ) -> dict[str, float]:
     """Bultos del período indexados por clave canónica (deltas entre semanas/meses)."""
-    resolver: SkuKeyResolver | None = agg.get("_sku_resolver")
     hints = hints or agg.get("_cod_articulo_hints") or {}
+    if resolver is None:
+        resolver = agg.get("_sku_resolver")
     if resolver is None:
         resolver = SkuKeyResolver()
         seed_sku_resolver(resolver, list(agg.get("por_sku") or {}).values(), hints=hints)
     out: dict[str, float] = {}
-    for sku_key, s in (agg.get("por_sku") or {}).items():
-        canon = resolver.canonical(str(sku_key))
+    for _sku_key, s in (agg.get("por_sku") or {}).items():
+        cod, art = enrich_sku_identity(
+            s.get("cod_articulo") or "",
+            s.get("articulo") or "",
+            hints=hints,
+        )
+        canon = resolver.canonical(
+            resolver.resolve(cod, art, s.get("agrupacion") or "")
+        )
         out[canon] = round(out.get(canon, 0.0) + float(s.get("bultos") or 0), 4)
     return out
 
@@ -1132,13 +1161,25 @@ def build_avance_ventas(
         )
         fut_catalogo = pool.submit(_fetch_catalogo_skus, dist_id, periodo["hasta"])
         fut_sync = pool.submit(_ventas_sync_info, dist_id)
+        fut_ref_lines = {
+            ref_key: pool.submit(
+                _fetch_avance_lines, dist_id, rango["desde"], rango["hasta"]
+            )
+            for ref_key, rango in refs.items()
+        }
         lines_actual = fut_lines.result()
+        lines_for_hints = list(lines_actual)
+        for fut in fut_ref_lines.values():
+            try:
+                lines_for_hints.extend(fut.result())
+            except Exception as e:
+                logger.warning("[avance-ventas] líneas referencia hints dist=%s: %s", dist_id, e)
         try:
             catalogo = fut_catalogo.result()
         except Exception as e:
             logger.warning("[avance-ventas] catálogo 12m dist=%s: %s", dist_id, e)
             catalogo = None
-        sku_hints = build_cod_articulo_hints(lines_actual, catalogo)
+        sku_hints = build_cod_articulo_hints(lines_for_hints, catalogo)
         if catalogo:
             catalogo = unify_catalog_entries(catalogo, hints=sku_hints)
         fut_refs = {
@@ -1327,26 +1368,28 @@ def build_avance_ventas(
         )
 
     # ── Deltas por SKU (clave canónica — mismo producto entre períodos) ─────
+    delta_resolver = _build_delta_sku_resolver(
+        agg, catalogo, agg_refs, hints=sku_hints
+    )
+
     def _ref_sku_bultos_canon(ref_key: str | None) -> dict[str, float] | None:
         if not ref_key:
             return None
         ref_agg = agg_refs.get(ref_key)
         if not ref_agg:
             return None
-        return _bultos_por_canon_en_agg(ref_agg, hints=sku_hints)
+        return _bultos_por_canon_en_agg(
+            ref_agg, hints=sku_hints, resolver=delta_resolver
+        )
 
     wow_sku = _ref_sku_bultos_canon(delta_primary_key[0])
     mom_sku = _ref_sku_bultos_canon(delta_primary_key[1])
-    main_resolver: SkuKeyResolver = agg.get("_sku_resolver") or SkuKeyResolver()
-    seed_sku_resolver(main_resolver, list(agg["por_sku"].values()), hints=sku_hints)
-    if catalogo:
-        seed_sku_resolver(main_resolver, catalogo, hints=sku_hints)
 
     # Tabla completa, sin cap (R1) — el cap defensivo queda solo en series gráficas.
     ranking_skus = []
     for r in sku_rows:
         item = {k: v for k, v in r.items() if k != "sku_key"}
-        canon = _row_canon_key(r, main_resolver, sku_hints)
+        canon = _row_canon_key(r, delta_resolver, sku_hints)
         if wow_sku is not None:
             item["wow_bultos"] = build_delta_kpi(
                 r["bultos"],
@@ -1377,7 +1420,7 @@ def build_avance_ventas(
     for r in sku_rows[:HEATMAP_TOP_SKUS]:
         if r["sin_venta"]:
             continue
-        canon = _row_canon_key(r, main_resolver, sku_hints)
+        canon = _row_canon_key(r, delta_resolver, sku_hints)
         heatmap.append(
             {
                 "sku": r["articulo"],

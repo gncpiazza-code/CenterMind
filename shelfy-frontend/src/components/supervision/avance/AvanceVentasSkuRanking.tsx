@@ -19,7 +19,6 @@ import {
   fmtBultos,
   fmtDelta,
   fmtEntero,
-  fmtUnidades,
   fmtVolumenCell,
 } from "@/lib/avance-ventas-format";
 import { skuRowTieneVenta } from "@/lib/avance-ventas-alcance";
@@ -29,7 +28,7 @@ import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { cn } from "@/lib/utils";
 import { AvanceVentasExportButton } from "./AvanceVentasExportButton";
 
-type SortKey = "default" | "bultos" | "unidades" | "clientes" | "intensidad" | "penetracion";
+type SortKey = "default" | "bultos" | "clientes" | "intensidad" | "penetracion";
 
 interface AvanceVentasSkuRankingProps {
   ranking: AvanceSkuRankingRow[] | undefined;
@@ -187,15 +186,12 @@ export function AvanceVentasSkuRanking({
               <TableRow className="text-[10px]">
                 <TableHead className="pl-5 min-w-[240px]">Artículo</TableHead>
                 <SortHeader
-                  label={volumenModo === "desglose" ? "Volumen" : "Bultos"}
+                  label={volumenModo === "desglose" ? "Bultos + unidades" : "Bultos"}
                   helpText={volumenModo === "desglose" ? AVANCE_KPI_HELP.volumenDesglose : AVANCE_KPI_HELP.bultos}
                   active={sortKey === "bultos"}
                   dir={sortDir}
                   onClick={() => toggleSort("bultos")}
                 />
-                {volumenModo === "bultos" && (
-                  <SortHeader label="Unid." helpText={AVANCE_KPI_HELP.unidades} active={sortKey === "unidades"} dir={sortDir} onClick={() => toggleSort("unidades")} className="hidden sm:table-cell" />
-                )}
                 <SortHeader label="Clientes" active={sortKey === "clientes"} dir={sortDir} onClick={() => toggleSort("clientes")} />
                 <SortHeader label="Intens." helpText={AVANCE_KPI_HELP.intensidad} active={sortKey === "intensidad"} dir={sortDir} onClick={() => toggleSort("intensidad")} className="hidden md:table-cell" />
                 {hasPenetracion && (
@@ -276,9 +272,6 @@ export function AvanceVentasSkuRanking({
                           {vol.secondary}
                         </span>
                       )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground hidden sm:table-cell">
-                      {fmtUnidades(r.unidades)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
                       {fmtEntero(r.clientes)}

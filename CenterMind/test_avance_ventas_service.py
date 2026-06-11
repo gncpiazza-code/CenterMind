@@ -400,6 +400,50 @@ def test_totales_volumen_cigarrillos_excluye_papelillo_y_encendedor():
     assert t["unidades_resto"] == 0
 
 
+def test_delta_sku_consolido_vs_legacy_cod_misma_semana_anterior():
+    """Sem. ant. cod 181 sin desc; actual 10008 Consolido — no comparar vs 0."""
+    from services.avance_ventas_service import _build_delta_sku_resolver
+
+    catalogo = [
+        {"cod_articulo": "181", "articulo": "CIGARRILLO CORONA 20S BOX", "agrupacion": "CIGARRILLOS"},
+        {"cod_articulo": "10008", "articulo": "CORONA BOX 20X250", "agrupacion": "CIGARRILLOS"},
+    ]
+    lines_prev = [
+        _linea(
+            cod_articulo="181",
+            descripcion_articulo="",
+            bultos_total=118.58,
+            unidades_total=29000.0,
+            fecha_factura="2026-06-02",
+        ),
+    ]
+    lines_curr = [
+        _linea(
+            cod_articulo="10008",
+            descripcion_articulo="CORONA BOX 20X250",
+            bultos_total=66.78,
+            unidades_total=16500.0,
+            fecha_factura="2026-06-10",
+        ),
+    ]
+    hints = build_cod_articulo_hints(lines_curr + lines_prev, catalogo)
+    agg_prev = aggregate_avance_lines(lines_prev, cod_articulo_hints=hints)
+    agg_curr = aggregate_avance_lines(lines_curr, cod_articulo_hints=hints)
+    resolver = _build_delta_sku_resolver(
+        agg_curr, catalogo, {"semana_anterior": agg_prev}, hints=hints
+    )
+    ref_map = _bultos_por_canon_en_agg(
+        agg_prev, hints=hints, resolver=resolver
+    )
+    rows = _sku_rows_from_agg(agg_curr, cartera_count=10, catalogo=catalogo)
+    row = next(r for r in rows if r["cod_articulo"] == "10008")
+    canon = _row_canon_key(row, resolver, hints)
+    anterior = ref_map.get(canon, 0.0)
+    delta = build_delta_kpi(row["bultos"], anterior, disponible=True)
+    assert anterior == pytest.approx(118.58, abs=0.01)
+    assert delta["diff"] == pytest.approx(-51.8, abs=0.1)
+
+
 def test_delta_sku_misma_clave_canon_entre_periodos():
     """Semana anterior con cod sin desc; actual con nombre — delta no compara vs 0."""
     catalogo = [

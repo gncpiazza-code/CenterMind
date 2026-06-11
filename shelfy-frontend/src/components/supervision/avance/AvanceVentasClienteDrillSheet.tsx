@@ -11,7 +11,7 @@ import {
 import type { AvanceClienteMixRow, AvanceVentasModo } from "@/lib/api";
 import { useAvanceVentasClienteSkus } from "@/hooks/useAvanceVentasQuery";
 import { useVolumenModo } from "@/hooks/useVolumenModo";
-import { fmtBultos, fmtUnidades, fmtVolumenCell } from "@/lib/avance-ventas-format";
+import { fmtUnidades, fmtVolumenCell } from "@/lib/avance-ventas-format";
 import { cn } from "@/lib/utils";
 
 interface AvanceVentasClienteDrillSheetProps {
@@ -136,14 +136,9 @@ export function AvanceVentasClienteDrillSheet({
                             s.bultos < 0 ? "text-rose-600" : "text-foreground",
                           )}
                         >
-                          {vol.primary} b
+                          {vol.primary}
                           {vol.secondary ? (
                             <span className="text-muted-foreground font-normal"> {vol.secondary}</span>
-                          ) : s.unidades ? (
-                            <span className="text-muted-foreground font-normal">
-                              {" "}
-                              · {fmtUnidades(s.unidades)} u
-                            </span>
                           ) : null}
                         </span>
                       </div>

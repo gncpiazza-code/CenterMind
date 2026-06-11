@@ -24,6 +24,10 @@ export const AVANCE_KPI_HELP = {
   bultos:
     "Bultos netos del período: ventas menos devoluciones. Cigarrillos y " +
     "convertidos se expresan en bultos equivalentes según las reglas de volumen.",
+  volumenDesglose:
+    "Bultos enteros + unidades restantes para líneas convertidas (cigarrillos, " +
+    "papelillos, mix). Encendedores: 1 bulto = 1 unidad. Activa el modo arriba " +
+    "«Bultos + unidades».",
   unidades:
     "Unidades de líneas convertidas (cigarrillos, papelillos, mix) y " +
     "encendedores (1 bulto = 1 unidad). El resto de los artículos no suma unidades.",

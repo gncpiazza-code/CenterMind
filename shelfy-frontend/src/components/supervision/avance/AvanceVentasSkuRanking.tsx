@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { ListOrdered, TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -36,6 +35,7 @@ interface AvanceVentasSkuRankingProps {
   modo: AvanceVentasModo;
   periodoLabel: string;
   onSelectSku: (row: AvanceSkuRankingRow) => void;
+  soloConVenta?: boolean;
   className?: string;
 }
 
@@ -120,12 +120,12 @@ export function AvanceVentasSkuRanking({
   modo,
   periodoLabel,
   onSelectSku,
+  soloConVenta = false,
   className,
 }: AvanceVentasSkuRankingProps) {
   const [sortKey, setSortKey] = useState<SortKey>("default");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [soloConVenta, setSoloConVenta] = useState(false);
-  const [volumenModo, setVolumenModo] = useVolumenModo();
+  const [volumenModo] = useVolumenModo();
 
   const toggleSort = (key: Exclude<SortKey, "default">) => {
     if (key === sortKey) setSortDir(sortDir === "desc" ? "asc" : "desc");
@@ -167,51 +167,11 @@ export function AvanceVentasSkuRanking({
               {!soloConVenta && totalSinVenta > 0 ? ` (${totalSinVenta} sin venta)` : ""}
             </span>
           </CardTitle>
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Switch global Bultos ↔ Bultos + unidades (R2) */}
-            <label className="flex min-h-8 items-center gap-1.5 cursor-pointer select-none">
-              <span
-                className={cn(
-                  "text-[10px] font-semibold transition-colors",
-                  volumenModo === "bultos" ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                Bultos
-              </span>
-              <Switch
-                checked={volumenModo === "desglose"}
-                onCheckedChange={(v) => setVolumenModo(v ? "desglose" : "bultos")}
-                className="scale-75"
-                aria-label="Alternar bultos / bultos + unidades"
-              />
-              <span
-                className={cn(
-                  "text-[10px] font-semibold transition-colors",
-                  volumenModo === "desglose" ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                + unidades
-              </span>
-            </label>
-            {totalSinVenta > 0 && (
-              <label className="flex min-h-8 items-center gap-1.5 cursor-pointer select-none">
-                <Switch
-                  checked={soloConVenta}
-                  onCheckedChange={setSoloConVenta}
-                  className="scale-75"
-                  aria-label="Mostrar solo SKUs con venta"
-                />
-                <span className="text-[10px] font-semibold text-muted-foreground">
-                  Solo con venta
-                </span>
-              </label>
-            )}
-            <AvanceVentasExportButton
-              ranking={rows}
-              periodoLabel={periodoLabel}
-              volumenModo={volumenModo}
-            />
-          </div>
+          <AvanceVentasExportButton
+            ranking={rows}
+            periodoLabel={periodoLabel}
+            volumenModo={volumenModo}
+          />
         </div>
       </CardHeader>
       <Separator />
@@ -225,8 +185,16 @@ export function AvanceVentasSkuRanking({
             <TableHeader className="sticky top-0 bg-card z-10">
               <TableRow className="text-[10px]">
                 <TableHead className="pl-5 min-w-[240px]">Artículo</TableHead>
-                <SortHeader label="Bultos" helpText={AVANCE_KPI_HELP.bultos} active={sortKey === "bultos"} dir={sortDir} onClick={() => toggleSort("bultos")} />
-                <SortHeader label="Unid." helpText={AVANCE_KPI_HELP.unidades} active={sortKey === "unidades"} dir={sortDir} onClick={() => toggleSort("unidades")} className="hidden sm:table-cell" />
+                <SortHeader
+                  label={volumenModo === "desglose" ? "Volumen" : "Bultos"}
+                  helpText={volumenModo === "desglose" ? AVANCE_KPI_HELP.volumenDesglose : AVANCE_KPI_HELP.bultos}
+                  active={sortKey === "bultos"}
+                  dir={sortDir}
+                  onClick={() => toggleSort("bultos")}
+                />
+                {volumenModo === "bultos" && (
+                  <SortHeader label="Unid." helpText={AVANCE_KPI_HELP.unidades} active={sortKey === "unidades"} dir={sortDir} onClick={() => toggleSort("unidades")} className="hidden sm:table-cell" />
+                )}
                 <SortHeader label="Clientes" active={sortKey === "clientes"} dir={sortDir} onClick={() => toggleSort("clientes")} />
                 <SortHeader label="Intens." helpText={AVANCE_KPI_HELP.intensidad} active={sortKey === "intensidad"} dir={sortDir} onClick={() => toggleSort("intensidad")} className="hidden md:table-cell" />
                 {hasPenetracion && (

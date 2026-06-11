@@ -1032,15 +1032,7 @@ def build_avance_ventas(
             item["mom_bultos"] = build_delta_kpi(r["bultos"], mom_sku.get(r["sku_key"], 0.0))
         ranking_skus.append(item)
 
-    # ── Series para gráficos ────────────────────────────────────────────────
-    por_agrupacion = sorted(
-        (
-            {"label": label, "bultos": round(d["bultos"], 2), "unidades": round(d["unidades"], 2)}
-            for label, d in agg["por_agrupacion"].items()
-        ),
-        key=lambda r: r["bultos"],
-        reverse=True,
-    )
+    # ── Series para gráficos (carrusel FE — sin por_agrupacion, reemplazado por cobertura) ──
     scatter = [
         {
             "sku": r["articulo"],
@@ -1100,7 +1092,6 @@ def build_avance_ventas(
         "ranking_skus": ranking_skus,
         "insights": _build_insights(sku_rows),
         "series": {
-            "por_agrupacion": por_agrupacion,
             "scatter_penetracion_intensidad": scatter,
             "heatmap_top_skus": heatmap,
             "cobertura_skus": cobertura_skus,

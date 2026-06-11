@@ -6,6 +6,7 @@ import { BarChart3, Grid3X3, PieChart, ScanSearch, Target } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import type { AvanceVentasModo, AvanceVentasResponse } from "@/lib/api";
 import { AVANCE_KPI_HELP } from "@/lib/avance-ventas-kpi-help";
+import { deriveCoberturaSkus } from "@/lib/avance-ventas-cobertura";
 import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useIsDesktop } from "@/hooks/useViewport";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,11 @@ export function AvanceVentasChartCarousel({
   const [active, setActive] = useState<CarouselTab>("top");
   const touchStartX = useRef<number | null>(null);
 
+  const cobertura = useMemo(
+    () => deriveCoberturaSkus(data?.ranking_skus, data?.series?.cobertura_skus),
+    [data?.ranking_skus, data?.series?.cobertura_skus],
+  );
+
   const tabs = useMemo(() => {
     const out: CarouselTab[] = [];
     if (consolidado && data?.share_vendedores?.length) out.push("vendedores");
@@ -63,9 +69,9 @@ export function AvanceVentasChartCarousel({
       data?.series?.heatmap_top_skus?.some((r) => r.ref_wow !== null || r.ref_mom !== null)
     )
       out.push("heatmap");
-    if (data?.series?.cobertura_skus?.disponible) out.push("cobertura");
+    if (cobertura?.disponible) out.push("cobertura");
     return out;
-  }, [data, consolidado, isDesktop]);
+  }, [data, consolidado, isDesktop, cobertura?.disponible]);
 
   // Derivado en render (sin efecto): si el tab activo dejó de existir, cae al primero.
   const effectiveActive = tabs.includes(active) ? active : tabs[0];
@@ -95,7 +101,8 @@ export function AvanceVentasChartCarousel({
       }}
     >
       <div className="flex items-center justify-between gap-3 mb-2 shrink-0">
-        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+        <p className="text-xs font-bold text-foreground shrink-0 hidden sm:block">Análisis visual</p>
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1 sm:justify-end">
           {tabs.map((key) => {
             const t = TAB_META[key];
             const Icon = t.icon;
@@ -172,7 +179,7 @@ export function AvanceVentasChartCarousel({
               <AvanceVentasHeatmap data={data.series?.heatmap_top_skus} modo={modo} embedded />
             )}
             {effectiveActive === "cobertura" && (
-              <AvanceVentasCoberturaChart data={data.series?.cobertura_skus} embedded />
+              <AvanceVentasCoberturaChart data={cobertura} embedded />
             )}
           </motion.div>
         </AnimatePresence>

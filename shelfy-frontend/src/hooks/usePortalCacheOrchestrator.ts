@@ -8,6 +8,7 @@ import {
   canAccessModule,
   ORCHESTRATOR_IDLE_STAGGER_MS,
   resolveModuleFromPath,
+  resolveBundleModuleForRoute,
   BACKGROUND_MODULE_ORDER,
   ROUTE_PREFETCH_ORDER,
   type PortalModuleId,
@@ -70,15 +71,24 @@ export function usePortalCacheOrchestrator(): {
 
   const prefetchRoute = useCallback(
     (href: string) => {
-      const mod = resolveModuleFromPath(href.split("?")[0]);
+      const path = href.split("?")[0];
+      const bundleMod = resolveBundleModuleForRoute(path);
+      if (bundleMod && allowedModules.includes(bundleMod)) {
+        prefetchPortalRouteChunk(router, path);
+        prefetchModule(bundleMod);
+        return;
+      }
+      const mod = resolveModuleFromPath(path);
       if (mod) prefetchModule(mod);
     },
-    [prefetchModule],
+    [allowedModules, prefetchModule, router],
   );
+
+  const skipOrchestrator = pathname === "/login";
 
   // T0 — bundle del módulo activo, inmediato, en cada cambio de ruta
   useEffect(() => {
-    if (!user || distId <= 0) return;
+    if (skipOrchestrator || !user || distId <= 0) return;
     const mod = resolveModuleFromPath(pathname);
     if (!mod || !allowedModules.includes(mod)) return;
     void prefetchPortalModule(queryClient, mod, distId);
@@ -86,11 +96,11 @@ export function usePortalCacheOrchestrator(): {
       const mesesKey = estadisticasPrefetchMesesKey(readEstadisticasPrefetchMeses());
       void warmPortalBundles(distId, ["estadisticas"], mesesKey).catch(() => {});
     }
-  }, [pathname, user, distId, allowedKey, queryClient, allowedModules]);
+  }, [pathname, user, distId, allowedKey, queryClient, allowedModules, skipOrchestrator]);
 
   // T1/T2/T3 — background once per dist+user
   useEffect(() => {
-    if (!user || distId <= 0) return;
+    if (skipOrchestrator || !user || distId <= 0) return;
     const sessionKey = `${distId}:${user.usuario}:${allowedKey}`;
     if (backgroundDoneRef.current === sessionKey) return;
     backgroundDoneRef.current = sessionKey;
@@ -100,8 +110,8 @@ export function usePortalCacheOrchestrator(): {
     // T1 — prefetch route chunks vía router.prefetch (siempre, incluso en red lenta)
     scheduleWhenIdle(() => {
       for (const href of ROUTE_PREFETCH_ORDER) {
-        const mod = resolveModuleFromPath(href) as PortalModuleId | null;
-        if (!mod || !allowedModules.includes(mod)) continue;
+        const bundleMod = resolveBundleModuleForRoute(href);
+        if (bundleMod && !allowedModules.includes(bundleMod)) continue;
         prefetchPortalRouteChunk(router, href);
       }
     });
@@ -136,7 +146,7 @@ export function usePortalCacheOrchestrator(): {
     return () => {
       cleanups.forEach((c) => c());
     };
-  }, [user, distId, allowedKey, pathname, allowedModules, queryClient, router]);
+  }, [user, distId, allowedKey, pathname, allowedModules, queryClient, router, skipOrchestrator]);
 
   return { prefetchModule, prefetchRoute };
 }

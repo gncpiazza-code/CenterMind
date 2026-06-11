@@ -79,12 +79,13 @@ describe("ROUTE_PREFETCH_ORDER", () => {
     expect(ROUTE_PREFETCH_ORDER[0]).toBe("/dashboard");
   });
 
-  it("has 4 routes in correct order", () => {
+  it("has 5 routes in correct order", () => {
     expect(Array.from(ROUTE_PREFETCH_ORDER)).toEqual([
       "/dashboard",
       "/visor",
       "/estadisticas",
       "/supervision",
+      "/modo-mapa",
     ]);
   });
 });

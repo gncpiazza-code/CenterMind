@@ -1,12 +1,22 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
-import TabSupervision from "@/components/admin/TabSupervision";
+
+const TabSupervision = dynamic(() => import("@/components/admin/TabSupervision"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex flex-1 items-center justify-center bg-[var(--shelfy-bg)] min-h-0">
+      <Loader2 className="h-6 w-6 animate-spin text-[var(--shelfy-muted)]" aria-hidden />
+    </div>
+  ),
+});
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio", "compania", "espectador"];
 

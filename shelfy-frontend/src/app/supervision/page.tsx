@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, startTransition } from "react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -23,7 +23,10 @@ import { CcSyncStatusBadge } from "@/components/supervision/CcSyncStatusBadge";
 import { VentasSyncStatusBadge } from "@/components/supervision/VentasSyncStatusBadge";
 import { SupervisionModeToggle } from "@/components/supervision/SupervisionModeToggle";
 import { AvanceVentasPeriodSelector } from "@/components/supervision/AvanceVentasPeriodSelector";
-import { SupervisionAvanceVentasPanel } from "@/components/supervision/avance/SupervisionAvanceVentasPanel";
+import {
+  SupervisionAvanceVentasPanel,
+  prefetchSupervisionAvancePanelChunk,
+} from "@/components/supervision/avance/SupervisionAvanceVentasPanelLazy";
 import { SIN_VENDEDOR_VALUE, useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
   useSupervisionPanelQueries,
@@ -41,6 +44,7 @@ import {
 } from "@/components/supervision/SupervisionPanelSkeleton";
 import { SupervisionReveal, SupervisionRevealItem } from "@/components/supervision/SupervisionReveal";
 import { DeudorProfilePanel } from "@/components/supervision/DeudorProfilePanel";
+import { SupervisionCcClientesTable } from "@/components/supervision/SupervisionCcClientesTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -51,14 +55,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Tooltip,
   TooltipContent,
@@ -72,7 +68,6 @@ import {
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import {
-  SUPERVISION_PANEL_BODY_SCROLL_CLASS,
   SUPERVISION_PANEL_COLUMN_CLASS,
   SUPERVISION_PANELS_ROW_CLASS,
   SUPERVISION_PANELS_VIEWPORT_CLASS,
@@ -86,17 +81,6 @@ function fmt$$(n: number): string {
     currency: "ARS",
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-function CCSortIndicator({
-  active,
-  dir,
-}: {
-  active: boolean;
-  dir: "asc" | "desc";
-}) {
-  if (!active) return <span className="opacity-30">↕</span>;
-  return <span className="text-foreground">{dir === "desc" ? "↓" : "↑"}</span>;
 }
 
 function ColumnHelp({ text }: { text: string }) {
@@ -232,6 +216,7 @@ export default function SupervisionPage() {
 
   const prefetchAvanceIntent = useCallback(() => {
     if (distId <= 0) return;
+    prefetchSupervisionAvancePanelChunk();
     prefetchAvanceVentasDefault(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
   }, [distId, queryClient, sucursalParam, selectedVendedorNombre]);
 
@@ -372,7 +357,7 @@ export default function SupervisionPage() {
                       <div className="flex items-center gap-2 shrink-0">
                         <SupervisionModeToggle
                           mode={viewMode}
-                          onChange={setViewMode}
+                          onChange={(mode) => startTransition(() => setViewMode(mode))}
                           onAvanceIntent={prefetchAvanceIntent}
                         />
                         {isRefreshing && (
@@ -688,89 +673,17 @@ export default function SupervisionPage() {
                               : "Sin datos de CC disponibles."}
                           </p>
                         ) : (
-                          <div
-                            key={selectedVendedorId ?? selectedVendedorNombre ?? "none"}
-                            className={SUPERVISION_PANEL_BODY_SCROLL_CLASS}
-                          >
-                            <Table>
-                              <TableHeader>
-                                <TableRow className="text-[10px]">
-                                  <TableHead className="pl-5 w-[38%]">Cliente</TableHead>
-                                  <TableHead
-                                    className="text-right cursor-pointer select-none hover:text-foreground"
-                                    onClick={() => toggleCCSort("deuda")}
-                                  >
-                                    Deuda <CCSortIndicator active={ccSort === "deuda"} dir={ccSortDir} />
-                                  </TableHead>
-                                  <TableHead
-                                    className="text-right cursor-pointer select-none hover:text-foreground"
-                                    onClick={() => toggleCCSort("antiguedad")}
-                                  >
-                                    <span className="inline-flex items-center gap-0.5">
-                                      Antig.
-                                      <ColumnHelp text="Antigüedad de la deuda en días, según el reporte de cuentas corrientes (CHESS). Indica hace cuánto está impago el saldo del cliente." />
-                                      <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
-                                    </span>
-                                  </TableHead>
-                                  <TableHead
-                                    className="text-right cursor-pointer select-none hover:text-foreground pr-4"
-                                    onClick={() => toggleCCSort("comprobantes")}
-                                  >
-                                    <span className="inline-flex items-center justify-end gap-0.5">
-                                      Comprobantes
-                                      <ColumnHelp text="Cantidad de comprobantes con saldo impago, según el reporte de cuentas corrientes (CHESS)." />
-                                      <CCSortIndicator active={ccSort === "comprobantes"} dir={ccSortDir} />
-                                    </span>
-                                  </TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {clientesOrdenados.map((c, idx) => {
-                                  const erp = c.id_cliente_erp ?? null;
-                                  const isSelected = !!erp && erp === selectedClienteErp;
-                                  return (
-                                    <TableRow
-                                      key={`${selectedVendedorId ?? "v"}-${c.id_cliente_erp ?? c.cliente ?? idx}`}
-                                      className={cn(
-                                        "text-xs cursor-pointer transition-colors",
-                                        isSelected
-                                          ? "bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-50"
-                                          : "hover:bg-muted/40",
-                                      )}
-                                      onClick={() => setSelectedClienteErp(erp !== selectedClienteErp ? erp : null)}
-                                      onMouseEnter={() => {
-                                        if (erp) void prefetchDeudor(erp);
-                                      }}
-                                    >
-                                      <TableCell className="pl-5 font-medium truncate max-w-[130px]">
-                                        <div className="flex items-center gap-1">
-                                          {isSelected && (
-                                            <span className="inline-block size-1.5 rounded-full bg-blue-500 shrink-0" />
-                                          )}
-                                          {c.cliente ?? "—"}
-                                        </div>
-                                      </TableCell>
-                                      <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
-                                        {fmt$$(c.deuda_total)}
-                                      </TableCell>
-                                      <TableCell
-                                        className="text-right text-muted-foreground tabular-nums"
-                                      >
-                                        {c.antiguedad != null ? (
-                                          <span className={c.antiguedad_desde_padron ? "text-amber-700 font-medium" : ""}>
-                                            {c.antiguedad}d
-                                          </span>
-                                        ) : "—"}
-                                      </TableCell>
-                                      <TableCell className="text-right text-muted-foreground font-mono text-[11px] pr-4 tabular-nums">
-                                        {c.cantidad_comprobantes ?? "—"}
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </div>
+                          <SupervisionCcClientesTable
+                            rows={clientesOrdenados}
+                            rowKeyPrefix={String(selectedVendedorId ?? selectedVendedorNombre ?? "none")}
+                            ccSort={ccSort}
+                            ccSortDir={ccSortDir}
+                            selectedClienteErp={selectedClienteErp}
+                            onToggleSort={toggleCCSort}
+                            onSelectCliente={setSelectedClienteErp}
+                            onPrefetchDeudor={(erp) => void prefetchDeudor(erp)}
+                            columnHelp={ColumnHelp}
+                          />
                         )}
                       </CardContent>
                     </Card>

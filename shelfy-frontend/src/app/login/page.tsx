@@ -3,7 +3,7 @@
 import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { User, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
+import { User, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/Button";
@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(true);
   const [slotIdx, setSlotIdx] = useState(0);
   const [slotAnim, setSlotAnim] = useState<"in" | "out">("in");
 
@@ -26,24 +26,32 @@ export default function LoginPage() {
   ];
 
   useEffect(() => {
-    setMounted(true);
     if (isAuthenticated) {
       router.replace("/dashboard");
     }
   }, [isAuthenticated, router]);
 
-  // Slot machine cycle
   useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => setReduceMotion(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  // Slot machine cycle — solo si el usuario no pidió reduced motion
+  useEffect(() => {
+    if (reduceMotion) return;
     const interval = setInterval(() => {
       setSlotAnim("out");
       setTimeout(() => {
-        setSlotIdx(i => (i + 1) % SLOTS.length);
+        setSlotIdx((i) => (i + 1) % SLOTS.length);
         setSlotAnim("in");
       }, 250);
     }, 2000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reduceMotion]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -83,11 +91,15 @@ export default function LoginPage() {
         .delay-300 { animation-delay: 0.30s; }
         .delay-400 { animation-delay: 0.40s; }
         .delay-500 { animation-delay: 0.50s; }
+        @media (prefers-reduced-motion: reduce) {
+          .anim-fade-in, .anim-fade-up, .anim-float, .slot-in, .slot-out {
+            animation: none !important;
+          }
+        }
         .orb {
           position: absolute; border-radius: 50%;
           filter: blur(50px); pointer-events: none;
         }
-        /* Override shadcn Input to match login violet style */
         .login-input-wrap .shelfy-input {
           background: rgba(255,255,255,0.7);
           border: 1.5px solid #ddd6fe;
@@ -110,28 +122,27 @@ export default function LoginPage() {
         className="min-h-screen flex flex-col items-center justify-center px-4 relative overflow-hidden"
         style={{ background: "linear-gradient(145deg, #f0eeff 0%, #ede9ff 40%, #e8f0fe 100%)" }}
       >
-        {/* Decorative orbs */}
         <div className="orb anim-fade-in" style={{ width: 360, height: 360, background: "rgba(124,58,237,0.12)", top: "-80px", right: "-80px" }} />
         <div className="orb anim-fade-in delay-200" style={{ width: 280, height: 280, background: "rgba(79,70,229,0.10)", bottom: "-60px", left: "-60px" }} />
 
         <div className="w-full max-w-sm relative z-10">
 
-          {/* Logo */}
-          <div className={cn("flex flex-col items-center mb-8", mounted ? "anim-fade-up" : "opacity-0")}>
-            <div className="anim-float mb-4">
+          <div className="flex flex-col items-center mb-8">
+            <div className={cn("mb-4", !reduceMotion && "anim-float")}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/LOGO_NUEVO.svg"
                 alt="Shelfy"
+                fetchPriority="high"
+                decoding="async"
                 className="h-20 w-auto"
                 style={{ filter: "drop-shadow(0 8px 24px rgba(124,58,237,0.25))" }}
               />
             </div>
           </div>
 
-          {/* Card */}
           <div
-            className={cn("rounded-2xl p-7", mounted ? "anim-fade-up delay-200" : "opacity-0")}
+            className="rounded-2xl p-7"
             style={{
               background: "rgba(255,255,255,0.75)",
               backdropFilter: "blur(16px)",
@@ -141,8 +152,7 @@ export default function LoginPage() {
           >
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
 
-              {/* Usuario */}
-              <div className={cn("login-input-wrap", mounted ? "anim-fade-up delay-300" : "opacity-0")}>
+              <div className="login-input-wrap">
                 <Label htmlFor="usuario" className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
                   Usuario
                 </Label>
@@ -161,8 +171,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Contraseña */}
-              <div className={cn("login-input-wrap", mounted ? "anim-fade-up delay-400" : "opacity-0")}>
+              <div className="login-input-wrap">
                 <Label htmlFor="password" className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
                   Contraseña
                 </Label>
@@ -190,15 +199,13 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Error */}
               {error && (
-                <Alert variant="destructive" className="anim-fade-up rounded-xl">
+                <Alert variant="destructive" className="rounded-xl">
                   <AlertDescription className="text-sm font-medium">{error}</AlertDescription>
                 </Alert>
               )}
 
-              {/* Submit */}
-              <div className={cn("pt-1", mounted ? "anim-fade-up delay-500" : "opacity-0")}>
+              <div className="pt-1">
                 <Button
                   type="submit"
                   size="lg"
@@ -221,14 +228,13 @@ export default function LoginPage() {
             </form>
           </div>
 
-          {/* Slot machine animation */}
-          <div className={cn("flex flex-col items-center mt-8 mb-4", mounted ? "anim-fade-up delay-400" : "opacity-0")}>
+          <div className="flex flex-col items-center mt-8 mb-4">
             <span className="text-slate-800 font-semibold text-[14.5px] tracking-tight">Mentalidad enfocada en</span>
             <div className="flex items-center gap-2 mt-1 py-1 overflow-hidden" style={{ height: 42 }}>
               <div style={{ width: 185 }} className="flex justify-end">
                 <span
-                  key={slotIdx}
-                  className={slotAnim === "in" ? "slot-in" : "slot-out"}
+                  key={reduceMotion ? 0 : slotIdx}
+                  className={reduceMotion ? undefined : slotAnim === "in" ? "slot-in" : "slot-out"}
                   style={{
                     fontWeight: 900,
                     fontSize: 21,
@@ -236,7 +242,7 @@ export default function LoginPage() {
                     alignItems: "center",
                     gap: 8,
                     color: SLOTS[slotIdx].color,
-                    textShadow: `0 0 10px ${SLOTS[slotIdx].color}60, 0 0 20px ${SLOTS[slotIdx].color}30`,
+                    textShadow: reduceMotion ? undefined : `0 0 10px ${SLOTS[slotIdx].color}60, 0 0 20px ${SLOTS[slotIdx].color}30`,
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -249,9 +255,8 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Footer */}
         <p
-          className={cn("absolute bottom-6 text-xs", mounted ? "anim-fade-in delay-500" : "opacity-0")}
+          className="absolute bottom-6 text-xs anim-fade-in delay-500"
           style={{ color: "#8b7cf6", letterSpacing: "0.08em", textTransform: "uppercase" }}
         >
           © {new Date().getFullYear()} Shelfy

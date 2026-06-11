@@ -5,9 +5,18 @@
 | Ruta | `PortalModuleId` | Bundle query | Prefetch extra |
 |------|------------------|--------------|----------------|
 | `/dashboard` | `dashboard` | `bundleKeys.dashboard` | — |
-| `/supervision` | `supervision` | `bundleKeys.supervision` | `prefetchAvanceVentasPortalEntry` |
+| `/supervision` | `supervision` | `bundleKeys.supervision` | `prefetchAvanceVentasPortalEntry`, lazy `SupervisionAvanceVentasPanel`, CC table virtualizada ≥48 filas |
 | `/estadisticas` | `estadisticas` | `cartasBundleQueryOptions` | warm backend estadísticas |
 | `/visor` | `visor` | `bundleKeys.visor` | — |
+| `/modo-mapa` | — (alias) | Reutiliza `bundleKeys.supervision` vía `ROUTE_CHUNK_BUNDLE_ALIASES` | `dynamic(TabSupervision)`, preload PDV post-GMaps |
+
+## Route-chunk T1 (rutas sin bundle propio)
+
+| Ruta | Chunk prefetch | Bundle aliado |
+|------|----------------|---------------|
+| `/modo-mapa` | ✅ T1 | `supervision` |
+
+Helper: `resolveBundleModuleForRoute(pathname)` en `portal-cache-config.ts`.
 
 ## Supervisión — dos superficies
 

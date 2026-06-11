@@ -15,7 +15,24 @@ export const ROUTE_PREFETCH_ORDER = [
   "/visor",
   "/estadisticas",
   "/supervision",
+  "/modo-mapa",
 ] as const;
+
+/**
+ * Rutas sin bundle propio — T1 prefetch de chunk + bundle aliado (datos compartidos).
+ * Ej.: modo-mapa reutiliza queries/bundle de supervisión.
+ */
+export const ROUTE_CHUNK_BUNDLE_ALIASES: Partial<Record<(typeof ROUTE_PREFETCH_ORDER)[number], PortalModuleId>> = {
+  "/modo-mapa": "supervision",
+};
+
+/** Resuelve módulo bundle para prefetch (ruta directa o alias). */
+export function resolveBundleModuleForRoute(pathname: string): PortalModuleId | null {
+  const direct = resolveModuleFromPath(pathname);
+  if (direct) return direct;
+  const alias = ROUTE_CHUNK_BUNDLE_ALIASES[pathname as (typeof ROUTE_PREFETCH_ORDER)[number]];
+  return alias ?? null;
+}
 
 export const PORTAL_BUNDLE_PREFIX = "bundle" as const;
 

@@ -3,13 +3,31 @@
 import { useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { fetchRutasSupervision, fetchClientesSupervision, type VendedorSupervision } from "@/lib/api";
+import { isGoogleMapsAlreadyLoaded } from "@/lib/googleMapsLoader";
+import { scheduleWhenIdle } from "@/lib/portal-idle-scheduler";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 
 const PRELOAD_STALE_MS = 15 * 60 * 1000;
 const MAX_CONCURRENT = 3;
+const MAPS_READY_POLL_MS = 300;
+const MAPS_READY_TIMEOUT_MS = 20_000;
+
+/** Espera a que Google Maps esté listo para no competir con LCP del canvas. */
+async function deferUntilMapsReady(): Promise<void> {
+  if (isGoogleMapsAlreadyLoaded()) return;
+
+  const deadline = Date.now() + MAPS_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, MAPS_READY_POLL_MS));
+    if (isGoogleMapsAlreadyLoaded()) return;
+  }
+
+  await new Promise<void>((resolve) => scheduleWhenIdle(resolve));
+}
 
 /**
  * Precarga rutas + clientes de vendedores filtrados sin encender visibilidad en mapa.
+ * Diferida hasta post-GMaps para no competir con la carga del mapa (LCP / main thread).
  */
 export function useSupervisionMapPreload(
   distId: number | undefined,
@@ -56,6 +74,9 @@ export function useSupervisionMapPreload(
     }
 
     async function run() {
+      await deferUntilMapsReady();
+      if (cancelled) return;
+
       const queue = [...vendedores];
       const workers = Array.from({ length: Math.min(MAX_CONCURRENT, queue.length) }, async () => {
         while (queue.length && !cancelled) {

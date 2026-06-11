@@ -69,7 +69,7 @@ class AuthService extends ChangeNotifier {
         }
       }
       if (cuentas.isEmpty || _currentSession == null) return;
-      final defaultId = data['cuenta_default'] as String? ?? cuentas.first.id;
+      final defaultId = data['cuenta_default'] as String? ?? patronCuentaEquipo;
       final selected = _currentSession!.selectedCuentaId;
       final updated = _currentSession!.copyWith(
         patronMode: data['patron_mode'] as bool? ?? true,
@@ -127,7 +127,7 @@ class AuthService extends ChangeNotifier {
     final patronMode =
         response['patron_mode'] as bool? ?? cuentas.isNotEmpty;
     final defaultCuenta = response['cuenta_default'] as String? ??
-        (cuentas.isNotEmpty ? cuentas.first.id : null);
+        patronCuentaEquipo;
 
     final session = SessionData(
       jwt: token,
@@ -152,7 +152,10 @@ class AuthService extends ChangeNotifier {
   Future<void> setSelectedCuenta(String cuentaId) async {
     final session = _currentSession;
     if (session == null || !session.patronMode) return;
-    if (!session.cuentas.any((c) => c.id == cuentaId)) return;
+    if (cuentaId != patronCuentaEquipo &&
+        !session.cuentas.any((c) => c.id == cuentaId)) {
+      return;
+    }
     final updated = session.copyWith(selectedCuentaId: cuentaId);
     await SecureStorageService.saveSession(updated);
     _currentSession = updated;

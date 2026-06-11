@@ -38,7 +38,13 @@ class ApiClient {
 
   /// Cuenta activa del patrón (query param `cuenta` en endpoints móviles).
   void setCuentaId(String? cuentaId) {
-    _cuentaId = (cuentaId != null && cuentaId.isNotEmpty) ? cuentaId : null;
+    if (cuentaId == null ||
+        cuentaId.isEmpty ||
+        cuentaId == 'equipo') {
+      _cuentaId = null;
+      return;
+    }
+    _cuentaId = cuentaId;
   }
 
   String scopedPath(String path) {

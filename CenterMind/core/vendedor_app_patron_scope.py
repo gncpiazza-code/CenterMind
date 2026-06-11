@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from core.estadisticas_tabaco_rollup import IVAN_SOTO_V2_ID, TABACO_DIST_ID, _tokens
 
 _SYNTHETIC_TG_UID_MIN = 9_000_000
+PATRON_CUENTA_EQUIPO = "equipo"
 
 
 def _slug_label(label: str) -> str:
@@ -119,6 +120,17 @@ def resolve_patron_scope(
             "cuentas": [],
             "cuenta_id": None,
             "cuenta_label": None,
+            "integrante_ids": None,
+            "ranking_nombre": None,
+        }
+
+    cuenta_clean = (cuenta_id or "").strip().lower()
+    if cuenta_clean in (PATRON_CUENTA_EQUIPO, "__equipo__"):
+        return {
+            "patron_mode": True,
+            "cuentas": cuentas,
+            "cuenta_id": PATRON_CUENTA_EQUIPO,
+            "cuenta_label": "Equipo",
             "integrante_ids": None,
             "ranking_nombre": None,
         }

@@ -1,4 +1,6 @@
 /// Cuenta operativa bajo un patrón (ej. Monchi / Jorge Coronel bajo Ivan Soto).
+const String patronCuentaEquipo = 'equipo';
+
 class PatronCuenta {
   final String id;
   final String label;

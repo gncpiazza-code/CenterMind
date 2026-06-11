@@ -68,7 +68,7 @@ def _pdv_keys_from_exhibiciones(ex_rows: list[dict]) -> tuple[set[int], set[str]
     pdv_ids: set[int] = set()
     erp_shadow: set[str] = set()
     for r in ex_rows:
-        cid = r.get("id_cliente_pdv")
+        cid = r.get("id_cliente_pdv") or r.get("id_cliente")
         if cid is not None:
             try:
                 pdv_ids.add(int(cid))
@@ -109,18 +109,18 @@ def _load_pdv_maps(
         batch_ids = ids_list[i : i + 200] if ids_list else []
         if not batch_ids and not erp_extra:
             break
-        q = sb.table(t_pdv).select("id_cliente_pdv,id_cliente_erp,id_ruta").eq(
+        q = sb.table(t_pdv).select("id_cliente,id_cliente_erp,id_ruta").eq(
             "id_distribuidor", dist_id
         )
         if batch_ids:
-            q = q.in_("id_cliente_pdv", batch_ids)
+            q = q.in_("id_cliente", batch_ids)
         elif erp_extra:
             q = q.in_("id_cliente_erp", list(erp_extra)[:200])
         if ruta_ids_leader:
             q = q.in_("id_ruta", list(ruta_ids_leader))
         for row in q.execute().data or []:
             try:
-                pid = int(row["id_cliente_pdv"])
+                pid = int(row["id_cliente"])
             except (TypeError, ValueError, KeyError):
                 continue
             erp = str(row.get("id_cliente_erp") or "").strip()
@@ -210,7 +210,7 @@ def _assign_ventas_pdvs_to_integrante(
         except (TypeError, ValueError):
             continue
         erp = str(ex.get("cliente_sombra_codigo") or "").strip()
-        cid = ex.get("id_cliente_pdv")
+        cid = ex.get("id_cliente_pdv") or ex.get("id_cliente")
         if cid is not None:
             try:
                 pid = int(cid)
@@ -220,7 +220,7 @@ def _assign_ventas_pdvs_to_integrante(
                         sb.table(t_pdv)
                         .select("id_cliente_erp")
                         .eq("id_distribuidor", dist_id)
-                        .eq("id_cliente_pdv", pid)
+                        .eq("id_cliente", pid)
                         .limit(1)
                         .execute()
                     )

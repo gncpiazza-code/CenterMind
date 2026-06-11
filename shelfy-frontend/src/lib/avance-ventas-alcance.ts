@@ -5,6 +5,14 @@ import type {
   AvanceVentasResponse,
 } from "@/lib/api";
 
+const VENTA_EPS = 0.005;
+
+/** Volumen real en período (defensivo si `sin_venta` del BE quedó desfasado). */
+export function skuRowTieneVenta(row: Pick<AvanceSkuRankingRow, "bultos" | "unidades" | "sin_venta">): boolean {
+  if (Math.abs(row.bultos) > VENTA_EPS || Math.abs(row.unidades) > VENTA_EPS) return true;
+  return !row.sin_venta;
+}
+
 /** Convivencia SKU desde API o ranking (fallback cliente). */
 export function deriveConvivenciaSkus(
   ranking: AvanceSkuRankingRow[] | undefined,
@@ -26,7 +34,7 @@ export function deriveConvivenciaSkus(
   if (rows.length === 0) return undefined;
 
   const catalogo = rows.length;
-  const conVenta = rows.filter((r) => !r.sin_venta && Math.abs(r.bultos) > 0.005).length;
+  const conVenta = rows.filter((r) => skuRowTieneVenta(r)).length;
   const sinVenta = Math.max(0, catalogo - conVenta);
 
   return {

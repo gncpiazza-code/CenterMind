@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { BarChart3 } from "lucide-react";
 import type { AvanceSkuRankingRow } from "@/lib/api";
+import { skuRowTieneVenta } from "@/lib/avance-ventas-alcance";
 import { fmtBultos } from "@/lib/avance-ventas-format";
 
 interface AvanceVentasTopSkusChartProps {
@@ -78,7 +79,7 @@ export function AvanceVentasTopSkusChart({
   className,
 }: AvanceVentasTopSkusChartProps) {
   const data = useMemo(() => {
-    const rows = (ranking ?? []).filter((r) => !r.sin_venta);
+    const rows = (ranking ?? []).filter((r) => skuRowTieneVenta(r));
     if (rows.length <= TOP_N + BOTTOM_N) return rows;
     return [...rows.slice(0, TOP_N), ...rows.slice(-BOTTOM_N)];
   }, [ranking]);

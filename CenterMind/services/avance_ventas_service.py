@@ -22,9 +22,13 @@ from time import monotonic
 from core.helpers import _get_erp_name_map
 from core.tenant_tables import tenant_table_name
 from core.sku_unify import (
+    SkuKeyResolver,
+    build_cod_articulo_hints,
+    enrich_sku_identity,
     merge_sku_bucket,
     resolve_unify_key_from_ref,
     row_matches_unify_key,
+    seed_sku_resolver,
     sku_unify_key,
     unify_catalog_entries,
 )
@@ -223,6 +227,7 @@ def aggregate_avance_lines(
     sucursal_norm: str = "",
     vend_branch: Optional[Set[str]] = None,
     vendedor_norm: str = "",
+    cod_articulo_hints: dict[str, str] | None = None,
 ) -> dict:
     """
     Agrega líneas ventas_enriched (ya deduplicadas) a estructura de avance.
@@ -232,6 +237,8 @@ def aggregate_avance_lines(
     from services.estadisticas_service import _es_operacion_bultos_neto
 
     erp_name_map = erp_name_map or {}
+    hints = cod_articulo_hints or build_cod_articulo_hints(lines)
+    resolver = SkuKeyResolver()
 
     total_bultos = 0.0
     total_unidades = 0.0
@@ -274,9 +281,10 @@ def aggregate_avance_lines(
         erp_cli = (row.get("id_cliente_erp") or "").strip()
         nombre_cli = (row.get("nombre_cliente") or "").strip()
         cliente_key = erp_cli or nombre_cli
-        cod = (row.get("cod_articulo") or "").strip()
-        desc = (row.get("descripcion_articulo") or "").strip()
+        cod_raw = (row.get("cod_articulo") or "").strip()
+        desc_raw = (row.get("descripcion_articulo") or "").strip()
         agr2 = (row.get("agrupacion_art_2") or "").strip() or "Sin agrupación"
+        cod, desc = enrich_sku_identity(cod_raw, desc_raw, hints=hints)
 
         total_bultos += bultos
         total_unidades += unidades
@@ -288,7 +296,7 @@ def aggregate_avance_lines(
         vb["bultos"] += bultos
         vb["unidades"] += unidades
 
-        sku_key = sku_unify_key(cod, desc, agr2)
+        sku_key = resolver.resolve(cod, desc, agr2)
         sk = por_sku.setdefault(
             sku_key,
             {
@@ -344,6 +352,8 @@ def aggregate_avance_lines(
         "por_agrupacion": por_agrupacion,
         "clientes_por_sku": clientes_por_sku,
         "por_cliente": por_cliente,
+        "_sku_resolver": resolver,
+        "_cod_articulo_hints": hints,
     }
 
 
@@ -688,23 +698,40 @@ def _sku_rows_from_agg(
     Orden: con venta por bultos desc (empate por nombre), sin venta al final
     alfabético.
     """
+    resolver: SkuKeyResolver | None = agg.get("_sku_resolver")
+    hints: dict[str, str] = agg.get("_cod_articulo_hints") or {}
+
     rows = []
+    period_canons: set[str] = set()
     for sku_key, s in agg["por_sku"].items():
         n_cli = len(s["clientes"])
         bultos = round(s["bultos"], 2)
+        unidades = round(s["unidades"], 2)
+        has_venta = abs(bultos) > 0.005 or abs(unidades) > 0.005
+        if resolver:
+            period_canons.add(resolver.canonical(sku_key))
+            period_canons.add(
+                resolver.canonical(
+                    resolver.resolve(
+                        s.get("cod_articulo") or "",
+                        s.get("articulo") or "",
+                        s.get("agrupacion") or "",
+                    )
+                )
+            )
         row = {
             "sku_key": sku_key,
             "cod_articulo": s["cod_articulo"] or sku_key,
             "articulo": s["articulo"],
             "agrupacion": s["agrupacion"],
             "bultos": bultos,
-            "unidades": round(s["unidades"], 2),
+            "unidades": unidades,
             "clientes": n_cli,
             "intensidad": round(s["bultos"] / n_cli, 2) if n_cli else 0.0,
             "penetracion_pct": (
                 round(n_cli / cartera_count * 100, 1) if cartera_count else None
             ),
-            "sin_venta": False,
+            "sin_venta": not has_venta,
             **_sku_volumen_fields(
                 s["bultos"], s["agrupacion"], s["articulo"], unidades=s["unidades"]
             ),
@@ -712,17 +739,30 @@ def _sku_rows_from_agg(
         rows.append(row)
 
     if catalogo:
-        en_periodo = {
-            sku_unify_key(s.get("cod_articulo") or "", s["articulo"], s.get("agrupacion") or "")
-            for s in agg["por_sku"].values()
-        }
+        if not resolver:
+            resolver = SkuKeyResolver()
+        seed_sku_resolver(resolver, list(agg["por_sku"].values()), hints=hints)
+        seed_sku_resolver(resolver, catalogo, hints=hints)
         for c in catalogo:
-            cat_key = sku_unify_key(
-                c.get("cod_articulo") or "",
-                c.get("articulo") or "",
-                c.get("agrupacion") or "",
-            )
-            if cat_key in en_periodo:
+            cod_c = (c.get("cod_articulo") or "").strip()
+            art_c = c.get("articulo") or ""
+            agr_c = c.get("agrupacion") or ""
+            cod_e, art_e = enrich_sku_identity(cod_c, art_c, hints=hints)
+            cat_canon = resolver.canonical(resolver.resolve(cod_e, art_e, agr_c))
+            if cat_canon in period_canons:
+                continue
+            # Mismo producto unificado aunque el fingerprint del catálogo difiera levemente
+            dup = False
+            for s in agg["por_sku"].values():
+                cod_s, art_s = enrich_sku_identity(
+                    s.get("cod_articulo") or "",
+                    s.get("articulo") or "",
+                    hints=hints,
+                )
+                if resolver.is_same_product(cod_e, art_e, agr_c, cod_s, art_s, s.get("agrupacion") or ""):
+                    dup = True
+                    break
+            if dup:
                 continue
             rows.append(
                 {
@@ -885,7 +925,12 @@ def build_avance_ventas(
 
         vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal_clean) or set()
 
-    def _agg_rango(desde: str, hasta: str) -> dict:
+    def _agg_rango(
+        desde: str,
+        hasta: str,
+        *,
+        cod_hints: dict[str, str] | None = None,
+    ) -> dict:
         lines = _fetch_avance_lines(dist_id, desde, hasta)
         return aggregate_avance_lines(
             lines,
@@ -893,6 +938,7 @@ def build_avance_ventas(
             sucursal_norm=sucursal_norm,
             vend_branch=vend_branch,
             vendedor_norm=vendedor_norm,
+            cod_articulo_hints=cod_hints,
         )
 
     # Actual + referencias + cartera + catálogo + sync en paralelo
@@ -901,7 +947,9 @@ def build_avance_ventas(
 
     agg_refs: dict[str, dict | None] = {}
     with ThreadPoolExecutor(max_workers=6) as pool:
-        fut_actual = pool.submit(_agg_rango, periodo["desde"], periodo["hasta"])
+        fut_lines = pool.submit(
+            _fetch_avance_lines, dist_id, periodo["desde"], periodo["hasta"]
+        )
         fut_cartera = pool.submit(
             _cartera_scope_count, dist_id, sucursal_clean or None, vendedor_clean or None
         )
@@ -911,7 +959,21 @@ def build_avance_ventas(
             ref_key: pool.submit(_agg_rango, rango["desde"], rango["hasta"])
             for ref_key, rango in refs.items()
         }
-        agg = fut_actual.result()
+        lines_actual = fut_lines.result()
+        try:
+            catalogo = fut_catalogo.result()
+        except Exception as e:
+            logger.warning("[avance-ventas] catálogo 12m dist=%s: %s", dist_id, e)
+            catalogo = None
+        sku_hints = build_cod_articulo_hints(lines_actual, catalogo)
+        agg = aggregate_avance_lines(
+            lines_actual,
+            erp_name_map=erp_name_map,
+            sucursal_norm=sucursal_norm,
+            vend_branch=vend_branch,
+            vendedor_norm=vendedor_norm,
+            cod_articulo_hints=sku_hints,
+        )
         for ref_key, fut in fut_refs.items():
             try:
                 ref_agg = fut.result()
@@ -926,11 +988,6 @@ def build_avance_ventas(
         except Exception as e:
             logger.warning("[avance-ventas] cartera dist=%s: %s", dist_id, e)
             cartera_count = None
-        try:
-            catalogo = fut_catalogo.result()
-        except Exception as e:
-            logger.warning("[avance-ventas] catálogo 12m dist=%s: %s", dist_id, e)
-            catalogo = None
         try:
             sync_info = fut_sync.result()
         except Exception as e:
@@ -1208,8 +1265,9 @@ def build_avance_ventas_sku_clientes(
 
     lines = _fetch_avance_lines(dist_id, periodo["desde"], periodo["hasta"])
     cod_norm = (cod_articulo or "").strip()
-    unify_key = resolve_unify_key_from_ref(lines, cod_norm)
-    lines = [r for r in lines if row_matches_unify_key(r, unify_key)]
+    hints = build_cod_articulo_hints(lines)
+    unify_key = resolve_unify_key_from_ref(lines, cod_norm, hints=hints)
+    lines = [r for r in lines if row_matches_unify_key(r, unify_key, hints=hints)]
     agg = aggregate_avance_lines(
         lines,
         erp_name_map=erp_name_map,
@@ -1220,12 +1278,13 @@ def build_avance_ventas_sku_clientes(
             if vendedor_clean == "__sin_vendedor__"
             else vendedor_clean.lower()
         ),
+        cod_articulo_hints=hints,
     )
-    sku_keys = list(agg["clientes_por_sku"].keys())
-    drill = _drill_for_sku(agg, sku_keys[0]) if sku_keys else {"top": [], "bottom": []}
+    drill_key = unify_key if unify_key in agg["clientes_por_sku"] else next(iter(agg["clientes_por_sku"]), None)
+    drill = _drill_for_sku(agg, drill_key) if drill_key else {"top": [], "bottom": []}
 
     # Lista completa ordenada por bultos desc, paginada (auditoría 100%).
-    bucket = (agg["clientes_por_sku"].get(sku_keys[0]) if sku_keys else None) or {}
+    bucket = (agg["clientes_por_sku"].get(drill_key) if drill_key else None) or {}
     todos = sorted(
         (
             {

@@ -64,6 +64,158 @@ def normalize_sku_description(desc: str) -> str:
     return folded
 
 
+class SkuKeyResolver:
+    """
+    Une aliases n:descripcion y c:codigo del mismo artículo.
+    Evita filas fantasma «sin venta» cuando CHESS manda cod sin desc en ventas
+    y otra variante cod+desc en catálogo.
+    """
+
+    def __init__(self) -> None:
+        self._alias: dict[str, str] = {}
+
+    @staticmethod
+    def _rank(key: str) -> tuple[int, int]:
+        if key.startswith("n:"):
+            return (0, -len(key))
+        if key.startswith("c:"):
+            return (1, -len(key))
+        return (2, -len(key))
+
+    def canonical(self, key: str) -> str:
+        seen: set[str] = set()
+        while key in self._alias:
+            if key in seen:
+                break
+            seen.add(key)
+            key = self._alias[key]
+        return key
+
+    def _prefer(self, a: str, b: str) -> str:
+        ca, cb = self.canonical(a), self.canonical(b)
+        if ca == cb:
+            return ca
+        winner = ca if self._rank(ca) <= self._rank(cb) else cb
+        loser = cb if winner == ca else ca
+        if loser != winner:
+            self._alias[loser] = winner
+            for alias, target in list(self._alias.items()):
+                if self.canonical(target) == loser:
+                    self._alias[alias] = winner
+        return winner
+
+    def candidate_keys(self, cod: str, desc: str, agrupacion: str = "") -> list[str]:
+        cod = (cod or "").strip().upper()
+        norm_desc = normalize_sku_description(desc)
+        keys: list[str] = []
+        if len(norm_desc) >= 3:
+            keys.append(f"n:{norm_desc}")
+        if cod:
+            keys.append(f"c:{cod}")
+        if not keys:
+            agr = _fold_text(agrupacion)
+            keys.append(f"a:{agr}:sin-id" if agr else "sin-codigo")
+        return keys
+
+    def resolve(self, cod: str, desc: str, agrupacion: str = "") -> str:
+        keys = self.candidate_keys(cod, desc, agrupacion)
+        canon: str | None = None
+        for key in keys:
+            linked = self.canonical(key)
+            canon = linked if canon is None else self._prefer(canon, linked)
+        assert canon is not None
+        for key in keys:
+            self._alias[key] = canon
+        return canon
+
+    def is_same_product(self, cod_a: str, desc_a: str, agr_a: str, cod_b: str, desc_b: str, agr_b: str) -> bool:
+        return self.canonical(self.resolve(cod_a, desc_a, agr_a)) == self.canonical(
+            self.resolve(cod_b, desc_b, agr_b)
+        )
+
+
+def seed_sku_resolver(
+    resolver: SkuKeyResolver,
+    entries: list[dict],
+    *,
+    hints: dict[str, str] | None = None,
+) -> None:
+    """Registra identidades conocidas (catálogo / líneas) para unificar aliases n:/c:."""
+    for raw in entries or []:
+        cod, desc = enrich_sku_identity(
+            raw.get("cod_articulo") or "",
+            raw.get("articulo") or raw.get("descripcion_articulo") or "",
+            hints=hints,
+        )
+        agr = (raw.get("agrupacion") or raw.get("agrupacion_art_2") or "").strip()
+        resolver.resolve(cod, desc, agr)
+
+
+def build_cod_articulo_hints(
+    lines: list[dict],
+    catalogo: list[dict] | None = None,
+) -> dict[str, str]:
+    """
+    Mapa cod_articulo → mejor descripción conocida (líneas del período + catálogo 12m).
+    Permite unificar ventas que solo traen código ERP.
+    """
+    hints: dict[str, str] = {}
+    norm_to_art: dict[str, str] = {}
+
+    def _register(cod: str, desc: str) -> None:
+        cod = (cod or "").strip()
+        desc_clean = clean_sku_description(desc)
+        if not cod or not desc_clean:
+            return
+        hints[cod] = pick_canonical_articulo(hints.get(cod, ""), desc_clean)
+        nd = normalize_sku_description(desc_clean)
+        if len(nd) >= 3:
+            norm_to_art[nd] = pick_canonical_articulo(norm_to_art.get(nd, ""), desc_clean)
+
+    for row in lines or []:
+        _register(row.get("cod_articulo") or "", row.get("descripcion_articulo") or "")
+
+    for item in catalogo or []:
+        _register(item.get("cod_articulo") or "", item.get("articulo") or item.get("descripcion_articulo") or "")
+
+    # Mismo nombre comercial con distintos códigos en catálogo → misma descripción para todos.
+    by_norm: dict[str, list[str]] = {}
+    for item in catalogo or []:
+        cod = (item.get("cod_articulo") or "").strip()
+        art = clean_sku_description(item.get("articulo") or item.get("descripcion_articulo") or "")
+        nd = normalize_sku_description(art)
+        if cod and nd:
+            by_norm.setdefault(nd, []).append(cod)
+    for nd, cods in by_norm.items():
+        best = norm_to_art.get(nd) or ""
+        for cod in cods:
+            hints[cod] = pick_canonical_articulo(hints.get(cod, ""), best)
+
+    # Segunda pasada: si el catálogo tiene nombre pero otro cod comparte fingerprint
+    for cod, art in list(hints.items()):
+        nd = normalize_sku_description(art)
+        if nd in norm_to_art:
+            hints[cod] = pick_canonical_articulo(art, norm_to_art[nd])
+
+    return hints
+
+
+def enrich_sku_identity(
+    cod_articulo: str,
+    descripcion: str,
+    *,
+    hints: dict[str, str] | None = None,
+) -> tuple[str, str]:
+    """Completa descripción vacía desde hints del período/catálogo."""
+    cod = (cod_articulo or "").strip()
+    desc = clean_sku_description(descripcion)
+    if cod and not desc and hints and cod in hints:
+        desc = hints[cod]
+    if not desc and cod:
+        desc = cod
+    return cod, desc
+
+
 def sku_unify_key(
     cod_articulo: str,
     descripcion: str,
@@ -101,17 +253,32 @@ def sku_unify_key_from_row(row: dict) -> str:
     )
 
 
+_PLACEHOLDER_ARTICULO_NORMS = frozenset(
+    {
+        "articulo sin descripcion",
+        "sin descripcion",
+        "sin nombre",
+    }
+)
+
+
 def pick_canonical_articulo(*candidates: str) -> str:
     """Nombre display: el más informativo (más largo tras limpiar prefijos)."""
     cleaned = [clean_sku_description(c) for c in candidates if clean_sku_description(c)]
-    if not cleaned:
+    informative = [
+        c
+        for c in cleaned
+        if normalize_sku_description(c) not in _PLACEHOLDER_ARTICULO_NORMS
+    ]
+    pool = informative or cleaned
+    if not pool:
         return "Artículo sin descripción"
 
     def _score(name: str) -> tuple[int, int, str]:
         norm = normalize_sku_description(name)
         return (len(norm), len(name), name)
 
-    return max(cleaned, key=_score)
+    return max(pool, key=_score)
 
 
 def pick_canonical_cod(*candidates: str, counts: Counter[str] | None = None) -> str:
@@ -192,19 +359,30 @@ def resolve_unify_key_from_ref(
     lines: list[dict],
     cod_ref: str,
     desc_ref: str = "",
+    *,
+    hints: dict[str, str] | None = None,
 ) -> str:
     """
     Resuelve la clave unificada para drill/API a partir de cod (y opcional desc).
     Soporta ids sintéticos `~fingerprint` del catálogo sin código ERP.
     """
+    resolver = SkuKeyResolver()
     cod_ref = (cod_ref or "").strip()
     desc_ref = (desc_ref or "").strip()
     if cod_ref.startswith("~"):
         return f"n:{cod_ref[1:]}"
+    if hints is None:
+        hints = build_cod_articulo_hints(lines)
+    cod, desc = enrich_sku_identity(cod_ref, desc_ref or "", hints=hints)
     for row in lines:
-        if (row.get("cod_articulo") or "").strip() == cod_ref:
-            return sku_unify_key_from_row(row)
-    return sku_unify_key(cod_ref, desc_ref or cod_ref, "")
+        rc, rd = enrich_sku_identity(
+            row.get("cod_articulo") or "",
+            row.get("descripcion_articulo") or "",
+            hints=hints,
+        )
+        if rc == cod_ref or (cod and rc == cod):
+            return resolver.resolve(rc, rd, row.get("agrupacion_art_2") or "")
+    return resolver.resolve(cod, desc, "")
 
 
 def row_matches_sku_ref(row: dict, cod_ref: str, desc_ref: str = "") -> bool:
@@ -213,5 +391,19 @@ def row_matches_sku_ref(row: dict, cod_ref: str, desc_ref: str = "") -> bool:
     return sku_unify_key_from_row(row) == ref_key
 
 
-def row_matches_unify_key(row: dict, unify_key: str) -> bool:
-    return sku_unify_key_from_row(row) == unify_key
+def row_matches_unify_key(
+    row: dict,
+    unify_key: str,
+    *,
+    hints: dict[str, str] | None = None,
+) -> bool:
+    resolver = SkuKeyResolver()
+    cod, desc = enrich_sku_identity(
+        row.get("cod_articulo") or "",
+        row.get("descripcion_articulo") or "",
+        hints=hints,
+    )
+    row_key = resolver.canonical(
+        resolver.resolve(cod, desc, row.get("agrupacion_art_2") or "")
+    )
+    return row_key == resolver.canonical(unify_key)

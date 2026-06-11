@@ -9,7 +9,7 @@ import type {
 } from "@/lib/api";
 import type { SyncStatusEntry } from "@/lib/api";
 import { useAvanceVentasQuery } from "@/hooks/useAvanceVentasQuery";
-import { deriveCoberturaPdvs } from "@/lib/avance-ventas-alcance";
+import { deriveCoberturaPdvs, skuRowTieneVenta } from "@/lib/avance-ventas-alcance";
 import { fmtHoraAr } from "@/lib/avance-ventas-format";
 import { SupervisionReveal, SupervisionRevealItem } from "@/components/supervision/SupervisionReveal";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,7 +66,7 @@ export function SupervisionAvanceVentasPanel({
     [data],
   );
   const totalSinVenta = useMemo(
-    () => (data?.ranking_skus ?? []).filter((r) => r.sin_venta).length,
+    () => (data?.ranking_skus ?? []).filter((r) => !skuRowTieneVenta(r)).length,
     [data?.ranking_skus],
   );
 

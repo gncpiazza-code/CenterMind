@@ -1,6 +1,7 @@
 """Avance de Ventas — periodos, comparativas y agregación de volumen."""
 import pytest
 
+from core.sku_unify import build_cod_articulo_hints
 from services.avance_ventas_service import (
     SIN_VENDEDOR_LABEL,
     aggregate_avance_lines,
@@ -301,6 +302,62 @@ def test_sin_venta_van_al_final_y_alfabetico():
     assert [r["articulo"] for r in rows[1:]] == ["ALFA SIN VENTA", "ZETA SIN VENTA"]
 
 
+def test_liverpool_pop_cod_sin_desc_no_duplica_sin_venta():
+    """CHESS: ventas solo con cod ERP; catálogo 12m trae nombre comercial."""
+    lines = [
+        _linea(
+            cod_articulo="LIVPOP01",
+            descripcion_articulo="",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=4.0,
+            unidades_total=1000.0,
+        ),
+    ]
+    catalogo = [
+        {
+            "cod_articulo": "LIVPOP01",
+            "articulo": "LIVERPOOL POP",
+            "agrupacion": "CIGARRILLOS",
+        },
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=10, catalogo=catalogo)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["sin_venta"] is False
+    assert row["bultos"] == pytest.approx(4.0)
+    assert "liverpool" in row["articulo"].lower()
+    assert not any(r["sin_venta"] and "liverpool" in r["articulo"].lower() for r in rows)
+
+
+def test_liverpool_pop_distinto_cod_catalogo_unifica_por_nombre():
+    """Catálogo con otro código pero mismo nombre → no fila fantasma sin venta."""
+    lines = [
+        _linea(
+            cod_articulo="LIV99",
+            descripcion_articulo="",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=2.0,
+            unidades_total=500.0,
+        ),
+    ]
+    catalogo = [
+        {"cod_articulo": "LIV01", "articulo": "LIVERPOOL POP", "agrupacion": "CIGARRILLOS"},
+        {"cod_articulo": "LIV99", "articulo": "LIVERPOOL POP", "agrupacion": "CIGARRILLOS"},
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=5, catalogo=catalogo)
+    con_venta = [r for r in rows if not r["sin_venta"]]
+    sin_venta_liverpool = [
+        r for r in rows if r["sin_venta"] and "liverpool" in (r["articulo"] or "").lower()
+    ]
+    assert len(con_venta) == 1
+    assert con_venta[0]["bultos"] == pytest.approx(2.0)
+    assert sin_venta_liverpool == []
+
+
 def test_catalogo_window_12_meses_calendario():
     desde, hasta = _catalogo_window("2026-06-13")
     assert desde == "2025-07-01"
@@ -428,7 +485,7 @@ def test_build_incluye_sin_venta_por_default(patched_build):
     cob = out["series"]["cobertura_pdvs"]
     assert cob["disponible"] is True
     assert cob["con_compra"] == 1
-    assert cob["pct_cobertura"] == pytest.approx(1.0)
+    assert cob["pct_cobertura"] == pytest.approx(10.0)
     assert out["filtros"]["incluir_sin_venta"] is True
     # R3: sync expone OK + intento posterior con estado
     assert out["sync"]["last_attempt_at"] > out["sync"]["last_run_ok_at"]

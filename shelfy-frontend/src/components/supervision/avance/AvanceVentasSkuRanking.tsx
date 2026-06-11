@@ -22,6 +22,7 @@ import {
   fmtUnidades,
   fmtVolumenCell,
 } from "@/lib/avance-ventas-format";
+import { skuRowTieneVenta } from "@/lib/avance-ventas-alcance";
 import { AVANCE_KPI_HELP, deltaHelpText } from "@/lib/avance-ventas-kpi-help";
 import { useVolumenModo } from "@/hooks/useVolumenModo";
 import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
@@ -136,13 +137,13 @@ export function AvanceVentasSkuRanking({
   };
 
   const totalSinVenta = useMemo(
-    () => (ranking ?? []).filter((r) => r.sin_venta).length,
+    () => (ranking ?? []).filter((r) => !skuRowTieneVenta(r)).length,
     [ranking],
   );
 
   const rows = useMemo(() => {
     let list = [...(ranking ?? [])];
-    if (soloConVenta) list = list.filter((r) => !r.sin_venta);
+    if (soloConVenta) list = list.filter((r) => skuRowTieneVenta(r));
     if (sortKey === "default") return list; // orden BE: con venta desc, sin venta al final
     const get = (r: AvanceSkuRankingRow): number =>
       sortKey === "penetracion" ? (r.penetracion_pct ?? -1) : r[sortKey];
@@ -153,7 +154,7 @@ export function AvanceVentasSkuRanking({
   const hasWow = rows.some((r) => r.wow_bultos);
   const hasMom = rows.some((r) => r.mom_bultos);
   const hasPenetracion = rows.some((r) => r.penetracion_pct != null);
-  const conVenta = rows.length - rows.filter((r) => r.sin_venta).length;
+  const conVenta = rows.filter((r) => skuRowTieneVenta(r)).length;
 
   return (
     <Card className={cn("flex flex-col min-h-0 overflow-hidden", className)}>
@@ -221,6 +222,7 @@ export function AvanceVentasSkuRanking({
             <TableBody>
               {rows.map((r) => {
                 const vol = fmtVolumenCell(r, volumenModo);
+                const sinVenta = !skuRowTieneVenta(r);
                 return (
                   <TableRow
                     key={r.cod_articulo}
@@ -228,7 +230,7 @@ export function AvanceVentasSkuRanking({
                     className={cn(
                       "text-xs cursor-pointer transition-colors",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                      r.sin_venta
+                      sinVenta
                         ? "bg-muted/30 text-muted-foreground hover:bg-muted/50"
                         : "hover:bg-muted/40",
                     )}
@@ -245,11 +247,11 @@ export function AvanceVentasSkuRanking({
                       <p
                         className={cn(
                           "font-medium whitespace-normal break-words leading-snug",
-                          r.sin_venta && "font-normal",
+                          sinVenta && "font-normal",
                         )}
                       >
                         {r.articulo}
-                        {r.sin_venta && (
+                        {sinVenta && (
                           <span className="ml-1.5 inline-block align-middle rounded-full border border-border/70 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
                             Sin venta
                           </span>

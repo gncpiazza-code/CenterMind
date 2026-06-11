@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -34,6 +34,7 @@ import {
   prefetchAvanceVentasIdle,
   prefetchAvanceVentasWarm,
 } from "@/hooks/useAvanceVentasQuery";
+import { supervisionPanelKeys } from "@/lib/query-keys";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
 import {
   SupervisionPageLoadingShell,
@@ -216,33 +217,52 @@ export default function SupervisionPage() {
   } = useSupervisionPanelQueries(distId, selectedSucursal, ccVendedorNombre);
 
   const isAvance = viewMode === "avance";
-  const isRefreshing = vendedoresFetching || (!isAvance && fetchingCuentas);
+
+  const avanceFetchingCount = useIsFetching({
+    queryKey: supervisionPanelKeys.avanceVentas(
+      distId,
+      avanceModo,
+      avanceFecha,
+      sucursalParam ?? null,
+      selectedVendedorNombre,
+    ),
+  });
+  const isRefreshing =
+    vendedoresFetching || (!isAvance && fetchingCuentas) || (isAvance && avanceFetchingCount > 0);
 
   const prefetchAvanceIntent = useCallback(() => {
     if (distId <= 0) return;
     prefetchAvanceVentasDefault(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
   }, [distId, queryClient, sucursalParam, selectedVendedorNombre]);
 
+  const prefetchAvanceCurrent = useCallback(
+    (sucursal?: string | null, vendedor?: string | null) => {
+      if (distId <= 0) return;
+      prefetchAvanceVentasIdle(
+        queryClient,
+        distId,
+        avanceModo,
+        avanceFecha,
+        sucursal ?? sucursalParam ?? null,
+        vendedor !== undefined ? vendedor : selectedVendedorNombre,
+      );
+    },
+    [distId, queryClient, avanceModo, avanceFecha, sucursalParam, selectedVendedorNombre],
+  );
+
+  /** Período + filtros activos — prioridad al panel visible. */
   useEffect(() => {
     if (!isAvance || distId <= 0) return;
-    prefetchAvanceVentasIdle(
-      queryClient,
-      distId,
-      avanceModo,
-      avanceFecha,
-      sucursalParam ?? null,
-      selectedVendedorNombre,
-    );
+    prefetchAvanceCurrent();
+  }, [isAvance, distId, avanceModo, avanceFecha, sucursalParam, selectedVendedorNombre, prefetchAvanceCurrent]);
+
+  /** Precarga día/semana/mes al cambiar período (evita 3 fetches extra por cada sucursal/vendedor). */
+  useEffect(() => {
+    if (!isAvance || distId <= 0) return;
     prefetchAvanceVentasWarm(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
-  }, [
-    isAvance,
-    distId,
-    avanceModo,
-    avanceFecha,
-    sucursalParam,
-    selectedVendedorNombre,
-    queryClient,
-  ]);
+    // sucursal/vendedor omitidos a propósito: warm corre con filtros vigentes al cambiar modo/fecha.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAvance, distId, avanceModo, avanceFecha, queryClient]);
 
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
@@ -381,7 +401,15 @@ export default function SupervisionPage() {
                         <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide pl-0.5">
                           Sucursal
                         </label>
-                        <Select value={selectedSucursal} onValueChange={setSelectedSucursal}>
+                        <Select
+                          value={selectedSucursal}
+                          onValueChange={(v) => {
+                            if (isAvance) {
+                              prefetchAvanceCurrent(v === "__all__" ? null : v, null);
+                            }
+                            setSelectedSucursal(v);
+                          }}
+                        >
                           <SelectTrigger className="h-9 text-sm w-44">
                             <SelectValue placeholder="Todas" />
                           </SelectTrigger>
@@ -401,7 +429,11 @@ export default function SupervisionPage() {
                       </label>
                       <Select
                         value={selectedVendedorNombre ?? "__all__"}
-                        onValueChange={(v) => setSelectedVendedorNombre(v === "__all__" ? null : v)}
+                        onValueChange={(v) => {
+                          const next = v === "__all__" ? null : v;
+                          if (isAvance) prefetchAvanceCurrent(sucursalParam ?? null, next);
+                          setSelectedVendedorNombre(next);
+                        }}
                       >
                         <SelectTrigger className="h-9 text-sm w-52">
                           <SelectValue placeholder="Todos" />

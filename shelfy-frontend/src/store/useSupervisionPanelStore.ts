@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AltasTab } from '@/hooks/useAltasCompradores';
+import { SUPERVISION_PANEL_STORAGE_KEY } from '@/lib/supervision-panel-persist';
 
 export type SupervisionViewMode = 'cc' | 'avance';
 export type AvancePeriodoModo = 'dia' | 'semana' | 'mes';
@@ -113,7 +114,7 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       setSelectedClienteErp: (erp) => set({ selectedClienteErp: erp }),
     }),
     {
-      name: 'supervision-panel-store',
+      name: SUPERVISION_PANEL_STORAGE_KEY,
       partialize: (state) => ({
         viewMode: state.viewMode,
         avanceModo: state.avanceModo,

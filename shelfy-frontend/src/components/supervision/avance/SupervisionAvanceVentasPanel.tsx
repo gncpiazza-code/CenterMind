@@ -13,6 +13,7 @@ import { deriveCoberturaPdvs, skuRowTieneVenta } from "@/lib/avance-ventas-alcan
 import { fmtHoraAr } from "@/lib/avance-ventas-format";
 import { SupervisionReveal, SupervisionRevealItem } from "@/components/supervision/SupervisionReveal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { AvanceVentasKpiStrip } from "./AvanceVentasKpiStrip";
 import { AvanceVentasControlsBar } from "./AvanceVentasControlsBar";
 import { AvanceVentasChartCarousel } from "./AvanceVentasChartCarousel";
@@ -56,10 +57,13 @@ export function SupervisionAvanceVentasPanel({
   });
 
   const data = query.data;
-  const loading = query.isLoading;
+  const isInitialLoad = query.isLoading && !data;
+  /** Cambio de sucursal/vendedor/período: keepPreviousData muestra datos viejos hasta que llega el fetch. */
+  const isFilterTransition = query.isFetching && query.isPlaceholderData;
+  const loading = isInitialLoad || isFilterTransition;
   const consolidado = !vendedor;
 
-  const sinVentas = !loading && !!data && data.metadatos.comprobantes === 0;
+  const sinVentas = !isInitialLoad && !isFilterTransition && !!data && data.metadatos.comprobantes === 0;
   const hayCatalogo = (data?.ranking_skus?.length ?? 0) > 0;
   const coberturaPdvs = useMemo(
     () => deriveCoberturaPdvs(data, data?.series?.cobertura_pdvs),
@@ -126,7 +130,7 @@ export function SupervisionAvanceVentasPanel({
     );
   }
 
-  if (loading && !data) {
+  if (isInitialLoad) {
     return (
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -145,14 +149,34 @@ export function SupervisionAvanceVentasPanel({
   }
 
   return (
-    <SupervisionReveal className="flex flex-col gap-4" animate={!query.isFetching || !!data}>
+    <div className="relative flex flex-col gap-4 min-h-[200px]">
+      {isFilterTransition && (
+        <div
+          className="absolute inset-0 z-30 flex items-start justify-center pt-20 md:pt-28 rounded-xl bg-background/55 backdrop-blur-[2px]"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="flex items-center gap-2 rounded-full border border-border/80 bg-card px-4 py-2 text-xs font-medium text-foreground shadow-md">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500 shrink-0" />
+            Actualizando avance para el filtro seleccionado…
+          </div>
+        </div>
+      )}
+
+      <SupervisionReveal
+        className={cn(
+          "flex flex-col gap-4 transition-opacity duration-200",
+          isFilterTransition && "opacity-40 pointer-events-none select-none",
+        )}
+        animate={!isFilterTransition}
+      >
       {banner && <SupervisionRevealItem className="shrink-0">{banner}</SupervisionRevealItem>}
 
       <SupervisionRevealItem className="shrink-0">
         <AvanceVentasKpiStrip
-          cards={data?.kpis_cards}
+          cards={isFilterTransition ? undefined : data?.kpis_cards}
           modo={modo}
-          coberturaPdvs={coberturaPdvs}
+          coberturaPdvs={isFilterTransition ? undefined : coberturaPdvs}
           loading={loading}
         />
       </SupervisionRevealItem>
@@ -230,5 +254,6 @@ export function SupervisionAvanceVentasPanel({
         periodoLabel={data?.periodo?.label}
       />
     </SupervisionReveal>
+    </div>
   );
 }

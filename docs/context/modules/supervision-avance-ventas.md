@@ -71,7 +71,10 @@ FE invalida cache avance ante cambio de `last_attempt_at`.
 | Volumen modo | `hooks/useVolumenModo.ts` (localStorage) |
 | Badge sync | `VentasSyncStatusBadge.tsx` — última OK + último intento fallido |
 | Hook + prefetch | `hooks/useAvanceVentasQuery.ts` — stale 5m, gc 15m, `keepPreviousData`, prefetch portal/hover/warm |
+| Filtros persistidos (prefetch) | `lib/supervision-panel-persist.ts` — lee Zustand/localStorage sin React |
+| Persist RQ localStorage | `portal-cache-persist.ts` — `supervision-panel/avance-ventas/*` (desembarco) |
 | Derive alcance | `lib/avance-ventas-alcance.ts` |
+| Auditoría velocidad | skill `.cursor/skills/speed` (`/speed`) |
 
 ### UX clave
 

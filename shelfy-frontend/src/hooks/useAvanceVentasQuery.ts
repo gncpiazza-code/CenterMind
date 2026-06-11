@@ -17,6 +17,10 @@ import {
   type AvanceVentasResponse,
 } from "@/lib/api";
 import { mondayOfWeek, todayIsoAr } from "@/lib/avance-ventas-format";
+import {
+  readSupervisionPanelPersisted,
+  resolveSupervisionAvancePrefetchParams,
+} from "@/lib/supervision-panel-persist";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 
 export const AVANCE_VENTAS_STALE = 5 * 60_000;
@@ -72,14 +76,44 @@ export function prefetchAvanceVentasIdle(
   void prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor);
 }
 
-/** Precarga el día en curso (hover / entrada a supervisión). */
+/**
+ * Precarga avance con filtros del store persistido (sucursal/vendedor/modo).
+ * Si se pasan sucursal/vendedor explícitos, usa día+hoy con esos filtros (hover legacy).
+ */
 export function prefetchAvanceVentasDefault(
   queryClient: QueryClient,
   distId: number,
   sucursal?: string | null,
   vendedor?: string | null,
 ) {
-  prefetchAvanceVentasIdle(queryClient, distId, "dia", todayIsoAr(), sucursal, vendedor);
+  if (sucursal !== undefined || vendedor !== undefined) {
+    prefetchAvanceVentasIdle(queryClient, distId, "dia", todayIsoAr(), sucursal ?? null, vendedor ?? null);
+    return;
+  }
+  const { modo, fecha, sucursal: s, vendedor: v } = resolveSupervisionAvancePrefetchParams();
+  prefetchAvanceVentasIdle(queryClient, distId, modo, fecha, s, v);
+}
+
+/** Portal T0: combo persistida + fallback todas/todos (día hoy). */
+export function prefetchAvanceVentasPortalEntry(queryClient: QueryClient, distId: number) {
+  if (distId <= 0) return;
+  const primary = resolveSupervisionAvancePrefetchParams();
+  prefetchAvanceVentasIdle(
+    queryClient,
+    distId,
+    primary.modo,
+    primary.fecha,
+    primary.sucursal,
+    primary.vendedor,
+  );
+  const isAllScope = !primary.sucursal && !primary.vendedor;
+  if (!isAllScope) {
+    prefetchAvanceVentasIdle(queryClient, distId, "dia", todayIsoAr(), null, null);
+  }
+  const persisted = readSupervisionPanelPersisted();
+  if (persisted?.viewMode === "avance") {
+    prefetchAvanceVentasWarm(queryClient, distId, primary.sucursal, primary.vendedor);
+  }
 }
 
 /** Precarga día + semana + mes en curso al activar modo avance. */

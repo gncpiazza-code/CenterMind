@@ -26,6 +26,7 @@ from core.sku_unify import (
     build_cod_articulo_hints,
     enrich_sku_identity,
     merge_sku_bucket,
+    normalize_sku_description,
     resolve_unify_key_from_ref,
     row_matches_unify_key,
     seed_sku_resolver,
@@ -411,6 +412,21 @@ def _fetch_avance_lines(dist_id: int, desde: str, hasta: str) -> list[dict]:
     return _dedupe_ventas_enriched_lines(rows)
 
 
+def _pick_best_catalog_ventas_row(rows: list[dict]) -> dict | None:
+    """Mejor descripción por cod_articulo (evita articulo=cod si hay nombre comercial en 12m)."""
+    if not rows:
+        return None
+    best = rows[0]
+    best_score = -1
+    for row in rows:
+        desc = (row.get("descripcion_articulo") or "").strip()
+        score = len(normalize_sku_description(desc))
+        if score > best_score:
+            best_score = score
+            best = row
+    return best
+
+
 def _catalogo_window(hasta: str) -> tuple[str, str]:
     """Ventana catálogo: 12 meses calendario hasta el mes del período (estable para cache)."""
     h = _parse_fecha(hasta)
@@ -463,8 +479,8 @@ def _fetch_catalogo_skus(dist_id: int, hasta: str) -> list[dict]:
         first_cod = (batch[0].get("cod_articulo") or "").strip()
         same_cod = [r for r in batch if (r.get("cod_articulo") or "").strip() == first_cod]
         visible = filter_ventas_rows_for_tenant(same_cod, ventas_ctx)
-        if visible and first_cod:
-            row = visible[0]
+        row = _pick_best_catalog_ventas_row(visible) if visible else None
+        if row and first_cod:
             catalogo.append(
                 {
                     "cod_articulo": first_cod,
@@ -476,7 +492,6 @@ def _fetch_catalogo_skus(dist_id: int, hasta: str) -> list[dict]:
         if not prev_cod:
             break
 
-    catalogo = unify_catalog_entries(catalogo)
     _catalogo_cache[cache_key] = (monotonic(), catalogo)
     return catalogo
 
@@ -801,6 +816,17 @@ def _catalog_tiene_venta_en_periodo(
             cod_e, art_e, agr_c, cod_s, art_s, s.get("agrupacion") or ""
         ):
             bultos += abs(float(s.get("bultos") or 0))
+            continue
+        raw_counts = s.get("_cod_counts")
+        if not raw_counts:
+            continue
+        for counted_cod in raw_counts:
+            cod_c, art_c = enrich_sku_identity(str(counted_cod), "", hints=hints)
+            if resolver.is_same_product(
+                cod_e, art_e, agr_c, cod_c, art_c, s.get("agrupacion") or ""
+            ):
+                bultos += abs(float(s.get("bultos") or 0))
+                break
     return bultos > 0.005
 
 

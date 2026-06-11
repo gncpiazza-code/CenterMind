@@ -499,6 +499,73 @@ def test_liverpool_pop_distinto_cod_catalogo_unifica_por_nombre():
     assert sin_venta_liverpool == []
 
 
+def test_catalogo_cod_weak_y_fuerte_mismo_prefijo_no_duplica_sin_venta():
+    """ERP: código ventas con articulo=cod + otro código mismo producto (COR01/COR02)."""
+    lines = [
+        _linea(
+            cod_articulo="COR01",
+            descripcion_articulo="",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=1.0,
+            unidades_total=250.0,
+        ),
+    ]
+    catalogo = [
+        {"cod_articulo": "COR01", "articulo": "COR01", "agrupacion": "CIGARRILLOS"},
+        {"cod_articulo": "COR02", "articulo": "CIGARRILLO CORONA 20S BOX", "agrupacion": "CIGARRILLOS"},
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    catalogo = unify_catalog_entries(catalogo, hints=hints)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=5, catalogo=catalogo)
+    assert len(rows) == 1
+    assert rows[0]["sin_venta"] is False
+    assert "corona" in rows[0]["articulo"].lower()
+
+
+def test_catalogo_cod_weak_prefijo_largo_no_sin_venta_fantasma():
+    """Variante LIVBP ventas + LIVBP2 catálogo con nombre comercial completo."""
+    lines = [
+        _linea(
+            cod_articulo="LIVBP",
+            descripcion_articulo="",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=2.0,
+            unidades_total=500.0,
+        ),
+    ]
+    catalogo = [
+        {"cod_articulo": "LIVBP", "articulo": "LIVBP", "agrupacion": "CIGARRILLOS"},
+        {
+            "cod_articulo": "LIVBP2",
+            "articulo": "CIGARRILLO LIVERPOOL BLUE POP 20S BOX",
+            "agrupacion": "CIGARRILLOS",
+        },
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    catalogo = unify_catalog_entries(catalogo, hints=hints)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=5, catalogo=catalogo)
+    assert len(rows) == 1
+    assert rows[0]["sin_venta"] is False
+    assert "liverpool" in rows[0]["articulo"].lower()
+
+
+def test_pick_best_catalog_ventas_row_prefiere_descripcion_larga():
+    from services.avance_ventas_service import _pick_best_catalog_ventas_row
+
+    rows = [
+        {"cod_articulo": "X1", "descripcion_articulo": "X1", "agrupacion_art_2": "CIGARRILLOS"},
+        {
+            "cod_articulo": "X1",
+            "descripcion_articulo": "CIGARRILLO CORONA 20S BOX",
+            "agrupacion_art_2": "CIGARRILLOS",
+        },
+    ]
+    best = _pick_best_catalog_ventas_row(rows)
+    assert "CORONA" in (best.get("descripcion_articulo") or "")
+
+
 def test_catalogo_window_12_meses_calendario():
     desde, hasta = _catalogo_window("2026-06-13")
     assert desde == "2025-07-01"

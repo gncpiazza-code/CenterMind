@@ -157,6 +157,78 @@ def seed_sku_resolver(
         resolver.resolve(cod, desc, agr)
 
 
+def is_weak_sku_articulo(cod: str, articulo: str) -> bool:
+    """True si el nombre no aporta identidad comercial (solo código ERP o muy corto)."""
+    cod = (cod or "").strip()
+    art = clean_sku_description(articulo)
+    if not cod:
+        return True
+    if not art or art.upper() == cod.upper():
+        return True
+    nd = normalize_sku_description(art)
+    cod_nd = normalize_sku_description(cod)
+    return len(nd) < 3 or nd == cod_nd
+
+
+_COD_ALPHA_PREFIX_RE = re.compile(r"^([A-Za-z]{3,})\d")
+
+
+def _cod_alpha_prefix(cod: str) -> str:
+    m = _COD_ALPHA_PREFIX_RE.match((cod or "").strip())
+    return m.group(1).upper() if m else ""
+
+
+def _cod_articulo_related(a: str, b: str) -> bool:
+    """Códigos ERP del mismo artículo (p. ej. LIVBP / LIVBP2, COR01 / COR02)."""
+    a = (a or "").strip()
+    b = (b or "").strip()
+    if not a or not b or a == b:
+        return False
+    if a.startswith(b) or b.startswith(a):
+        return True
+    if len(a) >= 4 and a in b:
+        return True
+    if len(b) >= 4 and b in a:
+        return True
+    pa, pb = _cod_alpha_prefix(a), _cod_alpha_prefix(b)
+    return bool(pa and pa == pb)
+
+
+def link_weak_catalog_hints(
+    catalogo: list[dict] | None,
+    hints: dict[str, str],
+) -> None:
+    """
+    Códigos de catálogo con articulo=cod heredan el nombre del código fuerte
+    relacionado en la misma agrupación (variantes ERP del mismo SKU).
+    """
+    strong: list[tuple[str, str, str]] = []
+    weak: list[tuple[str, str]] = []
+    for item in catalogo or []:
+        cod = (item.get("cod_articulo") or "").strip()
+        art = item.get("articulo") or item.get("descripcion_articulo") or ""
+        agr = (item.get("agrupacion") or item.get("agrupacion_art_2") or "").strip()
+        if not cod:
+            continue
+        if is_weak_sku_articulo(cod, art):
+            weak.append((cod, agr))
+            continue
+        nd = normalize_sku_description(art)
+        if len(nd) >= 3:
+            strong.append((cod, agr, clean_sku_description(art)))
+
+    for cod_w, agr_w in weak:
+        related = [
+            (cod_s, art_s)
+            for cod_s, agr_s, art_s in strong
+            if agr_s == agr_w and _cod_articulo_related(cod_w, cod_s)
+        ]
+        if len(related) != 1:
+            continue
+        _, art_s = related[0]
+        hints[cod_w] = pick_canonical_articulo(hints.get(cod_w, ""), art_s)
+
+
 def build_cod_articulo_hints(
     lines: list[dict],
     catalogo: list[dict] | None = None,
@@ -173,6 +245,8 @@ def build_cod_articulo_hints(
         desc_clean = clean_sku_description(desc)
         if not cod or not desc_clean:
             return
+        if is_weak_sku_articulo(cod, desc_clean):
+            return
         hints[cod] = pick_canonical_articulo(hints.get(cod, ""), desc_clean)
         nd = normalize_sku_description(desc_clean)
         if len(nd) >= 3:
@@ -182,13 +256,21 @@ def build_cod_articulo_hints(
         _register(row.get("cod_articulo") or "", row.get("descripcion_articulo") or "")
 
     for item in catalogo or []:
-        _register(item.get("cod_articulo") or "", item.get("articulo") or item.get("descripcion_articulo") or "")
+        cod = (item.get("cod_articulo") or "").strip()
+        art = item.get("articulo") or item.get("descripcion_articulo") or ""
+        if is_weak_sku_articulo(cod, art):
+            continue
+        _register(cod, art)
+
+    link_weak_catalog_hints(catalogo, hints)
 
     # Mismo nombre comercial con distintos códigos en catálogo → misma descripción para todos.
     by_norm: dict[str, list[str]] = {}
     for item in catalogo or []:
         cod = (item.get("cod_articulo") or "").strip()
         art = clean_sku_description(item.get("articulo") or item.get("descripcion_articulo") or "")
+        if is_weak_sku_articulo(cod, art):
+            art = hints.get(cod) or art
         nd = normalize_sku_description(art)
         if cod and nd:
             by_norm.setdefault(nd, []).append(cod)
@@ -202,6 +284,8 @@ def build_cod_articulo_hints(
         nd = normalize_sku_description(art)
         if nd in norm_to_art:
             hints[cod] = pick_canonical_articulo(art, norm_to_art[nd])
+
+    link_weak_catalog_hints(catalogo, hints)
 
     return hints
 

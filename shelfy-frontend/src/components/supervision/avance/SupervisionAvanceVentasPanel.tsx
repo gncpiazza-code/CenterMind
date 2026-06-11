@@ -131,13 +131,28 @@ export function SupervisionAvanceVentasPanel({
   }, [data?.periodo?.parcial, data?.sync]);
 
   if (query.isError) {
+    const httpStatus =
+      query.error && typeof query.error === "object" && "status" in query.error
+        ? Number((query.error as { status: number }).status)
+        : null;
+    const backendMissing = httpStatus === 404;
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-2 text-center px-6">
         <AlertTriangle size={22} className="text-amber-500" />
         <p className="text-sm font-semibold">No se pudo cargar el avance de ventas</p>
-        <p className="text-xs text-muted-foreground max-w-sm">
-          {query.error instanceof Error ? query.error.message : "Error desconocido"}
-        </p>
+        {backendMissing ? (
+          <p className="text-xs text-muted-foreground max-w-md leading-relaxed">
+            El portal ya tiene esta función, pero la API en producción aún no expone{" "}
+            <code className="text-[10px] bg-muted px-1 rounded">/api/supervision/avance-ventas</code>.
+            Hace falta un <strong className="font-semibold text-foreground">redeploy del servicio CenterMind en Railway</strong>{" "}
+            desde <code className="text-[10px] bg-muted px-1 rounded">main</code> (commit{" "}
+            <code className="text-[10px] bg-muted px-1 rounded">1d6a5e7</code> o posterior).
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground max-w-sm">
+            {query.error instanceof Error ? query.error.message : "Error desconocido"}
+          </p>
+        )}
       </div>
     );
   }

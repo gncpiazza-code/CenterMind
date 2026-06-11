@@ -369,7 +369,7 @@ export function getSuperadminWSUrl(): string | null {
   return `ws://localhost:8000/api/ws/superadmin?${q}`;
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
   detail: unknown;
   constructor(message: string, status: number, detail: unknown) {

@@ -34,7 +34,7 @@ Auditoría cliente×SKU integrada para corroborar números sin salir de la panta
 
 ### Catálogo y ranking
 
-- **Unificación SKU** (`core/sku_unify.py`): agrupa variantes ERP del mismo artículo (prefijos tipo «CIGARRILLO …», `[COD]` en descripción, líneas con/sin `cod_articulo`). Clave canónica = descripción normalizada.
+- **Unificación SKU** (`core/sku_unify.py`): por **nombre comercial** — quita prefijo `CIGARRILLO(S)`, empaque `20S BOX`, `[COD]`; mismo `SkuKeyResolver` en ventas + catálogo 12m. Ej.: «CIGARRILLO DOLCHESTER GOLDEN» = «DOLCHESTER GOLDEN»; «CIGARRILLO LIVERPOOL BLUE POP 20S BOX» = «LIVERPOOL BLUE POP».
 - Universo: SKUs distintos en ventana **12 meses** (`CATALOGO_MESES`).
 - `incluir_sin_venta=true` (default): ranking completo; `false` excluye filas con `bultos=0`.
 - Sin cap 150 en tabla; series gráficas siguen top-N (`HEATMAP_TOP_SKUS`, etc.).

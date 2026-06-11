@@ -966,6 +966,8 @@ def build_avance_ventas(
             logger.warning("[avance-ventas] catálogo 12m dist=%s: %s", dist_id, e)
             catalogo = None
         sku_hints = build_cod_articulo_hints(lines_actual, catalogo)
+        if catalogo:
+            catalogo = unify_catalog_entries(catalogo, hints=sku_hints)
         agg = aggregate_avance_lines(
             lines_actual,
             erp_name_map=erp_name_map,

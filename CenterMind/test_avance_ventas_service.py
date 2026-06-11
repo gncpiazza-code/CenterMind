@@ -1,7 +1,7 @@
 """Avance de Ventas — periodos, comparativas y agregación de volumen."""
 import pytest
 
-from core.sku_unify import build_cod_articulo_hints
+from core.sku_unify import build_cod_articulo_hints, unify_catalog_entries
 from services.avance_ventas_service import (
     SIN_VENDEDOR_LABEL,
     aggregate_avance_lines,
@@ -300,6 +300,39 @@ def test_sin_venta_van_al_final_y_alfabetico():
     rows = _sku_rows_from_agg(agg, cartera_count=None, catalogo=_catalogo_demo())
     assert rows[0]["cod_articulo"] == "SKU1"  # con venta primero
     assert [r["articulo"] for r in rows[1:]] == ["ALFA SIN VENTA", "ZETA SIN VENTA"]
+
+
+def test_liverpool_blue_pop_prefijo_y_empaque_unifica_con_ventas():
+    lines = [
+        _linea(
+            cod_articulo="LIV99",
+            descripcion_articulo="",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=3.0,
+            unidades_total=750.0,
+        ),
+    ]
+    catalogo = [
+        {
+            "cod_articulo": "LIV99",
+            "articulo": "LIVERPOOL BLUE POP",
+            "agrupacion": "CIGARRILLOS",
+        },
+        {
+            "cod_articulo": "LIV01",
+            "articulo": "CIGARRILLO LIVERPOOL BLUE POP 20S BOX",
+            "agrupacion": "CIGARRILLOS",
+        },
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    catalogo = unify_catalog_entries(catalogo, hints=hints)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=5, catalogo=catalogo)
+    con_venta = [r for r in rows if not r["sin_venta"]]
+    assert len(con_venta) == 1
+    assert con_venta[0]["bultos"] == pytest.approx(3.0)
+    assert "liverpool" in con_venta[0]["articulo"].lower()
+    assert len(rows) == 1
 
 
 def test_liverpool_pop_cod_sin_desc_no_duplica_sin_venta():

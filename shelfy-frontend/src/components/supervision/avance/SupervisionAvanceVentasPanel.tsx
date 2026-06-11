@@ -10,7 +10,6 @@ import type {
 import type { SyncStatusEntry } from "@/lib/api";
 import { useAvanceVentasQuery } from "@/hooks/useAvanceVentasQuery";
 import { deriveCoberturaPdvs, skuRowTieneVenta } from "@/lib/avance-ventas-alcance";
-import { fmtHoraAr } from "@/lib/avance-ventas-format";
 import { SupervisionReveal, SupervisionRevealItem } from "@/components/supervision/SupervisionReveal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -84,26 +83,6 @@ export function SupervisionAvanceVentasPanel({
     setDrillClienteOpen(true);
   };
 
-  const banner = useMemo(() => {
-    if (!data?.periodo?.parcial) return null;
-    const ultima = fmtHoraAr(data.sync?.last_updated);
-    const proxima = fmtHoraAr(data.sync?.next_run_hint);
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-amber-300/70 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
-        <AlertTriangle size={13} className="shrink-0" />
-        <span className="min-w-0">
-          <span className="font-bold">Avance parcial</span>
-          {ultima ? <> · última sync {ultima}</> : null}
-          {proxima ? <> · próximo batch ~{proxima}</> : null}
-          <span className="text-amber-700/80 dark:text-amber-300/70">
-            {" "}
-            — comparativas contra período completo
-          </span>
-        </span>
-      </div>
-    );
-  }, [data?.periodo?.parcial, data?.sync]);
-
   if (query.isError) {
     const httpStatus =
       query.error && typeof query.error === "object" && "status" in query.error
@@ -170,8 +149,6 @@ export function SupervisionAvanceVentasPanel({
         )}
         animate={!isFilterTransition}
       >
-      {banner && <SupervisionRevealItem className="shrink-0">{banner}</SupervisionRevealItem>}
-
       <SupervisionRevealItem className="shrink-0">
         <AvanceVentasKpiStrip
           cards={isFilterTransition ? undefined : data?.kpis_cards}

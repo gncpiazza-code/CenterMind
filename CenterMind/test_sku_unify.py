@@ -20,6 +20,31 @@ def test_normalize_quita_prefijo_cigarrillo():
     assert a == b == "dolchester golden edition"
 
 
+def test_normalize_liverpool_con_sin_prefijo_y_empaque():
+    a = normalize_sku_description("CIGARRILLO LIVERPOOL BLUE POP 20S BOX")
+    b = normalize_sku_description("LIVERPOOL BLUE POP")
+    assert a == b == "liverpool blue pop"
+
+
+def test_unify_catalog_liverpool_variantes_nombre():
+    cat = unify_catalog_entries(
+        [
+            {
+                "cod_articulo": "LIV01",
+                "articulo": "CIGARRILLO LIVERPOOL BLUE POP 20S BOX",
+                "agrupacion": "CIGARRILLOS",
+            },
+            {
+                "cod_articulo": "LIV02",
+                "articulo": "LIVERPOOL BLUE POP",
+                "agrupacion": "CIGARRILLOS",
+            },
+        ]
+    )
+    assert len(cat) == 1
+    assert "liverpool blue pop" in cat[0]["articulo"].lower()
+
+
 def test_unify_key_misma_desc_distinto_cod():
     k1 = sku_unify_key("ABC123", "CIGARRILLO DOLCHESTER GOLDEN EDITION", "CIGARRILLOS")
     k2 = sku_unify_key("", "DOLCHESTER GOLDEN EDITION", "CIGARRILLOS")

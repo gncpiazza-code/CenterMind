@@ -32,6 +32,11 @@ _DESC_PREFIX_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
 )
 
 _BRACKET_CODE_RE = re.compile(r"^\[[^\]]+\]\s*")
+# Empaque tabaco: "20S BOX", "20S SOFT" — ruido ERP, no parte del nombre comercial.
+_PACK_SIZE_RE = re.compile(
+    r"\b\d+\s*s\s*(?:box|soft|hw|ks|cup|ltr|un)?\b",
+    re.IGNORECASE,
+)
 
 
 def _fold_text(value: str) -> str:
@@ -61,7 +66,8 @@ def normalize_sku_description(desc: str) -> str:
     folded = _fold_text(s)
     for pat in _DESC_PREFIX_PATTERNS:
         folded = pat.sub("", folded).strip()
-    return folded
+    folded = _PACK_SIZE_RE.sub("", folded).strip()
+    return re.sub(r"\s+", " ", folded).strip()
 
 
 class SkuKeyResolver:
@@ -220,29 +226,16 @@ def sku_unify_key(
     cod_articulo: str,
     descripcion: str,
     agrupacion: str = "",
+    *,
+    hints: dict[str, str] | None = None,
 ) -> str:
     """
-    Clave de agregación canónica.
-    Prioriza descripción normalizada; si es muy corta o vacía, usa código ERP.
+    Clave de agregación canónica (nombre comercial normalizado vía SkuKeyResolver).
+    Prioriza descripción; si no hay, código ERP.
     """
-    norm_desc = normalize_sku_description(descripcion)
-    cod = (cod_articulo or "").strip().upper()
-
-    if len(norm_desc) >= 3:
-        return f"n:{norm_desc}"
-
-    if cod:
-        return f"c:{cod}"
-
-    norm_cod_as_desc = normalize_sku_description(cod_articulo)
-    if len(norm_cod_as_desc) >= 3:
-        return f"n:{norm_cod_as_desc}"
-
-    agr = _fold_text(agrupacion)
-    if agr:
-        return f"a:{agr}:sin-id"
-
-    return "sin-codigo"
+    resolver = SkuKeyResolver()
+    cod, desc = enrich_sku_identity(cod_articulo, descripcion, hints=hints)
+    return resolver.resolve(cod, desc, agrupacion)
 
 
 def sku_unify_key_from_row(row: dict) -> str:
@@ -317,20 +310,39 @@ def merge_sku_bucket(bucket: dict, *, cod: str, desc: str, agrupacion: str) -> N
     )
 
 
-def unify_catalog_entries(entries: list[dict]) -> list[dict]:
-    """Fusiona filas de catálogo 12m con la misma clave de unificación."""
+def unify_catalog_entries(
+    entries: list[dict],
+    *,
+    hints: dict[str, str] | None = None,
+) -> list[dict]:
+    """
+    Fusiona catálogo 12m por nombre comercial (mismo resolver que ventas del período).
+    Ej.: «CIGARRILLO DOLCHESTER GOLDEN» + «DOLCHESTER GOLDEN» → una fila.
+    """
+    if not entries:
+        return []
+
+    hints = hints or build_cod_articulo_hints([], entries)
+    resolver = SkuKeyResolver()
+    seed_sku_resolver(resolver, entries, hints=hints)
+
     merged: dict[str, dict] = {}
     cod_counts: dict[str, Counter[str]] = {}
 
     for raw in entries:
-        cod = (raw.get("cod_articulo") or "").strip()
-        articulo = clean_sku_description(raw.get("articulo") or raw.get("descripcion_articulo") or "")
+        cod_raw = (raw.get("cod_articulo") or "").strip()
+        cod, articulo = enrich_sku_identity(
+            cod_raw,
+            raw.get("articulo") or raw.get("descripcion_articulo") or "",
+            hints=hints,
+        )
         agr = (raw.get("agrupacion") or raw.get("agrupacion_art_2") or "").strip() or "Sin agrupación"
-        key = sku_unify_key(cod, articulo, agr)
+        key = resolver.canonical(resolver.resolve(cod, articulo, agr))
 
         if key not in merged:
             merged[key] = {
-                "cod_articulo": cod,
+                "sku_key": key,
+                "cod_articulo": cod_raw,
                 "articulo": articulo or cod or "Artículo sin descripción",
                 "agrupacion": agr,
             }
@@ -340,14 +352,13 @@ def unify_catalog_entries(entries: list[dict]) -> list[dict]:
             m["articulo"] = pick_canonical_articulo(m["articulo"], articulo, cod)
             m["agrupacion"] = agr or m["agrupacion"]
 
-        if cod:
-            cod_counts[key][cod] += 1
+        if cod_raw:
+            cod_counts[key][cod_raw] += 1
 
     out: list[dict] = []
     for key, m in merged.items():
         m["cod_articulo"] = pick_canonical_cod(m.get("cod_articulo") or "", counts=cod_counts.get(key))
         if not m["cod_articulo"]:
-            # Catálogo sin código: usar fingerprint como id estable para UI/drill.
             m["cod_articulo"] = f"~{key[2:48]}" if key.startswith(("n:", "c:")) else key
         out.append(m)
 

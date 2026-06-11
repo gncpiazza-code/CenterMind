@@ -108,6 +108,41 @@ async def _send_summary_reply_photo(
         except Exception:
             pass
     return sent_msg_id
+
+
+async def _download_telegram_photo_bytes(bot, file_id: str, logger=None, max_retries: int = 3) -> bytes:
+    """Descarga foto de Telegram con reintentos (señal débil en calle)."""
+    last_err: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            tg_file = await bot.get_file(file_id)
+            raw = await tg_file.download_as_bytearray()
+            return bytes(raw)
+        except Exception as e:
+            last_err = e
+            if logger:
+                logger.warning(
+                    f"⚠️ Descarga Telegram intento {attempt}/{max_retries} file_id={file_id[:20]}…: {e}"
+                )
+            if attempt < max_retries:
+                await asyncio.sleep(attempt * 1.5)
+    raise last_err or RuntimeError("No se pudo descargar la foto de Telegram")
+
+
+def _upload_failure_hint(last_error: str | None) -> str:
+    """Mensaje orientado al vendedor según la causa más probable."""
+    err = (last_error or "").lower()
+    if any(x in err for x in ("timed out", "timeout", "connection", "connectionterminated", "remoteprotocol")):
+        return "hubo un problema de conexión. Esperá unos segundos y"
+    if "vendedor_no_registrado" in err:
+        return "tu usuario no está vinculado al grupo. Avisá al supervisor y"
+    if "storage" in err or "upload" in err or "bucket" in err:
+        return "no se pudo guardar la foto en el servidor. Revisá tu señal y"
+    if "formato de respuesta" in err or "rpc" in err:
+        return "el servidor tardó en responder. Reintentá y"
+    return "ocurrió un error temporal. Revisá tu señal y"
+
+
 from core.bot_cliente_cartera import cliente_en_cartera_vendedor
 
 BOT_VALIDACION_CARTERA = os.getenv("BOT_VALIDACION_CARTERA", "0") == "1"
@@ -267,6 +302,8 @@ def retry_supabase(max_retries: int = 3, initial_delay: float = 1.0):
     Decorador para reintentar operaciones de Supabase en caso de errores de red
     o RemoteProtocolError (HTTP2/1.1 protocol issues).
     """
+    from core.bot_registry import is_transient_supabase_error
+
     def decorator(func):
         import functools
         @functools.wraps(func)
@@ -278,18 +315,9 @@ def retry_supabase(max_retries: int = 3, initial_delay: float = 1.0):
                     return func(self, *args, **kwargs)
                 except Exception as e:
                     last_error = e
-                    err_msg = str(e).lower()
-                    # Si es un error de protocolo o conexión, reintentamos
-                    is_transient = any(msg in err_msg for msg in [
-                        "connectionterminated", 
-                        "remoteprotocolerror",
-                        "connection closed",
-                        "psycopg2.operationalerror",
-                        "timed out"
-                    ])
-                    if not is_transient:
+                    if not is_transient_supabase_error(e):
                         raise e
-                    
+
                     self.logger.warning(f"⚠️ Error en {func.__name__} (intento {attempt+1}/{max_retries}): {e}")
                     if attempt < max_retries - 1:
                         time.sleep(delay)
@@ -477,7 +505,6 @@ class Database:
             self.logger.error(f"Error fallback limbo exhibicion: {e}")
             return {"id_exhibicion": None, "estado_final": None, "id_cliente_pdv": None, "error": str(e)}
 
-    @retry_supabase()
     def registrar_exhibicion(
         self,
         distribuidor_id: int,
@@ -492,47 +519,59 @@ class Database:
         """Registra una exhibición vía RPC con soporte de revisión (PASO 5/6).
         Retorna: {'id_exhibicion': <id>, 'estado_final': <str>, 'error': <str|None>}
         """
-        try:
-            res = self.sb.rpc("fn_bot_registrar_exhibicion", {
-                "p_distribuidor_id": distribuidor_id,
-                "p_vendedor_id": vendedor_id,
-                "p_nro_cliente": nro_cliente,
-                "p_tipo_pdv": tipo_pdv,
-                "p_drive_link": drive_link,
-                "p_telegram_msg_id": telegram_msg_id,
-                "p_telegram_chat_id": telegram_chat_id
-            }).execute()
-            
-            data = res.data
-            if isinstance(data, list) and data:
-                data = data[0]
+        from core.bot_registry import is_transient_supabase_error
 
-            if isinstance(data, dict):
-                return {
-                    **data,
-                    "error": None
-                }
-            
-            return {"id_exhibicion": None, "estado_final": None, "error": "Formato de respuesta inválido"}
+        rpc_params = {
+            "p_distribuidor_id": distribuidor_id,
+            "p_vendedor_id": vendedor_id,
+            "p_nro_cliente": nro_cliente,
+            "p_tipo_pdv": tipo_pdv,
+            "p_drive_link": drive_link,
+            "p_telegram_msg_id": telegram_msg_id,
+            "p_telegram_chat_id": telegram_chat_id,
+        }
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                res = self.sb.rpc("fn_bot_registrar_exhibicion", rpc_params).execute()
 
-        except Exception as e:
-            err = str(e)
-            if self._is_cliente_pdv_fk_error(err):
-                self.logger.warning(
-                    "RPC registrar_exhibicion cayó por FK id_cliente_pdv; "
-                    "registrando en modo limbo para reconciliar en próxima ingesta de padrón."
-                )
-                return self._insert_exhibicion_limbo(
-                    distribuidor_id=distribuidor_id,
-                    vendedor_id=vendedor_id,
-                    nro_cliente=nro_cliente,
-                    tipo_pdv=tipo_pdv,
-                    drive_link=drive_link,
-                    telegram_msg_id=telegram_msg_id,
-                    telegram_chat_id=telegram_chat_id,
-                )
-            self.logger.error(f"Error en RPC registrar_exhibicion: {e}")
-            return {"id_exhibicion": None, "estado_final": None, "error": str(e)}
+                data = res.data
+                if isinstance(data, list) and data:
+                    data = data[0]
+
+                if isinstance(data, dict):
+                    return {**data, "error": None}
+
+                return {"id_exhibicion": None, "estado_final": None, "error": "Formato de respuesta inválido"}
+
+            except Exception as e:
+                last_error = e
+                err = str(e)
+                if self._is_cliente_pdv_fk_error(err):
+                    self.logger.warning(
+                        "RPC registrar_exhibicion cayó por FK id_cliente_pdv; "
+                        "registrando en modo limbo para reconciliar en próxima ingesta de padrón."
+                    )
+                    return self._insert_exhibicion_limbo(
+                        distribuidor_id=distribuidor_id,
+                        vendedor_id=vendedor_id,
+                        nro_cliente=nro_cliente,
+                        tipo_pdv=tipo_pdv,
+                        drive_link=drive_link,
+                        telegram_msg_id=telegram_msg_id,
+                        telegram_chat_id=telegram_chat_id,
+                    )
+                if is_transient_supabase_error(e) and attempt < 3:
+                    self.logger.warning(
+                        f"⚠️ RPC registrar_exhibicion transitorio (intento {attempt}/3): {e}"
+                    )
+                    time.sleep(attempt * 1.5)
+                    continue
+                self.logger.error(f"Error en RPC registrar_exhibicion: {e}")
+                return {"id_exhibicion": None, "estado_final": None, "error": str(e)}
+
+        self.logger.error(f"Error en RPC registrar_exhibicion tras reintentos: {last_error}")
+        return {"id_exhibicion": None, "estado_final": None, "error": str(last_error)}
 
     # ── Perfil tipo PDV (silent mode) ──────────────────────────────
     def _normalize_cliente_code(self, nro_cliente: str) -> str:
@@ -1106,7 +1145,9 @@ class SupabaseUploader:
         safe_dist = "".join(c if c.isalnum() or c in "-_ " else "" for c in distribuidor_nombre).strip().replace(" ", "_")
         storage_path = f"{safe_dist}/{date_folder}/{filename}"
 
-        for attempt in range(1, 4):
+        from core.bot_registry import is_transient_supabase_error
+
+        for attempt in range(1, 5):
             try:
                 self._sb.storage.from_(self.BUCKET).upload(
                     path=storage_path,
@@ -1118,8 +1159,12 @@ class SupabaseUploader:
                 self.logger.info(f"✅ Foto subida a Supabase: {filename}")
                 return url
             except Exception as e:
-                self.logger.warning(f"⚠️ Intento {attempt}/3 fallido: {e}")
-                time.sleep(attempt * 2)
+                self.logger.warning(f"⚠️ Storage upload intento {attempt}/4 ({filename}): {e}")
+                if attempt < 4 and is_transient_supabase_error(e):
+                    time.sleep(attempt * 2)
+                    continue
+                if attempt < 4:
+                    time.sleep(attempt * 2)
 
         self.logger.error(f"❌ Falló definitivamente la subida: {filename}")
         return ""
@@ -2743,6 +2788,7 @@ class BotWorker:
         procesadas = 0
         fallidas = 0
         exhibicion_ids: List[str] = []
+        last_upload_error: str | None = None
 
         self.logger.info(f"🚀 Iniciando procesamiento de {len(photos)} foto(s)...")
 
@@ -2751,8 +2797,9 @@ class BotWorker:
             ph_msg_id = photo_data["message_id"]
 
             try:
-                file = await context.bot.get_file(file_id)
-                file_bytes = await file.download_as_bytearray()
+                file_bytes = await _download_telegram_photo_bytes(
+                    context.bot, file_id, logger=self.logger
+                )
                 self.logger.info(f"✅ Foto descargada: {len(file_bytes)} bytes")
 
                 filename = f"{nro_cliente}_{clean_code}_{int(time.time())}.jpg"
@@ -2815,15 +2862,20 @@ class BotWorker:
                                     session, ex_id, nro_cliente, chat_id, uploader_id
                                 )
                         else:
-                            self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
+                            rpc_err = rpc_result.get("error") or "RPC sin id_exhibicion"
+                            last_upload_error = str(rpc_err)
+                            self.logger.warning(f"❌ Falló registro RPC: {rpc_err}")
                             fallidas += 1
                     except Exception as db_err:
+                        last_upload_error = str(db_err)
                         self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
                         fallidas += 1
                 else:
+                    last_upload_error = "storage upload vacío"
                     self.logger.warning("❌ Falló la subida a Supabase (drive_link vacío)")
                     fallidas += 1
             except Exception as e:
+                last_upload_error = str(e)
                 self.logger.error(f"❌ ERROR PROCESANDO FOTO: {e}")
                 fallidas += 1
 
@@ -2894,7 +2946,16 @@ class BotWorker:
                 err_kw["reply_parameters"] = _reply_to_photo(chat_id, photos[0]["message_id"])
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=self._msg("upload_error", uploader_name=uploader_name),
+                text=self._msg(
+                    "upload_error",
+                    uploader_name=uploader_name,
+                    hint=_upload_failure_hint(last_upload_error),
+                    fallback=(
+                        f"⚠️ <b>No se pudo registrar la exhibición.</b>\n\n"
+                        f"{uploader_name}, {_upload_failure_hint(last_upload_error)}\n"
+                        "Por favor <b>reenviá la foto</b>."
+                    ),
+                ),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=_NO_LINK_PREVIEW,
                 **err_kw,
@@ -3141,6 +3202,7 @@ class BotWorker:
         procesadas   = 0
         fallidas     = 0
         exhibicion_ids: List[str] = []
+        last_upload_error: str | None = None
 
         self.logger.info(f"🚀 Iniciando procesamiento de {len(photos)} foto(s)...")
 
@@ -3149,8 +3211,9 @@ class BotWorker:
             ph_msg_id  = photo_data["message_id"]
 
             try:
-                file       = await context.bot.get_file(file_id)
-                file_bytes = await file.download_as_bytearray()
+                file_bytes = await _download_telegram_photo_bytes(
+                    context.bot, file_id, logger=self.logger
+                )
                 self.logger.info(f"✅ Foto descargada: {len(file_bytes)} bytes")
 
                 filename = (
@@ -3330,16 +3393,21 @@ class BotWorker:
                                     f"Se vinculará en la próxima carga del padrón."
                                 )
                         else:
-                            self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
+                            rpc_err = rpc_result.get("error") or "RPC sin id_exhibicion"
+                            last_upload_error = str(rpc_err)
+                            self.logger.warning(f"❌ Falló registro RPC: {rpc_err}")
                             fallidas += 1
                     except Exception as db_err:
+                        last_upload_error = str(db_err)
                         self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
                         fallidas += 1
                 else:
+                    last_upload_error = "storage upload vacío"
                     self.logger.warning(f"❌ Falló la subida a Supabase (drive_link vacío)")
                     fallidas += 1
 
             except Exception as e:
+                last_upload_error = str(e)
                 self.logger.error(f"❌ ERROR PROCESANDO FOTO: {e}")
                 fallidas += 1
 
@@ -3783,15 +3851,24 @@ class BotWorker:
                 )
         else:
             # Todas fallaron
+            err_kw: Dict[str, Any] = {}
+            if photos:
+                err_kw["reply_parameters"] = _reply_to_photo(chat_id, photos[0]["message_id"])
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=(
-                    "⚠️ <b>Error de conexión con el servidor.</b>\n\n"
-                    f"No se pudo registrar la exhibición, {uploader_name}.\n"
-                    "Por favor <b>reenviá la foto</b>."
+                text=self._msg(
+                    "upload_error",
+                    uploader_name=uploader_name,
+                    hint=_upload_failure_hint(last_upload_error),
+                    fallback=(
+                        f"⚠️ <b>No se pudo registrar la exhibición.</b>\n\n"
+                        f"{uploader_name}, {_upload_failure_hint(last_upload_error)}\n"
+                        "Por favor <b>reenviá la foto</b>."
+                    ),
                 ),
                 parse_mode=ParseMode.HTML,
                 link_preview_options=_NO_LINK_PREVIEW,
+                **err_kw,
             )
 
         await self._upload_session_delete(uploader_id)

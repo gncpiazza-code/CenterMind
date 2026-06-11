@@ -262,10 +262,10 @@ BOT_MESSAGES: tuple[BotMessageDef, ...] = (
     ),
     BotMessageDef(
         "upload_error", "Error al registrar", "carga_exhibicion", 23,
-        "⚠️ <b>Error de conexión con el servidor.</b>\n\n"
-        "No se pudo registrar la exhibición, {uploader_name}.\n"
+        "⚠️ <b>No se pudo registrar la exhibición.</b>\n\n"
+        "{uploader_name}, {hint}\n"
         "Por favor <b>reenviá la foto</b>.",
-        ("uploader_name",),
+        ("uploader_name", "hint"),
     ),
     # ── Evaluación ──
     BotMessageDef(

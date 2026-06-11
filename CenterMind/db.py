@@ -77,13 +77,22 @@ sb: Client = create_client(
     options=opts
 )
 
-# Parcheamos el cliente postgrest interno para asegurar que no use HTTP2
-if hasattr(sb, "postgrest"):
-    # Reemplazamos la sesión postgrest por una que no use HTTP2 conservando la config
-    old_session = sb.postgrest.session
-    sb.postgrest.session = httpx.Client(
+_SUPABASE_HTTP_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
+
+
+def _patch_httpx_session(client: httpx.Client) -> httpx.Client:
+    """HTTP/1.1 + timeout largo: evita ConnectionTerminated (HTTP/2) y cortes en fotos."""
+    return httpx.Client(
         http2=False,
-        base_url=old_session.base_url,
-        headers=old_session.headers,
-        timeout=httpx.Timeout(45.0, connect=10.0),
+        base_url=client.base_url,
+        headers=client.headers,
+        timeout=_SUPABASE_HTTP_TIMEOUT,
     )
+
+
+# Parcheamos postgrest y storage: el parche original solo cubría RPC/REST, no Storage.
+if hasattr(sb, "postgrest"):
+    sb.postgrest.session = _patch_httpx_session(sb.postgrest.session)
+
+if hasattr(sb, "storage") and hasattr(sb.storage, "session"):
+    sb.storage.session = _patch_httpx_session(sb.storage.session)

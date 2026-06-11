@@ -9,6 +9,8 @@ from core.security import verify_auth, check_dist_permission
 from core.usuario_sucursal_scope import assert_sucursal_nombre_allowed, filter_sucursal_names
 from core.estadisticas_ideal import validate_pesos, repartir_pesos, KPI_KEYS
 from core.roles import normalize_rol, ROLES_COMPANIA_SCOPE
+from core.vendedor_app_patron_scope import list_patron_cuentas, resolve_patron_scope
+from db import sb
 from services.estadisticas_service import (
     fetch_meses_disponibles,
     fetch_sucursales_disponibles,
@@ -89,17 +91,45 @@ def estadisticas_cartas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/estadisticas/patron-cuentas/{dist_id}/{id_vendedor}", tags=["Estadísticas"])
+def estadisticas_patron_cuentas(
+    dist_id: int,
+    id_vendedor: int,
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    cuentas = list_patron_cuentas(sb, dist_id, id_vendedor)
+    return {
+        "patron_mode": bool(cuentas),
+        "cuentas": cuentas,
+        "cuenta_default": cuentas[0]["id"] if cuentas else None,
+    }
+
+
 @router.get("/api/estadisticas/vendedor/{dist_id}/{id_vendedor}/detalle", tags=["Estadísticas"])
 def estadisticas_vendedor_detalle(
     dist_id: int,
     id_vendedor: str,
     meses: str = Query(...),
+    cuenta: str | None = Query(
+        None,
+        description="Cuenta patrón (monchi, jorge_coronel) — filtra rutas/cartera inferidas",
+    ),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
     meses_list = [m.strip() for m in meses.split(",") if m.strip()]
+    integrante_ids = None
+    if cuenta:
+        scope = resolve_patron_scope(sb, dist_id, int(id_vendedor), cuenta)
+        integrante_ids = scope.get("integrante_ids")
     try:
-        return build_detalle_vendedor(dist_id, id_vendedor, meses_list)
+        return build_detalle_vendedor(
+            dist_id,
+            id_vendedor,
+            meses_list,
+            integrante_ids=integrante_ids,
+        )
     except Exception as e:
         logger.error(f"Error detalle {dist_id}/{id_vendedor}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

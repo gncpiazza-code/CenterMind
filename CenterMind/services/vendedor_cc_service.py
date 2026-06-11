@@ -79,6 +79,8 @@ def get_cc_vendedor(
     dist_id: int,
     id_vendedor_v2: int,
     modo: str = "general",
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> dict:
     """
     CC del vendedor filtrado a sus clientes, solo snapshot más reciente.
@@ -143,6 +145,13 @@ def get_cc_vendedor(
 
     if modo == "hoy" and rows:
         rows = _filter_cc_hoy(sb, dist_id, id_vendedor_v2, rows)
+
+    if pdv_erp_filter is not None:
+        rows = [
+            r
+            for r in rows
+            if str(r.get("id_cliente_erp") or "").strip() in pdv_erp_filter
+        ]
 
     total_saldo = sum(float(r.get("deuda_total") or 0) for r in rows)
     clientes = [

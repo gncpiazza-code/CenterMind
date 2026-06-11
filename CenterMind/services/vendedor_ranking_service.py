@@ -30,6 +30,8 @@ def get_ranking_vendedor_app(
     id_vendedor_v2: int,
     year: int,
     month: int,
+    *,
+    ranking_nombre: str | None = None,
 ) -> dict:
     """
     Tabla de ranking completa para el mes indicado.
@@ -52,18 +54,18 @@ def get_ranking_vendedor_app(
     if is_current_month:
         fin = now_ar.isoformat()
 
-    # Obtener nombre del vendedor para marcar es_yo
-    integrantes_res = (
-        sb.table("integrantes_grupo")
-        .select("nombre_integrante")
-        .eq("id_distribuidor", dist_id)
-        .eq("id_vendedor_v2", id_vendedor_v2)
-        .limit(1)
-        .execute()
-    )
-    vendor_nombre: str | None = None
-    if integrantes_res.data:
-        vendor_nombre = str(integrantes_res.data[0].get("nombre_integrante") or "").strip() or None
+    vendor_nombre: str | None = ranking_nombre
+    if vendor_nombre is None:
+        integrantes_res = (
+            sb.table("integrantes_grupo")
+            .select("nombre_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor_v2)
+            .limit(1)
+            .execute()
+        )
+        if integrantes_res.data:
+            vendor_nombre = str(integrantes_res.data[0].get("nombre_integrante") or "").strip() or None
 
     all_rows = _fetch_all_exhibiciones_for_dist(sb, dist_id, inicio, fin)
     iid_to_erp = _build_iid_to_erp_map(sb, dist_id)

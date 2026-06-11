@@ -6,6 +6,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/offline/bundle_provider.dart';
 import '../../core/offline/sync_worker.dart';
 import '../../core/offline/upload_queue.dart';
+import '../../shared/widgets/patron_cuenta_switcher.dart';
 import '../../shared/widgets/shelfy/shelfy_widgets.dart';
 import '../../theme/shelfy_tokens.dart';
 import '../settings/settings_screen.dart';
@@ -104,6 +105,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _reloadScopedData() {
+    _carteraProvider.fetchCartera('hoy', force: true);
+    _carteraProvider.fetchCartera('general', force: true);
+    _carteraProvider.fetchRutaHoy(force: true);
+    _statsProvider.fetch(force: true);
+    _ventasProvider.fetch(force: true);
+    _cuentasProvider.fetch(force: true);
+    _objetivosProvider.fetch(force: true);
+    _galeriaProvider.fetchClientes(force: true);
+    _bundleProvider.refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_providersReady) {
@@ -136,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 : AppBar(
                     title: const ShelfyAppBarTitle(),
                     actions: [
+                      PatronCuentaSwitcher(onChanged: _reloadScopedData),
                       IconButton(
                         icon: const Icon(Icons.sync_outlined),
                         tooltip: 'Sincronizar pendientes',

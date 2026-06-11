@@ -29,6 +29,8 @@ def build_cartera_json(
     dist_id: int,
     id_vendedor: int,
     mode: str = "general",
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> dict:
     """
     Genera JSON de cartera del vendedor con campos extendidos.
@@ -133,6 +135,9 @@ def build_cartera_json(
                 "fecha_ultima_compra": (pdv.get("fecha_ultima_compra") or "")[:10] or None,
                 "fecha_alta": (pdv.get("fecha_alta") or "")[:10] or None,
             }
+            erp_key = pdv_json["id_cliente_erp"]
+            if pdv_erp_filter is not None and erp_key not in pdv_erp_filter:
+                continue
             pdvs_by_ruta.setdefault(rid, []).append(pdv_json)
 
     # 4. Snapshot label
@@ -141,10 +146,13 @@ def build_cartera_json(
     # 5. Construir respuesta JSON
     rutas_out = []
     for ruta in rutas:
+        pdvs = pdvs_by_ruta.get(ruta["id_ruta"], [])
+        if pdv_erp_filter is not None and not pdvs:
+            continue
         rutas_out.append({
             "id_ruta": ruta["id_ruta"],
             "dia_semana": ruta.get("dia_semana", "—"),
-            "pdvs": pdvs_by_ruta.get(ruta["id_ruta"], []),
+            "pdvs": pdvs,
         })
 
     return {
@@ -158,12 +166,16 @@ def get_ruta_hoy_summary(
     sb: Client,
     dist_id: int,
     id_vendedor: int,
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> dict:
     """
     Resumen rápido de la ruta del día: conteos por vitalidad.
     Retorna: {"total": N, "activos": N, "por_caer": N, "inactivos": N, "dia_semana": "Lunes"}
     """
-    cartera = build_cartera_json(sb, dist_id, id_vendedor, mode="hoy")
+    cartera = build_cartera_json(
+        sb, dist_id, id_vendedor, mode="hoy", pdv_erp_filter=pdv_erp_filter
+    )
     all_pdvs = [pdv for ruta in cartera["rutas"] for pdv in ruta["pdvs"]]
 
     activos = sum(1 for p in all_pdvs if p.get("vitalidad") == "activo")

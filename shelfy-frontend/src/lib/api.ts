@@ -3996,6 +3996,14 @@ export interface VendorDetalle {
   bultos_desglose_count?: number;
   compradores: { id_cliente_erp: string; razon_social: string }[];
   cartera?: VendorDetalleCartera;
+  asignacion_cartera?: {
+    pdv_count: number;
+    ruta_count: number;
+    desde_exhibiciones: number;
+    desde_ventas: number;
+    lookback_dias: number;
+    actualizado_at?: string;
+  };
 }
 
 export interface VendorDetalleCrrCliente {
@@ -4125,12 +4133,27 @@ export async function fetchEstadisticasCartas(
 export async function fetchEstadisticasVendedorDetalle(
   distId: number,
   vendedorId: string,
-  meses: string[]
+  meses: string[],
+  cuenta?: string | null,
 ): Promise<VendorDetalle> {
   const q = new URLSearchParams({ meses: meses.join(',') });
+  if (cuenta) q.set('cuenta', cuenta);
   return apiFetch<VendorDetalle>(
     `/api/estadisticas/vendedor/${distId}/${encodeURIComponent(vendedorId)}/detalle?${q.toString()}`
   );
+}
+
+export interface PatronCuenta {
+  id: string;
+  label: string;
+  integrante_ids?: number[];
+}
+
+export async function fetchPatronCuentas(
+  distId: number,
+  vendedorId: number,
+): Promise<{ patron_mode: boolean; cuentas: PatronCuenta[]; cuenta_default: string | null }> {
+  return apiFetch(`/api/estadisticas/patron-cuentas/${distId}/${vendedorId}`);
 }
 
 export async function fetchEstadisticasIdeal(

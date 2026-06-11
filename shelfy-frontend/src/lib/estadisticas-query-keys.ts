@@ -6,6 +6,6 @@ export const estadisticasKeys = {
   sucursales: (distId: number) => ['estadisticas', 'sucursales', distId] as const,
   cartas: (distId: number, meses: string[], sucursal: string | null) =>
     ['estadisticas', 'cartas', distId, [...meses].sort().join(','), sucursal] as const,
-  detalle: (distId: number, vendedorId: string, meses: string[]) =>
-    ['estadisticas', 'detalle', distId, vendedorId, [...meses].sort().join(',')] as const,
+  detalle: (distId: number, vendedorId: string, meses: string[], cuenta?: string | null) =>
+    ['estadisticas', 'detalle', distId, vendedorId, [...meses].sort().join(','), cuenta ?? ''] as const,
 };

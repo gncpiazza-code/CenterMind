@@ -104,13 +104,30 @@ def _fetch_exhibiciones_vendor(
     return rows
 
 
-def get_galeria_clientes_vendedor(sb: Client, dist_id: int, id_vendedor_v2: int) -> list[dict]:
+def _resolve_integrante_ids(
+    sb: Client,
+    dist_id: int,
+    id_vendedor_v2: int,
+    integrante_ids: list[int] | None = None,
+) -> list[int]:
+    if integrante_ids is not None:
+        return integrante_ids
+    return _get_vendor_integrante_ids(sb, dist_id, id_vendedor_v2)
+
+
+def get_galeria_clientes_vendedor(
+    sb: Client,
+    dist_id: int,
+    id_vendedor_v2: int,
+    *,
+    integrante_ids: list[int] | None = None,
+) -> list[dict]:
     """Lista PDVs de la cartera del vendedor con al menos 1 exhibición."""
-    integrante_ids = _get_vendor_integrante_ids(sb, dist_id, id_vendedor_v2)
-    if not integrante_ids:
+    ids = _resolve_integrante_ids(sb, dist_id, id_vendedor_v2, integrante_ids)
+    if not ids:
         return []
 
-    rows = _fetch_exhibiciones_vendor(sb, dist_id, integrante_ids)
+    rows = _fetch_exhibiciones_vendor(sb, dist_id, ids)
 
     logical: dict[str, set] = defaultdict(set)
     ultima: dict[str, str] = {}
@@ -177,14 +194,16 @@ def get_galeria_cliente_timeline(
     dist_id: int,
     id_vendedor_v2: int,
     id_cliente_erp: str,
+    *,
+    integrante_ids: list[int] | None = None,
 ) -> dict:
     """Timeline de exhibiciones de un PDV. Raises ValueError si el PDV no está en cartera."""
     erp_ids = _get_cartera_erp_ids(sb, dist_id, id_vendedor_v2)
     if id_cliente_erp not in erp_ids:
         raise ValueError("PDV no pertenece a la cartera del vendedor")
 
-    integrante_ids = _get_vendor_integrante_ids(sb, dist_id, id_vendedor_v2)
-    rows = _fetch_exhibiciones_vendor(sb, dist_id, integrante_ids, id_cliente_pdv=id_cliente_erp)
+    ids = _resolve_integrante_ids(sb, dist_id, id_vendedor_v2, integrante_ids)
+    rows = _fetch_exhibiciones_vendor(sb, dist_id, ids, id_cliente_pdv=id_cliente_erp)
     publicaciones = group_exhibiciones_publicaciones(rows)
 
     pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
@@ -217,11 +236,13 @@ def get_galeria_mapa_pins(
     dist_id: int,
     id_vendedor_v2: int,
     bbox: dict | None = None,
+    *,
+    integrante_ids: list[int] | None = None,
 ) -> list[dict]:
     """Pins del mapa con coords válidas. bbox={min_lat,max_lat,min_lng,max_lng}."""
-    integrante_ids = _get_vendor_integrante_ids(sb, dist_id, id_vendedor_v2)
+    ids = _resolve_integrante_ids(sb, dist_id, id_vendedor_v2, integrante_ids)
     erp_ids = _get_cartera_erp_ids(sb, dist_id, id_vendedor_v2)
-    if not integrante_ids or not erp_ids:
+    if not ids or not erp_ids:
         return []
 
     pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
@@ -247,7 +268,7 @@ def get_galeria_mapa_pins(
         pdvs.extend(q.execute().data or [])
 
     # Conteo lógico por PDV
-    rows = _fetch_exhibiciones_vendor(sb, dist_id, integrante_ids)
+    rows = _fetch_exhibiciones_vendor(sb, dist_id, ids)
     logical_days: dict[str, set] = defaultdict(set)
     for r in rows:
         cid = str(r.get("id_cliente_pdv") or "").strip()

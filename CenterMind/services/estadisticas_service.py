@@ -2431,10 +2431,41 @@ def _pdv_detalle_row(row: dict) -> dict:
     }
 
 
-def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> dict:
+def build_detalle_vendedor(
+    dist_id: int,
+    id_vendedor: str,
+    meses: list[str],
+    *,
+    integrante_ids: list[int] | None = None,
+) -> dict:
     """Lazy detail for expanded card: routes/days, altas, exhibiciones, bultos, compradores."""
     meses_set = set(meses)
     fecha_desde, fecha_hasta = _get_fecha_bounds(meses)
+
+    pdv_erp_filter: set[str] | None = None
+    asignacion_cartera: dict | None = None
+    if integrante_ids:
+        from services.vendedor_patron_cartera_service import (
+            infer_patron_cartera_scope,
+            list_team_integrante_ids,
+        )
+
+        try:
+            leader_vid = int(id_vendedor)
+        except (TypeError, ValueError):
+            leader_vid = 0
+        team_ids = list_team_integrante_ids(sb, dist_id, leader_vid) if leader_vid else []
+        inferred = infer_patron_cartera_scope(
+            sb,
+            dist_id,
+            leader_vid,
+            integrante_ids,
+            all_team_integrante_ids=team_ids,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+        )
+        pdv_erp_filter = inferred.get("erp_ids") or set()
+        asignacion_cartera = inferred.get("asignacion_cartera")
 
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
 
@@ -2474,6 +2505,19 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
 
         enrich_supervision_fechas_compra(dist_id, pdv_raw_rows)
 
+    if pdv_erp_filter is not None:
+        pdv_raw_rows = [
+            r
+            for r in pdv_raw_rows
+            if str(r.get("id_cliente_erp") or "").strip() in pdv_erp_filter
+        ]
+        pdvs_by_ruta = defaultdict(list)
+        for row in pdv_raw_rows:
+            rid = row.get("id_ruta")
+            if rid is None:
+                continue
+            pdvs_by_ruta[int(rid)].append(_pdv_detalle_row(row))
+
     rutas = []
     for r in rutas_base:
         rid = int(r["id_ruta"])
@@ -2483,6 +2527,8 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
                 (p.get("razon_social") or p.get("nombre_fantasia") or p.get("id_cliente_erp") or "").lower()
             ),
         )
+        if pdv_erp_filter is not None and not pdvs:
+            continue
         rutas.append({**r, "total_pdvs": len(pdvs), "pdvs": pdvs})
 
     rutas.sort(key=lambda x: (_dia_semana_sort_key(x.get("dia", "")), x.get("nombre", "")))
@@ -2516,7 +2562,7 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
 
     # Exhibiciones resumen
     vctx = _vendor_context(dist_id, id_vendedor)
-    int_ids = vctx["integrante_ids"]
+    int_ids = integrante_ids if integrante_ids else vctx["integrante_ids"]
     t_ex = tenant_table_name("exhibiciones", dist_id)
 
     ex_rows = []
@@ -2539,6 +2585,13 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     ventas_vend = _fetch_ventas_rows_vendedor(
         dist_id, vctx, fecha_desde, fecha_hasta
     )
+    if pdv_erp_filter is not None:
+        ventas_vend = [
+            r
+            for r in ventas_vend
+            if str(r.get("id_cliente_erp") or r.get("cod_cliente") or "").strip()
+            in pdv_erp_filter
+        ]
     bultos_top, bultos_desglose_raw = _build_bultos_desglose(ventas_vend, meses_set)
 
     comp_map: dict[str, str] = {}
@@ -2620,6 +2673,7 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
             "composicion": composicion,
             "crr": crr,
         },
+        **({"asignacion_cartera": asignacion_cartera} if asignacion_cartera else {}),
     }
 
 

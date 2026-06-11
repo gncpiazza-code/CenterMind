@@ -31,6 +31,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
+import { fetchPatronCuentas } from "@/lib/api";
 import { fmtBultos, fmtBultosUnidadesDesglose } from "@/lib/estadisticas-format";
 import { VendorCardRadar } from "./VendorCardRadar";
 import {
@@ -43,6 +44,10 @@ import {
   detalleQueryOptions,
   useEstadisticasWarmCache,
 } from "@/hooks/useEstadisticasQueries";
+import {
+  PatronCuentaSelector,
+  isPatronIvanSoto,
+} from "./PatronCuentaSelector";
 import {
   ESTADISTICAS_FIFA,
   detalleThemeForScore,
@@ -204,6 +209,18 @@ export function VendorCardExpanded({
   const layoutVars = tuningToCssVars(tuning);
   const { ref: radarWrapRef, height: radarHeight } = useElementHeight(tuning.radarMinHeight);
 
+  const patronMode = isPatronIvanSoto(distId, vendor.id_vendedor);
+  const [patronCuenta, setPatronCuenta] = useState<string | null>(null);
+  const { data: patronMeta } = useQuery({
+    queryKey: ["patron-cuentas", distId, vendor.id_vendedor],
+    queryFn: () => fetchPatronCuentas(distId, Number(vendor.id_vendedor)),
+    enabled: patronMode,
+    staleTime: 5 * 60_000,
+  });
+  const cuentaActiva = patronMode
+    ? patronCuenta ?? patronMeta?.cuenta_default ?? null
+    : null;
+
   const vendorIdx = vendors.findIndex((v) => v.id_vendedor === vendor.id_vendedor);
   const prevVendor = vendors[vendorIdx - 1] ?? null;
   const nextVendor = vendors[vendorIdx + 1] ?? null;
@@ -215,7 +232,7 @@ export function VendorCardExpanded({
   useEstadisticasWarmCache(queryClient, distId, meses, neighborIds);
 
   const { data: detalle, isLoading, isError, refetch } = useQuery(
-    detalleQueryOptions(distId, vendor.id_vendedor, meses),
+    detalleQueryOptions(distId, vendor.id_vendedor, meses, cuentaActiva),
   );
 
   const sidebarKpis = useSidebarKpis(
@@ -342,6 +359,23 @@ export function VendorCardExpanded({
                       {vendor.sucursal && (
                         <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "3px 0 0", fontWeight: 500 }}>
                           {vendor.sucursal}
+                        </p>
+                      )}
+                      {patronMode && (
+                        <div style={{ marginTop: 8 }}>
+                          <PatronCuentaSelector
+                            distId={distId}
+                            vendedorId={vendor.id_vendedor}
+                            value={patronCuenta}
+                            onChange={setPatronCuenta}
+                          />
+                        </div>
+                      )}
+                      {detalle?.asignacion_cartera && (
+                        <p style={{ fontSize: 10, color: "var(--shelfy-muted)", margin: "6px 0 0", lineHeight: 1.35 }}>
+                          Cartera inferida: {detalle.asignacion_cartera.pdv_count} PDVs ·{" "}
+                          {detalle.asignacion_cartera.ruta_count} rutas · ventana{" "}
+                          {detalle.asignacion_cartera.lookback_dias}d
                         </p>
                       )}
                     </div>

@@ -17,6 +17,8 @@ def get_ventas_vendedor(
     dist_id: int,
     id_vendedor_v2: int,
     modo: str = "mtd",
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> dict:
     """Ventas MTD del vendedor agrupadas por PDV, con bultos y top compradores."""
     from services.estadisticas_service import (
@@ -58,6 +60,8 @@ def get_ventas_vendedor(
     total_facturas = 0
     for r in rows:
         cid = str(r.get("id_cliente_erp") or r.get("cod_cliente") or "").strip()
+        if pdv_erp_filter is not None and cid not in pdv_erp_filter:
+            continue
         bultos = float(r.get("bultos_total") or 0)
         unidades = float(r.get("unidades_total") or 0)
         pdv_agg[cid]["bultos"] += bultos

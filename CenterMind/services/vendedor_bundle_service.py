@@ -13,7 +13,15 @@ logger = logging.getLogger("ShelfyAPI")
 AR_TZ = timezone(timedelta(hours=-3))
 
 
-def get_offline_bundle(sb: Client, dist_id: int, id_vendedor_v2: int) -> dict:
+def get_offline_bundle(
+    sb: Client,
+    dist_id: int,
+    id_vendedor_v2: int,
+    *,
+    integrante_ids: list[int] | None = None,
+    ranking_nombre: str | None = None,
+    pdv_erp_filter: set[str] | None = None,
+) -> dict:
     """
     Bundle completo para cache offline: cartera_hoy + objetivos + stats + exhibiciones recientes.
     Pensado para sincronizar al arrancar la app y trabajar sin red.
@@ -26,7 +34,9 @@ def get_offline_bundle(sb: Client, dist_id: int, id_vendedor_v2: int) -> dict:
 
     # Cartera del día (ruta hoy)
     try:
-        cartera_hoy = build_cartera_json(sb, dist_id, id_vendedor_v2, mode="hoy")
+        cartera_hoy = build_cartera_json(
+            sb, dist_id, id_vendedor_v2, mode="hoy", pdv_erp_filter=pdv_erp_filter
+        )
     except Exception as e:
         logger.warning(f"bundle cartera dist={dist_id} vendor={id_vendedor_v2}: {e}")
         cartera_hoy = {"mode": "hoy", "snapshot_label": None, "rutas": []}
@@ -40,7 +50,13 @@ def get_offline_bundle(sb: Client, dist_id: int, id_vendedor_v2: int) -> dict:
 
     # Stats mes actual
     try:
-        stats = get_stats_vendedor_app(sb, dist_id, id_vendedor_v2)
+        stats = get_stats_vendedor_app(
+            sb,
+            dist_id,
+            id_vendedor_v2,
+            integrante_ids=integrante_ids,
+            ranking_nombre=ranking_nombre,
+        )
     except Exception as e:
         logger.warning(f"bundle stats dist={dist_id} vendor={id_vendedor_v2}: {e}")
         stats = {}
@@ -48,21 +64,24 @@ def get_offline_bundle(sb: Client, dist_id: int, id_vendedor_v2: int) -> dict:
     # Últimas 20 exhibiciones del vendedor
     exhibiciones_recientes: list[dict] = []
     try:
-        integrantes_res = (
-            sb.table("integrantes_grupo")
-            .select("id_integrante")
-            .eq("id_distribuidor", dist_id)
-            .eq("id_vendedor_v2", id_vendedor_v2)
-            .execute()
-        )
-        integrante_ids = [r["id_integrante"] for r in (integrantes_res.data or [])]
-        if integrante_ids:
+        if integrante_ids is None:
+            integrantes_res = (
+                sb.table("integrantes_grupo")
+                .select("id_integrante")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor_v2", id_vendedor_v2)
+                .execute()
+            )
+            scope_ids = [r["id_integrante"] for r in (integrantes_res.data or [])]
+        else:
+            scope_ids = integrante_ids
+        if scope_ids:
             exh_table = tenant_table_name("exhibiciones", dist_id)
             rows = (
                 sb.table(exh_table)
                 .select(EXHIBICION_ROW_COLS + ",timestamp_subida")
                 .eq("id_distribuidor", dist_id)
-                .in_("id_integrante", integrante_ids)
+                .in_("id_integrante", scope_ids)
                 .order("timestamp_subida", desc=True)
                 .limit(20)
                 .execute().data or []

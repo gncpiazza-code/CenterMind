@@ -184,13 +184,21 @@ def activate_key(
 
     # Paso 7: retornar
     branding = _fetch_branding(sb, id_distribuidor)
+    from core.vendedor_app_patron_scope import list_patron_cuentas
+
+    cuentas = list_patron_cuentas(sb, id_distribuidor, id_vendedor)
     logger.info(f"Dispositivo activado: key_id={key_id} device={device_id} vendor={id_vendedor}")
-    return {
+    payload = {
         "session_token": session_token,
         "id_vendedor": id_vendedor,
         "id_distribuidor": id_distribuidor,
         "branding": branding,
     }
+    if cuentas:
+        payload["patron_mode"] = True
+        payload["cuentas"] = cuentas
+        payload["cuenta_default"] = cuentas[0]["id"]
+    return payload
 
 
 def register_device(

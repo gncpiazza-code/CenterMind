@@ -62,10 +62,11 @@ export function detalleQueryOptions(
   distId: number,
   vendedorId: string,
   meses: string[],
+  cuenta?: string | null,
 ) {
   return {
-    queryKey: estadisticasKeys.detalle(distId, vendedorId, meses),
-    queryFn: () => fetchEstadisticasVendedorDetalle(distId, vendedorId, meses),
+    queryKey: estadisticasKeys.detalle(distId, vendedorId, meses, cuenta),
+    queryFn: () => fetchEstadisticasVendedorDetalle(distId, vendedorId, meses, cuenta),
     enabled: distId > 0 && !!vendedorId && meses.length > 0,
     staleTime: ESTADISTICAS_DETALLE_STALE,
     gcTime: ESTADISTICAS_GC_MS,

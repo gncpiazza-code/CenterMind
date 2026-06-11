@@ -135,6 +135,9 @@ def get_stats_vendedor_app(
     sb: Client,
     dist_id: int,
     id_vendedor_v2: int,
+    *,
+    integrante_ids: list[int] | None = None,
+    ranking_nombre: str | None = None,
 ) -> dict:
     """
     Estadísticas del vendedor para la app móvil.
@@ -165,19 +168,21 @@ def get_stats_vendedor_app(
 
     inicio_anterior, fin_anterior = _mes_bounds_ar(year_anterior, mes_anterior)
 
-    # Obtener integrantes del vendedor
-    integrantes_res = (
-        sb.table("integrantes_grupo")
-        .select("id_integrante,nombre_integrante")
-        .eq("id_distribuidor", dist_id)
-        .eq("id_vendedor_v2", id_vendedor_v2)
-        .execute()
-    )
-    integrante_ids = [r["id_integrante"] for r in (integrantes_res.data or [])]
-    # Nombre del vendedor para el ranking (primer integrante)
-    vendor_nombre: str | None = None
-    if integrantes_res.data:
-        vendor_nombre = str(integrantes_res.data[0].get("nombre_integrante") or f"vendor_{id_vendedor_v2}").strip()
+    # Integrantes del scope (patrón multi-cuenta o vendedor único)
+    vendor_nombre: str | None = ranking_nombre
+    if integrante_ids is None:
+        integrantes_res = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante,nombre_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor_v2)
+            .execute()
+        )
+        integrante_ids = [r["id_integrante"] for r in (integrantes_res.data or [])]
+        if vendor_nombre is None and integrantes_res.data:
+            vendor_nombre = str(
+                integrantes_res.data[0].get("nombre_integrante") or f"vendor_{id_vendedor_v2}"
+            ).strip()
 
     # ── Stats mes actual ───────────────────────────────────────────────────────
     rows_actual = _fetch_exhibiciones_for_vendor(
@@ -248,13 +253,22 @@ def get_stats_full_vendedor_app(
     sb: Client,
     dist_id: int,
     id_vendedor_v2: int,
+    *,
+    integrante_ids: list[int] | None = None,
+    ranking_nombre: str | None = None,
 ) -> dict:
     """
     Stats full con delta de ranking vs. mes anterior.
     Wrapper de get_stats_vendedor_app + delta calculado.
     Delta: posicion_actual - posicion_anterior (negativo = subió en ranking)
     """
-    base = get_stats_vendedor_app(sb, dist_id, id_vendedor_v2)
+    base = get_stats_vendedor_app(
+        sb,
+        dist_id,
+        id_vendedor_v2,
+        integrante_ids=integrante_ids,
+        ranking_nombre=ranking_nombre,
+    )
 
     now_ar = datetime.now(AR_TZ)
     if now_ar.month == 1:
@@ -271,17 +285,18 @@ def get_stats_full_vendedor_app(
         ranking_prev = aggregate_ranking_by_vendor(all_rows_prev, iid_to_erp)
         ranking_prev_sorted = sorted(ranking_prev.items(), key=lambda x: x[1].get("puntos", 0), reverse=True)
 
-        integrantes_res = (
-            sb.table("integrantes_grupo")
-            .select("nombre_integrante")
-            .eq("id_distribuidor", dist_id)
-            .eq("id_vendedor_v2", id_vendedor_v2)
-            .limit(1)
-            .execute()
-        )
-        vendor_nombre = None
-        if integrantes_res.data:
-            vendor_nombre = str(integrantes_res.data[0].get("nombre_integrante") or "").strip()
+        vendor_nombre = ranking_nombre
+        if vendor_nombre is None:
+            integrantes_res = (
+                sb.table("integrantes_grupo")
+                .select("nombre_integrante")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor_v2", id_vendedor_v2)
+                .limit(1)
+                .execute()
+            )
+            if integrantes_res.data:
+                vendor_nombre = str(integrantes_res.data[0].get("nombre_integrante") or "").strip()
 
         if vendor_nombre:
             pos_prev = None

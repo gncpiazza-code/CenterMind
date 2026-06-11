@@ -32,7 +32,20 @@ class ApiClient {
   String? _deviceId;
   void Function()? _onUnauthorized;
 
+  String? _cuentaId;
+
   ApiClient({String? baseUrl}) : _baseUrlOverride = baseUrl;
+
+  /// Cuenta activa del patrón (query param `cuenta` en endpoints móviles).
+  void setCuentaId(String? cuentaId) {
+    _cuentaId = (cuentaId != null && cuentaId.isNotEmpty) ? cuentaId : null;
+  }
+
+  String scopedPath(String path) {
+    if (_cuentaId == null) return path;
+    final sep = path.contains('?') ? '&' : '?';
+    return '$path${sep}cuenta=${Uri.encodeQueryComponent(_cuentaId!)}';
+  }
 
   /// Registra callback que se invoca cuando el servidor responde 401.
   void setUnauthorizedCallback(void Function() callback) {
@@ -152,7 +165,7 @@ class ApiClient {
   /// GET a un path relativo al baseUrl.
   Future<Map<String, dynamic>> get(String path) async {
     final response = await _send(
-      () => http.get(_uri(path), headers: _headers()),
+      () => http.get(_uri(scopedPath(path)), headers: _headers()),
     );
     return _handleResponse(response);
   }

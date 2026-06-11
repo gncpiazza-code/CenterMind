@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from core.security import verify_auth, check_dist_permission
 from core.vendedor_app_auth import decode_session_jwt
+from core.vendedor_app_patron_scope import resolve_patron_scope, resolve_patron_cartera_filter, list_patron_cuentas
 from core.pdv_proximity import pdvs_cercanos_cartera, pdv_buscar_texto
 from services.vendedor_pendientes_service import registrar_pdv_pendiente, listar_pdv_pendientes
 from services.vendedor_app_auth_service import (
@@ -78,6 +79,24 @@ async def vendedor_session_dep(authorization: str = Header(None)) -> dict:
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=401, detail="Formato inválido. Usa: Authorization: Bearer <token>")
     return decode_session_jwt(token)
+
+
+async def patron_scope_dep(
+    session: dict = Depends(vendedor_session_dep),
+    cuenta: str | None = Query(
+        None,
+        description="Cuenta activa del patrón (ej. monchi, jorge_coronel). Solo keys de patrón.",
+    ),
+) -> dict:
+    """Scope efectivo: integrantes filtrados si el vendedor es patrón multi-cuenta."""
+    scope = resolve_patron_scope(
+        sb,
+        int(session["dist"]),
+        int(session["vendor"]),
+        cuenta,
+    )
+    scope["session"] = session
+    return scope
 
 
 # ─── Modelos Pydantic ─────────────────────────────────────────────────────────
@@ -162,6 +181,19 @@ def auth_activate(body: ActivateKeyRequest):
         app_version=body.app_version,
     )
     return result
+
+
+@router.get(
+    "/session/cuentas",
+    summary="Cuentas disponibles para patrón (switch Monchi / Jorge / etc.)",
+)
+def get_session_cuentas(session: dict = Depends(vendedor_session_dep)):
+    scope = resolve_patron_scope(sb, int(session["dist"]), int(session["vendor"]), None)
+    return {
+        "patron_mode": scope["patron_mode"],
+        "cuentas": scope["cuentas"],
+        "cuenta_default": scope["cuentas"][0]["id"] if scope["cuentas"] else None,
+    }
 
 
 # ─── Endpoints de sesión (requieren JWT vendedor_app) ────────────────────────
@@ -482,16 +514,28 @@ async def post_exhibicion_batch_multipart(
     response_model=StatsOut,
     summary="Estadísticas de exhibiciones del vendedor (mes actual y anterior + ranking)",
 )
-def get_stats(session: dict = Depends(vendedor_session_dep)):
+def get_stats(scope: dict = Depends(patron_scope_dep)):
+    session = scope["session"]
     dist_id: int = int(session["dist"])
     id_vendedor_v2: int = int(session["vendor"])
 
     try:
-        stats = get_stats_vendedor_app(sb, dist_id=dist_id, id_vendedor_v2=id_vendedor_v2)
+        stats = get_stats_vendedor_app(
+            sb,
+            dist_id=dist_id,
+            id_vendedor_v2=id_vendedor_v2,
+            integrante_ids=scope.get("integrante_ids"),
+            ranking_nombre=scope.get("ranking_nombre"),
+        )
     except Exception as e:
         logger.error(f"get_stats dist={dist_id} vendor={id_vendedor_v2}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo estadísticas")
 
+    if scope.get("patron_mode"):
+        stats["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
     return stats
 
 
@@ -524,20 +568,37 @@ def get_objetivos(session: dict = Depends(vendedor_session_dep)):
 )
 def get_cartera(
     mode: str = Query("general", description="'hoy' para rutas del día | 'general' para toda la semana"),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
     if mode not in ("hoy", "general"):
         raise HTTPException(status_code=400, detail="mode debe ser 'hoy' o 'general'")
 
+    session = scope["session"]
     dist_id: int = int(session["dist"])
     id_vendedor_v2: int = int(session["vendor"])
 
     try:
-        cartera = build_cartera_json(sb, dist_id=dist_id, id_vendedor=id_vendedor_v2, mode=mode)
+        erp_filter, asignacion = resolve_patron_cartera_filter(
+            sb, dist_id, id_vendedor_v2, scope
+        )
+        cartera = build_cartera_json(
+            sb,
+            dist_id=dist_id,
+            id_vendedor=id_vendedor_v2,
+            mode=mode,
+            pdv_erp_filter=erp_filter,
+        )
     except Exception as e:
         logger.error(f"get_cartera dist={dist_id} vendor={id_vendedor_v2} mode={mode}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo cartera")
 
+    if scope.get("patron_mode"):
+        cartera["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+        if asignacion:
+            cartera["asignacion_cartera"] = asignacion
     return cartera
 
 
@@ -654,22 +715,36 @@ from services.vendedor_objetivos_service import get_objetivo_detalle
 
 
 @router.get("/stats/full", summary="Stats full con delta de ranking")
-def get_stats_full(session: dict = Depends(vendedor_session_dep)):
+def get_stats_full(scope: dict = Depends(patron_scope_dep)):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return get_stats_full_vendedor_app(sb, dist_id, vendor_id)
+        result = get_stats_full_vendedor_app(
+            sb,
+            dist_id,
+            vendor_id,
+            integrante_ids=scope.get("integrante_ids"),
+            ranking_nombre=scope.get("ranking_nombre"),
+        )
     except Exception as e:
         logger.error(f"get_stats_full dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo stats full")
+    if scope.get("patron_mode"):
+        result["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+    return result
 
 
 @router.get("/ranking", summary="Ranking completo del mes")
 def get_ranking(
     year: int = Query(None, description="Año (default: mes actual)"),
     month: int = Query(None, description="Mes 1-12 (default: mes actual)"),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     from datetime import datetime, timezone, timedelta
@@ -680,21 +755,46 @@ def get_ranking(
     if not (1 <= m <= 12):
         raise HTTPException(status_code=400, detail="Mes inválido (1-12)")
     try:
-        return get_ranking_vendedor_app(sb, dist_id, vendor_id, y, m)
+        result = get_ranking_vendedor_app(
+            sb,
+            dist_id,
+            vendor_id,
+            y,
+            m,
+            ranking_nombre=scope.get("ranking_nombre"),
+        )
     except Exception as e:
         logger.error(f"get_ranking dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo ranking")
+    if scope.get("patron_mode"):
+        result["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+    return result
 
 
 @router.get("/cartera/ruta-hoy", summary="Resumen de la ruta del día actual")
-def get_ruta_hoy(session: dict = Depends(vendedor_session_dep)):
+def get_ruta_hoy(scope: dict = Depends(patron_scope_dep)):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return get_ruta_hoy_summary(sb, dist_id, vendor_id)
+        erp_filter, asignacion = resolve_patron_cartera_filter(sb, dist_id, vendor_id, scope)
+        result = get_ruta_hoy_summary(
+            sb, dist_id, vendor_id, pdv_erp_filter=erp_filter
+        )
     except Exception as e:
         logger.error(f"get_ruta_hoy dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo ruta hoy")
+    if scope.get("patron_mode"):
+        result["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+        if asignacion:
+            result["asignacion_cartera"] = asignacion
+    return result
 
 
 @router.get("/objetivos/{objetivo_id}", summary="Detalle de un objetivo específico")
@@ -750,11 +850,29 @@ from services.vendedor_bundle_service import get_offline_bundle
 
 
 @router.get("/galeria/clientes", summary="Galería: PDVs con exhibiciones del vendedor")
-def get_galeria_clientes(session: dict = Depends(vendedor_session_dep)):
+def get_galeria_clientes(scope: dict = Depends(patron_scope_dep)):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return {"clientes": get_galeria_clientes_vendedor(sb, dist_id, vendor_id)}
+        return {
+            "clientes": get_galeria_clientes_vendedor(
+                sb,
+                dist_id,
+                vendor_id,
+                integrante_ids=scope.get("integrante_ids"),
+            ),
+            **(
+                {
+                    "cuenta_activa": {
+                        "id": scope["cuenta_id"],
+                        "label": scope["cuenta_label"],
+                    }
+                }
+                if scope.get("patron_mode")
+                else {}
+            ),
+        }
     except Exception as e:
         logger.error(f"get_galeria_clientes dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error galería clientes")
@@ -763,12 +881,19 @@ def get_galeria_clientes(session: dict = Depends(vendedor_session_dep)):
 @router.get("/galeria/cliente/{id_cliente_erp}/timeline", summary="Timeline de exhibiciones de un PDV")
 def get_galeria_timeline(
     id_cliente_erp: str,
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return get_galeria_cliente_timeline(sb, dist_id, vendor_id, id_cliente_erp)
+        return get_galeria_cliente_timeline(
+            sb,
+            dist_id,
+            vendor_id,
+            id_cliente_erp,
+            integrante_ids=scope.get("integrante_ids"),
+        )
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
@@ -782,15 +907,24 @@ def get_galeria_mapa(
     max_lat: float = Query(None),
     min_lng: float = Query(None),
     max_lng: float = Query(None),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     bbox = None
     if all(x is not None for x in [min_lat, max_lat, min_lng, max_lng]):
         bbox = {"min_lat": min_lat, "max_lat": max_lat, "min_lng": min_lng, "max_lng": max_lng}
     try:
-        return {"pins": get_galeria_mapa_pins(sb, dist_id, vendor_id, bbox)}
+        return {
+            "pins": get_galeria_mapa_pins(
+                sb,
+                dist_id,
+                vendor_id,
+                bbox,
+                integrante_ids=scope.get("integrante_ids"),
+            )
+        }
     except Exception as e:
         logger.error(f"get_galeria_mapa dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error mapa galería")
@@ -799,15 +933,27 @@ def get_galeria_mapa(
 @router.get("/ventas", summary="Ventas MTD del vendedor")
 def get_ventas(
     modo: str = Query("mtd"),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return get_ventas_vendedor(sb, dist_id, vendor_id, modo)
+        erp_filter, asignacion = resolve_patron_cartera_filter(sb, dist_id, vendor_id, scope)
+        result = get_ventas_vendedor(
+            sb, dist_id, vendor_id, modo, pdv_erp_filter=erp_filter
+        )
     except Exception as e:
         logger.error(f"get_ventas dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo ventas")
+    if scope.get("patron_mode"):
+        result["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+        if asignacion:
+            result["asignacion_cartera"] = asignacion
+    return result
 
 
 @router.get("/ventas/pdf", summary="PDF de ventas MTD del vendedor")
@@ -825,15 +971,27 @@ def get_ventas_pdf(session: dict = Depends(vendedor_session_dep)):
 @router.get("/cc", summary="Cuentas corrientes del vendedor")
 def get_cc(
     modo: str = Query("general", description="'hoy' para vencimientos hoy | 'general' para todo"),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return get_cc_vendedor(sb, dist_id, vendor_id, modo)
+        erp_filter, asignacion = resolve_patron_cartera_filter(sb, dist_id, vendor_id, scope)
+        result = get_cc_vendedor(
+            sb, dist_id, vendor_id, modo, pdv_erp_filter=erp_filter
+        )
     except Exception as e:
         logger.error(f"get_cc dist={dist_id} vendor={vendor_id} modo={modo}: {e}")
         raise HTTPException(status_code=500, detail="Error obteniendo CC")
+    if scope.get("patron_mode"):
+        result["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+        if asignacion:
+            result["asignacion_cartera"] = asignacion
+    return result
 
 
 @router.get("/cc/pdf", summary="PDF de cuentas corrientes del vendedor")
@@ -863,14 +1021,32 @@ def get_post_upload_summary_endpoint(
 
 
 @router.get("/bundle", summary="Bundle offline completo para la app")
-def get_bundle(session: dict = Depends(vendedor_session_dep)):
+def get_bundle(scope: dict = Depends(patron_scope_dep)):
+    session = scope["session"]
     dist_id = int(session["dist"])
     vendor_id = int(session["vendor"])
     try:
-        return get_offline_bundle(sb, dist_id, vendor_id)
+        erp_filter, asignacion = resolve_patron_cartera_filter(
+            sb, dist_id, vendor_id, scope
+        )
+        result = get_offline_bundle(
+            sb,
+            dist_id,
+            vendor_id,
+            integrante_ids=scope.get("integrante_ids"),
+            ranking_nombre=scope.get("ranking_nombre"),
+            pdv_erp_filter=erp_filter,
+        )
     except Exception as e:
         logger.error(f"get_bundle dist={dist_id} vendor={vendor_id}: {e}")
         raise HTTPException(status_code=500, detail="Error generando bundle offline")
+    if scope.get("patron_mode") and asignacion:
+        result["asignacion_cartera"] = asignacion
+        result["cuenta_activa"] = {
+            "id": scope["cuenta_id"],
+            "label": scope["cuenta_label"],
+        }
+    return result
 
 
 # ─── Estadísticas KPI (resumen 7 indicadores) ────────────────────────────────

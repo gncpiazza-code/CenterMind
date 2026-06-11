@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
 import '../offline/bundle_cache.dart';
 import '../platform/app_platform.dart';
+import 'patron_cuenta_model.dart';
 import 'secure_storage.dart';
 import 'session_model.dart';
 
@@ -45,8 +46,45 @@ class AuthService extends ChangeNotifier {
         jwt: _currentSession!.jwt,
         deviceId: _currentSession!.deviceId,
       );
+      _api.setCuentaId(_currentSession!.selectedCuentaId);
+      if (_currentSession!.patronMode && _currentSession!.cuentas.isEmpty) {
+        await _hydratePatronCuentas();
+      }
     }
     notifyListeners();
+  }
+
+  Future<void> _hydratePatronCuentas() async {
+    try {
+      final data = await _api.get('/api/vendedor-app/session/cuentas');
+      final rawCuentas = data['cuentas'];
+      final cuentas = <PatronCuenta>[];
+      if (rawCuentas is List) {
+        for (final item in rawCuentas) {
+          if (item is Map<String, dynamic>) {
+            cuentas.add(PatronCuenta.fromJson(item));
+          } else if (item is Map) {
+            cuentas.add(PatronCuenta.fromJson(Map<String, dynamic>.from(item)));
+          }
+        }
+      }
+      if (cuentas.isEmpty || _currentSession == null) return;
+      final defaultId = data['cuenta_default'] as String? ?? cuentas.first.id;
+      final selected = _currentSession!.selectedCuentaId;
+      final updated = _currentSession!.copyWith(
+        patronMode: data['patron_mode'] as bool? ?? true,
+        cuentas: cuentas,
+        selectedCuentaId:
+            (selected != null && cuentas.any((c) => c.id == selected))
+                ? selected
+                : defaultId,
+      );
+      await SecureStorageService.saveSession(updated);
+      _currentSession = updated;
+      _api.setCuentaId(updated.selectedCuentaId);
+    } catch (_) {
+      // Sin backend nuevo: app sigue en modo vendedor único.
+    }
   }
 
   /// Activa el dispositivo con una API key (formato: sapp_{key_id}_{random32}).
@@ -75,19 +113,51 @@ class AuthService extends ChangeNotifier {
       );
     }
 
+    final rawCuentas = response['cuentas'];
+    final cuentas = <PatronCuenta>[];
+    if (rawCuentas is List) {
+      for (final item in rawCuentas) {
+        if (item is Map<String, dynamic>) {
+          cuentas.add(PatronCuenta.fromJson(item));
+        } else if (item is Map) {
+          cuentas.add(PatronCuenta.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+    }
+    final patronMode =
+        response['patron_mode'] as bool? ?? cuentas.isNotEmpty;
+    final defaultCuenta = response['cuenta_default'] as String? ??
+        (cuentas.isNotEmpty ? cuentas.first.id : null);
+
     final session = SessionData(
       jwt: token,
       idDistribuidor: _readInt(response['id_distribuidor'], 'id_distribuidor'),
       idVendedor: _readInt(response['id_vendedor'], 'id_vendedor'),
       deviceId: deviceId,
       branding: _readBranding(response['branding']),
+      patronMode: patronMode,
+      cuentas: cuentas,
+      selectedCuentaId: defaultCuenta,
     );
 
     await SecureStorageService.saveSession(session);
     _currentSession = session;
     _api.setAuth(jwt: session.jwt, deviceId: session.deviceId);
+    _api.setCuentaId(session.selectedCuentaId);
     notifyListeners();
     return session;
+  }
+
+  /// Cambia la cuenta activa del patrón y persiste la preferencia.
+  Future<void> setSelectedCuenta(String cuentaId) async {
+    final session = _currentSession;
+    if (session == null || !session.patronMode) return;
+    if (!session.cuentas.any((c) => c.id == cuentaId)) return;
+    final updated = session.copyWith(selectedCuentaId: cuentaId);
+    await SecureStorageService.saveSession(updated);
+    _currentSession = updated;
+    _api.setCuentaId(cuentaId);
+    notifyListeners();
   }
 
   /// Cierra sesión: elimina token, cache bundle y limpia estado.
@@ -96,6 +166,7 @@ class AuthService extends ChangeNotifier {
     await BundleCache.clear();
     _currentSession = null;
     _api.clearAuth();
+    _api.setCuentaId(null);
     notifyListeners();
   }
 

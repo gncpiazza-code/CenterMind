@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 11 Jun 2026 (v27 — Avance Ventas refactor auditoría)  
+**Última actualización:** 11 Jun 2026 (v28 — Avance Ventas UX carrusel + switch volumen)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -30,7 +30,8 @@
 
 ## Cambios recientes (máx 5)
 
-1. **Avance Ventas refactor (2026-06-11):** Catálogo SKU 12m con/sin venta; switch bultos+unidades; carrusel gráficos (cobertura reemplaza agrupación); auditoría cliente×SKU (monoproducto/mix/drill inverso); tooltips KPI `(?)`; nombres SKU sin truncar; badge sync OK + último intento; 37 tests pytest; ver `docs/context/modules/supervision-avance-ventas.md`.
+1. **Avance Ventas UX (2026-06-11, f70b939):** Barra volumen prominente (Bultos | Bultos + unidades); carrusel único «Análisis visual» (sin chips insight ni grilla de 5 charts); `por_agrupacion` eliminado del API; cobertura SKU con fallback FE.
+2. **Avance Ventas refactor (2026-06-11, aaebf33):** Catálogo SKU 12m; auditoría cliente×SKU; tooltips KPI; badge sync OK + último intento; 37 tests pytest; `docs/context/modules/supervision-avance-ventas.md`.
 2. **Supervisión Avance de Ventas (2026-06-10):** Modo `/supervision` alternable con CC — volumen sin $ desde `ventas_enriched_v2`; periodos día/semana/mes + WoW/MoM; panel analytics inicial + drill SKU lazy.
 2. **Topbar brand sweep (2026-06-10):** Animación desktop — ícono L→R hacia Evaluar, huella SHELFY debajo, rebote spring y tapa texto; loop 30s.
 2. **SHELFYAPP Captura Burst Apple (2026-06-10):** Flujo burst photos-first — `onPhotoTaken()` nunca abre sheet; botón "Listo" (≥1 foto) → `assignPdv`; filmstrip Z2 sobre shutter; GPS chip top (nunca center); memoria ingreso (`CapturePdvMemory` SharedPreferences) con countdown 5s auto-avance; fallback cámara nativa Android gama baja (`NativeCaptureService` + `DeviceProfile.shouldUseNativeCamera()`) + toggle en `SettingsScreen`; GPS metadata cacheado (sin petición GPS por disparo); zoom badge top-right (no center); skill `capture-vendedor-auditor`; `flutter analyze lib/features/capture/` 0 errores/warnings.

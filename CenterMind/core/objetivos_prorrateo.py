@@ -171,6 +171,7 @@ def build_prorrateo_grid(obj: dict, visual_actual: float | None = None) -> dict 
         return None
 
     actual = max(float(obj.get("valor_actual") or 0), float(visual_actual or 0))
+    valor_actual_db = float(obj.get("valor_actual") or 0)
 
     desglose = obj.get("desglose_cache") or obj.get("desglose") or {}
     if isinstance(desglose, str):
@@ -266,7 +267,19 @@ def build_prorrateo_grid(obj: dict, visual_actual: float | None = None) -> dict 
         })
 
     suma_progreso = sum(progreso_diario.values())
-    invariante_ok = suma_progreso == actual or actual == 0
+    tipo = (obj.get("tipo") or "").strip()
+    invariante_ok = (
+        not has_real
+        or valor_actual_db == 0
+        or abs(suma_progreso - valor_actual_db) <= 0.01
+        or (tipo == "exhibicion" and suma_progreso > 0 and suma_progreso <= valor_actual_db)
+    )
+    needs_sync = (
+        has_real
+        and not invariante_ok
+        and valor_actual_db > 0
+        and tipo != "exhibicion"
+    )
 
     total_dias_validos = len(dias_validos)
     dias_hasta_hoy = sum(1 for d in dias_validos if d["is_past"] and not d["is_today"])
@@ -290,6 +303,7 @@ def build_prorrateo_grid(obj: dict, visual_actual: float | None = None) -> dict 
         "dias_validos": total_dias_validos,
         "label": label,
         "invariante_ok": invariante_ok,
+        "needs_progreso_diario_sync": needs_sync,
         "avance_vs_meta": round(avance_vs_meta, 2),
         "meta_acumulada": meta_acumulada,
     }

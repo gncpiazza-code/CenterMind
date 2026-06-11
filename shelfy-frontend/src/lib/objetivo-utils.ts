@@ -58,9 +58,11 @@ export interface ProrrateoGridData {
   futuros: number;
   diasValidos: number;
   label: string;
-  /** true si sum(progreso_diario) === valor_actual o valor_actual === 0 */
+  /** true si sum(progreso_diario) cuadra con valor_actual (con tolerancia exhibición) */
   invarianteOk: boolean;
-  /** diferencia entre valor_actual y meta acumulada hasta hoy (positivo = adelantado, negativo = atrasado) */
+  /** Desincronización fuerte: avisar recalc manual, no bloquear calendario */
+  needsProgresoDiarioSync: boolean;
+  /** diferencia entre valor_actual y meta acumulada hasta hoy */
   avanceVsMeta: number;
   /** meta acumulada esperada hasta hoy según días hábiles pasados */
   metaAcumulada: number;
@@ -416,10 +418,22 @@ export function buildProrrateoGrid(
       };
     });
 
-  // Verificar invariante: sum(progreso_diario) === valor_actual
+  // Verificar invariante: progreso_diario vs valor_actual en DB (no visualActual).
+  // Exhibición: valor_actual puede incluir fotos pendientes no desglosadas por día.
+  const valorActualDb = Number(obj.valor_actual ?? 0);
   const sumaProgreso = Object.values(progresoDiario).reduce((a, b) => a + b, 0);
-  const valorActual = actual;
-  const invarianteOk = sumaProgreso === valorActual || valorActual === 0;
+  const invarianteOk =
+    !hasReal ||
+    valorActualDb === 0 ||
+    Math.abs(sumaProgreso - valorActualDb) <= 0.01 ||
+    (obj.tipo === "exhibicion" && sumaProgreso > 0 && sumaProgreso <= valorActualDb);
+
+  /** true si falta progreso_diario pero hay avance — datos del listado, no job en curso */
+  const needsProgresoDiarioSync =
+    hasReal &&
+    !invarianteOk &&
+    valorActualDb > 0 &&
+    obj.tipo !== "exhibicion";
 
   // Badge atraso/avance: meta acumulada hasta hoy (días hábiles pasados, sin incluir hoy)
   const totalDiasValidos = diasValidos.length;
@@ -428,7 +442,7 @@ export function buildProrrateoGrid(
     totalDiasValidos > 0
       ? Math.round((diasHastaHoy / totalDiasValidos) * (meta))
       : 0;
-  const avanceVsMeta = valorActual - metaAcumulada;
+  const avanceVsMeta = actual - metaAcumulada;
 
   return {
     semanas,
@@ -441,6 +455,7 @@ export function buildProrrateoGrid(
         ? "Prorrateo mensual (lun–sáb)"
         : "Prorrateo por período (lun–sáb)",
     invarianteOk,
+    needsProgresoDiarioSync,
     avanceVsMeta,
     metaAcumulada,
   };

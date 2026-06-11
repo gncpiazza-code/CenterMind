@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { Loader2 } from "lucide-react";
 import type { Objetivo } from "@/lib/api";
 import {
   buildProrrateoGrid,
@@ -76,19 +75,6 @@ export function ObjetivoProrrateoCalendario({
 
   if (!data) return null;
 
-  // Si el invariante no está OK (progreso_diario desincronizado), mostrar estado de recalculo
-  if (!data.invarianteOk) {
-    return (
-      <div className={compact ? "space-y-2" : "space-y-3"}>
-        <div className="flex items-center gap-2 text-[10px] text-amber-700">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          <span className="font-medium">Recalculando…</span>
-          <span className="text-amber-700/70">El progreso diario se está actualizando.</span>
-        </div>
-      </div>
-    );
-  }
-
   const semanasActivas = data.semanas.filter((s) => s.aplicable);
   const semanasInactivas = data.semanas.filter((s) => !s.aplicable);
 
@@ -97,6 +83,12 @@ export function ObjetivoProrrateoCalendario({
 
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
+      {data.needsProgresoDiarioSync && (
+        <p className="text-[10px] text-amber-700/90 leading-snug">
+          El desglose diario puede estar desactualizado. Usá «Recalcular avance» si los números no
+          cierran.
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[10px] font-semibold text-amber-800">{data.label}</p>
         <div className="flex items-center gap-2">

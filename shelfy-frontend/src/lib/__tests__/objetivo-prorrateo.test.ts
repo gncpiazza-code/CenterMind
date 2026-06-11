@@ -212,6 +212,34 @@ describe("buildProrrateoGrid rolling", () => {
     expect(grid).not.toBeNull();
     expect(grid!.restante).toBe(70);
     expect(grid!.metaDiariaFutura).toBeCloseTo(70 / 24, 5);
+    expect(grid!.invarianteOk).toBe(true);
+  });
+
+  it("exhibicion con pendientes no bloquea calendario (suma diaria < valor_actual)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-11T12:00:00"));
+
+    const grid = buildProrrateoGrid(
+      makeObj({
+        tipo: "exhibicion",
+        origen: "compania",
+        mes_referencia: "2026-06-01",
+        valor_objetivo: 100,
+        valor_actual: 32,
+        desglose_cache: {
+          progreso_diario: {
+            "2026-06-02": 10,
+            "2026-06-05": 12,
+            "2026-06-09": 8,
+          },
+        },
+      }),
+    );
+
+    expect(grid).not.toBeNull();
+    expect(grid!.invarianteOk).toBe(true);
+    expect(grid!.needsProgresoDiarioSync).toBe(false);
+    expect(grid!.semanas.some((s) => s.aplicable)).toBe(true);
   });
 });
 

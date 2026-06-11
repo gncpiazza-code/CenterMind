@@ -158,8 +158,6 @@ from core.bot_dynamic_messages import (
     build_objetivos_message,
     build_ranking_result_message,
     build_stats_message,
-    build_upload_estado_label,
-    build_upload_foto_line,
     build_upload_fotos_text,
     build_upload_historial_block,
     build_upload_objetivo_badge,
@@ -3481,11 +3479,6 @@ class BotWorker:
                 )
 
             fotos_text = build_upload_fotos_text(self.db.sb, procesadas)
-            foto_line = build_upload_foto_line(self.db.sb, drive_link or "")
-            estado_label = build_upload_estado_label(
-                self.db.sb,
-                en_cuarentena=en_cuarentena_flag,
-            )
 
             # ── INTERCEPTOR DE OBJETIVO DE EXHIBICIÓN ──────────────────────
             # Si existe un objetivo activo de tipo 'exhibicion' para este
@@ -3805,8 +3798,6 @@ class BotWorker:
                 nro_cliente=nro_cliente,
                 cliente_nombre=cliente_nombre,
                 tipo_pdv=tipo_pdv,
-                foto_line=foto_line,
-                estado_label=estado_label,
                 objetivo_badge=objetivo_badge,
                 stats_text=stats_text,
                 historial_text=historial_text,

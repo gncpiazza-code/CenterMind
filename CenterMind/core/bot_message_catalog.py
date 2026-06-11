@@ -171,8 +171,8 @@ BOT_MESSAGES: tuple[BotMessageDef, ...] = (
     ),
     BotMessageDef(
         "upload_rich_extra", "Confirmación rica — bloques extra", "carga_exhibicion", 26,
-        "{foto_line}{estado_label}{objetivo_badge}{stats_text}{historial_text}",
-        ("foto_line", "estado_label", "objetivo_badge", "stats_text", "historial_text"),
+        "{objetivo_badge}{stats_text}{historial_text}",
+        ("objetivo_badge", "stats_text", "historial_text"),
         "Contenedor HTML dinámico ensamblado por el bot.",
         "dynamic_part",
     ),

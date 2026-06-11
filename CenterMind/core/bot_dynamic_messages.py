@@ -258,15 +258,13 @@ def build_upload_rich_message(
     extra = _r(
         sb,
         "upload_rich_extra",
-        fallback="{foto_line}{estado_label}{objetivo_badge}{stats_text}{historial_text}",
-        foto_line=foto_line,
-        estado_label=estado_label,
+        fallback="{objetivo_badge}{stats_text}{historial_text}",
+        foto_line="",
+        estado_label="",
         objetivo_badge=objetivo_badge,
         stats_text=stats_text,
         historial_text=historial_text,
-        raw_keys=frozenset({
-            "foto_line", "estado_label", "objetivo_badge", "stats_text", "historial_text",
-        }),
+        raw_keys=frozenset({"objetivo_badge", "stats_text", "historial_text"}),
     )
     footer = _r(sb, "upload_rich_footer", fallback="")
     return f"{header}{datos}{extra}{footer}"
@@ -340,29 +338,13 @@ def build_upload_fotos_text(sb: Client, procesadas: int) -> str:
 
 
 def build_upload_foto_line(sb: Client, url: str) -> str:
-    if not url:
-        return ""
-    return _r(
-        sb,
-        "upload_rich_foto_link",
-        fallback="🔗 <a href='{url}'>Ver foto</a>\n",
-        url=url,
-        raw_keys=frozenset({"url"}),
-    )
+    """Deprecated: la foto ya va como reply; no mostrar link en el texto."""
+    return ""
 
 
 def build_upload_estado_label(sb: Client, *, en_cuarentena: bool) -> str:
-    if en_cuarentena:
-        return _r(
-            sb,
-            "upload_rich_estado_revision",
-            fallback="⚠️ <b>Estado: REVISIÓN</b> — Pendiente de validación ERP",
-        )
-    return _r(
-        sb,
-        "upload_rich_estado_pendiente",
-        fallback="⏳ <b>Estado:</b> Pendiente de evaluación",
-    )
+    """Deprecated: el estado interno no se muestra al vendedor (confundía con cartera OK)."""
+    return ""
 
 
 def build_upload_objetivo_badge(

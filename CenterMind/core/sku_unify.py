@@ -37,6 +37,11 @@ _PACK_SIZE_RE = re.compile(
     r"\b\d+\s*s\s*(?:box|soft|hw|ks|cup|ltr|un)?\b",
     re.IGNORECASE,
 )
+# Consolido ventas: "BOX 20X250", "20x250" — bulto×unidades, no nombre comercial.
+_BULTOS_PACK_RE = re.compile(r"\b\d+\s*x\s*\d+\b", re.IGNORECASE)
+# CHESS legacy vs Consolido: "SPECIAL" ≈ "SP" en línea Liverpool.
+_SPECIAL_TO_SP_RE = re.compile(r"\bspecial\b", re.IGNORECASE)
+_TRAILING_BOX_RE = re.compile(r"\bbox\b", re.IGNORECASE)
 
 
 def _fold_text(value: str) -> str:
@@ -66,7 +71,10 @@ def normalize_sku_description(desc: str) -> str:
     folded = _fold_text(s)
     for pat in _DESC_PREFIX_PATTERNS:
         folded = pat.sub("", folded).strip()
+    folded = _SPECIAL_TO_SP_RE.sub(" sp ", folded)
     folded = _PACK_SIZE_RE.sub("", folded).strip()
+    folded = _BULTOS_PACK_RE.sub("", folded).strip()
+    folded = _TRAILING_BOX_RE.sub("", folded).strip()
     return re.sub(r"\s+", " ", folded).strip()
 
 

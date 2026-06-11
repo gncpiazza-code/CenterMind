@@ -26,6 +26,27 @@ def test_normalize_liverpool_con_sin_prefijo_y_empaque():
     assert a == b == "liverpool blue pop"
 
 
+def test_normalize_consolido_box_20x250_vs_legacy_cigarrillo():
+    """Tabaco dist: ventas Consolido (10008) vs catálogo legacy (181) mismo SKU."""
+    venta = normalize_sku_description("CORONA BOX 20X250")
+    legacy = normalize_sku_description("CIGARRILLO CORONA 20S BOX")
+    assert venta == legacy == "corona"
+
+
+def test_normalize_liverpool_special_red_consolido_vs_sp_legacy():
+    venta = normalize_sku_description("LIVERPOOL SPECIAL RED BOX 20X250")
+    legacy = normalize_sku_description("CIGARRILLOS LIVERPOOL SP RED 20S BOX")
+    assert venta == legacy == "liverpool sp red"
+
+
+def test_normalize_liverpool_special_blue_no_confunde_con_blue_pop():
+    sp_blue = normalize_sku_description("LIVERPOOL SPECIAL BLUE BOX 20X250")
+    blue_pop = normalize_sku_description("CIGARRILLO LIVERPOOL BLUE POP 20S BOX")
+    assert sp_blue == "liverpool sp blue"
+    assert blue_pop == "liverpool blue pop"
+    assert sp_blue != blue_pop
+
+
 def test_unify_catalog_liverpool_variantes_nombre():
     cat = unify_catalog_entries(
         [
@@ -53,7 +74,7 @@ def test_unify_key_misma_desc_distinto_cod():
 
 def test_bracket_code_en_descripcion():
     norm = normalize_sku_description("[MAR01] MARLBORO BOX")
-    assert norm == "marlboro box"
+    assert norm == "marlboro"
 
 
 def test_row_matches_sku_ref_por_nombre():

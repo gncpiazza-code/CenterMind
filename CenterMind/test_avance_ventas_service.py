@@ -551,6 +551,30 @@ def test_catalogo_cod_weak_prefijo_largo_no_sin_venta_fantasma():
     assert "liverpool" in rows[0]["articulo"].lower()
 
 
+def test_consolido_vs_legacy_catalogo_no_filas_sin_venta_fantasma():
+    """Tabaco real: ventas cod 10008 Consolido + catálogo legacy cod 181 mismo SKU."""
+    lines = [
+        _linea(
+            cod_articulo="10008",
+            descripcion_articulo="CORONA BOX 20X250",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=38.14,
+            unidades_total=9535.0,
+        ),
+    ]
+    catalogo = [
+        {"cod_articulo": "181", "articulo": "CIGARRILLO CORONA 20S BOX", "agrupacion": "CIGARRILLOS"},
+        {"cod_articulo": "10008", "articulo": "CORONA BOX 20X250", "agrupacion": "CIGARRILLOS"},
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    catalogo = unify_catalog_entries(catalogo, hints=hints)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=10, catalogo=catalogo)
+    sin_corona = [r for r in rows if r["sin_venta"] and "corona" in (r["articulo"] or "").lower()]
+    assert sin_corona == []
+    assert len([r for r in rows if not r["sin_venta"]]) == 1
+
+
 def test_pick_best_catalog_ventas_row_prefiere_descripcion_larga():
     from services.avance_ventas_service import _pick_best_catalog_ventas_row
 

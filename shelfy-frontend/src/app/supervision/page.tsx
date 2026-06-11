@@ -28,6 +28,7 @@ import {
   prefetchSupervisionAvancePanelChunk,
 } from "@/components/supervision/avance/SupervisionAvanceVentasPanelLazy";
 import { SIN_VENDEDOR_VALUE, useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
+import { SupervisionPatronCuentaFilter } from "@/components/estadisticas/PatronCuentaSelector";
 import {
   useSupervisionPanelQueries,
   usePrefetchDeudoresBatch,
@@ -161,6 +162,8 @@ export default function SupervisionPage() {
     setAvancePeriodo,
     selectedSucursal,
     selectedVendedorNombre,
+    patronCuentaAvance,
+    setPatronCuentaAvance,
     ccSort,
     ccSortDir,
     setSelectedSucursal,
@@ -209,6 +212,7 @@ export default function SupervisionPage() {
       avanceFecha,
       sucursalParam ?? null,
       selectedVendedorNombre,
+      patronCuentaAvance,
     ),
   });
   const isRefreshing =
@@ -217,11 +221,21 @@ export default function SupervisionPage() {
   const prefetchAvanceIntent = useCallback(() => {
     if (distId <= 0) return;
     prefetchSupervisionAvancePanelChunk();
-    prefetchAvanceVentasDefault(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
-  }, [distId, queryClient, sucursalParam, selectedVendedorNombre]);
+    prefetchAvanceVentasDefault(
+      queryClient,
+      distId,
+      sucursalParam ?? null,
+      selectedVendedorNombre,
+      patronCuentaAvance,
+    );
+  }, [distId, queryClient, sucursalParam, selectedVendedorNombre, patronCuentaAvance]);
 
   const prefetchAvanceCurrent = useCallback(
-    (sucursal?: string | null, vendedor?: string | null) => {
+    (
+      sucursal?: string | null,
+      vendedor?: string | null,
+      cuenta?: string | null,
+    ) => {
       if (distId <= 0) return;
       prefetchAvanceVentasIdle(
         queryClient,
@@ -230,21 +244,45 @@ export default function SupervisionPage() {
         avanceFecha,
         sucursal ?? sucursalParam ?? null,
         vendedor !== undefined ? vendedor : selectedVendedorNombre,
+        cuenta !== undefined ? cuenta : patronCuentaAvance,
       );
     },
-    [distId, queryClient, avanceModo, avanceFecha, sucursalParam, selectedVendedorNombre],
+    [
+      distId,
+      queryClient,
+      avanceModo,
+      avanceFecha,
+      sucursalParam,
+      selectedVendedorNombre,
+      patronCuentaAvance,
+    ],
   );
 
   /** Período + filtros activos — prioridad al panel visible. */
   useEffect(() => {
     if (!isAvance || distId <= 0) return;
     prefetchAvanceCurrent();
-  }, [isAvance, distId, avanceModo, avanceFecha, sucursalParam, selectedVendedorNombre, prefetchAvanceCurrent]);
+  }, [
+    isAvance,
+    distId,
+    avanceModo,
+    avanceFecha,
+    sucursalParam,
+    selectedVendedorNombre,
+    patronCuentaAvance,
+    prefetchAvanceCurrent,
+  ]);
 
   /** Precarga día/semana/mes al cambiar período (evita 3 fetches extra por cada sucursal/vendedor). */
   useEffect(() => {
     if (!isAvance || distId <= 0) return;
-    prefetchAvanceVentasWarm(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
+    prefetchAvanceVentasWarm(
+      queryClient,
+      distId,
+      sucursalParam ?? null,
+      selectedVendedorNombre,
+      patronCuentaAvance,
+    );
     // sucursal/vendedor omitidos a propósito: warm corre con filtros vigentes al cambiar modo/fecha.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAvance, distId, avanceModo, avanceFecha, queryClient]);
@@ -434,6 +472,18 @@ export default function SupervisionPage() {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {isAvance && (
+                      <SupervisionPatronCuentaFilter
+                        distId={distId}
+                        vendedorNombre={selectedVendedorNombre}
+                        value={patronCuentaAvance}
+                        onChange={(c) => {
+                          prefetchAvanceCurrent(sucursalParam ?? null, selectedVendedorNombre, c);
+                          setPatronCuentaAvance(c);
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
               </div>
@@ -452,6 +502,7 @@ export default function SupervisionPage() {
                     fecha={avanceFecha}
                     sucursal={sucursalParam ?? null}
                     vendedor={selectedVendedorNombre}
+                    patronCuenta={patronCuentaAvance}
                     ventasSync={syncStatus?.ventas}
                   />
                 ) : vendedoresLoading ? (

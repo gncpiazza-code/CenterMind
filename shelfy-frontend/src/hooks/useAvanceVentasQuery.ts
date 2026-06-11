@@ -22,6 +22,7 @@ import {
   resolveSupervisionAvancePrefetchParams,
 } from "@/lib/supervision-panel-persist";
 import { supervisionPanelKeys } from "@/lib/query-keys";
+import { PATRON_CUENTA_EQUIPO } from "@/components/estadisticas/PatronCuentaSelector";
 
 export const AVANCE_VENTAS_STALE = 5 * 60_000;
 export const AVANCE_VENTAS_GC_MS = 15 * 60_000;
@@ -32,8 +33,9 @@ function avanceVentasKey(
   fecha: string,
   sucursal?: string | null,
   vendedor?: string | null,
+  cuenta?: string | null,
 ) {
-  return supervisionPanelKeys.avanceVentas(distId, modo, fecha, sucursal, vendedor);
+  return supervisionPanelKeys.avanceVentas(distId, modo, fecha, sucursal, vendedor, cuenta);
 }
 
 /** Invalida panel avance + drills (sync ventas o ingesta). */
@@ -56,13 +58,16 @@ export async function prefetchAvanceVentas(
   fecha: string,
   sucursal?: string | null,
   vendedor?: string | null,
+  cuenta?: string | null,
 ) {
   if (distId <= 0 || !fecha) return;
-  const key = avanceVentasKey(distId, modo, fecha, sucursal, vendedor);
+  const key = avanceVentasKey(distId, modo, fecha, sucursal, vendedor, cuenta);
   const state = queryClient.getQueryState(key);
   if (state?.fetchStatus === "fetching") return;
   if (state?.dataUpdatedAt && Date.now() - state.dataUpdatedAt < AVANCE_VENTAS_STALE) return;
-  await queryClient.prefetchQuery(avanceVentasQueryOptions(distId, modo, fecha, sucursal, vendedor));
+  await queryClient.prefetchQuery(
+    avanceVentasQueryOptions(distId, modo, fecha, sucursal, vendedor, cuenta),
+  );
 }
 
 export function prefetchAvanceVentasIdle(
@@ -72,8 +77,9 @@ export function prefetchAvanceVentasIdle(
   fecha: string,
   sucursal?: string | null,
   vendedor?: string | null,
+  cuenta?: string | null,
 ) {
-  void prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor);
+  void prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor, cuenta);
 }
 
 /**
@@ -85,13 +91,23 @@ export function prefetchAvanceVentasDefault(
   distId: number,
   sucursal?: string | null,
   vendedor?: string | null,
+  cuenta?: string | null,
 ) {
-  if (sucursal !== undefined || vendedor !== undefined) {
-    prefetchAvanceVentasIdle(queryClient, distId, "dia", todayIsoAr(), sucursal ?? null, vendedor ?? null);
+  if (sucursal !== undefined || vendedor !== undefined || cuenta !== undefined) {
+    prefetchAvanceVentasIdle(
+      queryClient,
+      distId,
+      "dia",
+      todayIsoAr(),
+      sucursal ?? null,
+      vendedor ?? null,
+      cuenta ?? PATRON_CUENTA_EQUIPO,
+    );
     return;
   }
-  const { modo, fecha, sucursal: s, vendedor: v } = resolveSupervisionAvancePrefetchParams();
-  prefetchAvanceVentasIdle(queryClient, distId, modo, fecha, s, v);
+  const { modo, fecha, sucursal: s, vendedor: v, patronCuenta } =
+    resolveSupervisionAvancePrefetchParams();
+  prefetchAvanceVentasIdle(queryClient, distId, modo, fecha, s, v, patronCuenta);
 }
 
 /** Portal T0: combo persistida + fallback todas/todos (día hoy). */
@@ -105,14 +121,29 @@ export function prefetchAvanceVentasPortalEntry(queryClient: QueryClient, distId
     primary.fecha,
     primary.sucursal,
     primary.vendedor,
+    primary.patronCuenta,
   );
   const isAllScope = !primary.sucursal && !primary.vendedor;
   if (!isAllScope) {
-    prefetchAvanceVentasIdle(queryClient, distId, "dia", todayIsoAr(), null, null);
+    prefetchAvanceVentasIdle(
+      queryClient,
+      distId,
+      "dia",
+      todayIsoAr(),
+      null,
+      null,
+      PATRON_CUENTA_EQUIPO,
+    );
   }
   const persisted = readSupervisionPanelPersisted();
   if (persisted?.viewMode === "avance") {
-    prefetchAvanceVentasWarm(queryClient, distId, primary.sucursal, primary.vendedor);
+    prefetchAvanceVentasWarm(
+      queryClient,
+      distId,
+      primary.sucursal,
+      primary.vendedor,
+      primary.patronCuenta,
+    );
   }
 }
 
@@ -122,6 +153,7 @@ export function prefetchAvanceVentasWarm(
   distId: number,
   sucursal?: string | null,
   vendedor?: string | null,
+  cuenta?: string | null,
 ) {
   if (distId <= 0) return;
   const hoy = todayIsoAr();
@@ -132,7 +164,7 @@ export function prefetchAvanceVentasWarm(
   ];
   void Promise.all(
     targets.map(([modo, fecha]) =>
-      prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor),
+      prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor, cuenta),
     ),
   );
 }
@@ -143,9 +175,10 @@ export function avanceVentasQueryOptions(
   fecha: string,
   sucursal?: string | null,
   vendedor?: string | null,
+  cuenta?: string | null,
 ) {
   return {
-    queryKey: supervisionPanelKeys.avanceVentas(distId, modo, fecha, sucursal, vendedor),
+    queryKey: supervisionPanelKeys.avanceVentas(distId, modo, fecha, sucursal, vendedor, cuenta),
     queryFn: () =>
       fetchAvanceVentasSupervision(
         distId,
@@ -153,6 +186,7 @@ export function avanceVentasQueryOptions(
         fecha,
         sucursal ?? undefined,
         vendedor ?? undefined,
+        cuenta ?? undefined,
       ),
     staleTime: AVANCE_VENTAS_STALE,
     gcTime: AVANCE_VENTAS_GC_MS,
@@ -165,6 +199,7 @@ interface UseAvanceVentasArgs {
   fecha: string;
   sucursal?: string | null;
   vendedor?: string | null;
+  cuenta?: string | null;
   enabled?: boolean;
   /** sync-status ventas.last_updated — invalida cache al cambiar (patrón CC padrón). */
   ventasLastUpdated?: string | null;
@@ -176,6 +211,7 @@ export function useAvanceVentasQuery({
   fecha,
   sucursal,
   vendedor,
+  cuenta,
   enabled = true,
   ventasLastUpdated,
 }: UseAvanceVentasArgs) {
@@ -195,7 +231,7 @@ export function useAvanceVentasQuery({
   }, [ventasLastUpdated, distId, queryClient]);
 
   return useQuery<AvanceVentasResponse>({
-    ...avanceVentasQueryOptions(distId, modo, fecha, sucursal, vendedor),
+    ...avanceVentasQueryOptions(distId, modo, fecha, sucursal, vendedor, cuenta),
     enabled: enabled && distId > 0 && !!fecha,
     placeholderData: keepPreviousData,
   });
@@ -210,6 +246,7 @@ export function useAvanceVentasSkuClientes(
   vendedor?: string | null,
   enabled = true,
   offset = 0,
+  cuenta?: string | null,
 ) {
   return useQuery<AvanceSkuClientesResponse>({
     queryKey: supervisionPanelKeys.avanceVentasSku(
@@ -220,6 +257,7 @@ export function useAvanceVentasSkuClientes(
       sucursal,
       vendedor,
       offset,
+      cuenta,
     ),
     queryFn: () =>
       fetchAvanceVentasSkuClientes(
@@ -231,6 +269,7 @@ export function useAvanceVentasSkuClientes(
         vendedor ?? undefined,
         200,
         offset,
+        cuenta ?? undefined,
       ),
     enabled: enabled && distId > 0 && !!codArticulo && !!fecha,
     staleTime: AVANCE_VENTAS_STALE,
@@ -248,6 +287,7 @@ export function useAvanceVentasClienteSkus(
   sucursal?: string | null,
   vendedor?: string | null,
   enabled = true,
+  cuenta?: string | null,
 ) {
   return useQuery<AvanceClienteSkusResponse>({
     queryKey: supervisionPanelKeys.avanceVentasCliente(
@@ -257,6 +297,7 @@ export function useAvanceVentasClienteSkus(
       fecha,
       sucursal,
       vendedor,
+      cuenta,
     ),
     queryFn: () =>
       fetchAvanceVentasClienteSkus(
@@ -266,6 +307,7 @@ export function useAvanceVentasClienteSkus(
         fecha,
         sucursal ?? undefined,
         vendedor ?? undefined,
+        cuenta ?? undefined,
       ),
     enabled: enabled && distId > 0 && !!idClienteErp && !!fecha,
     staleTime: AVANCE_VENTAS_STALE,

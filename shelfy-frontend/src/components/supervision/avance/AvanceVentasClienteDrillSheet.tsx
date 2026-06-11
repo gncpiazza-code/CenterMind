@@ -23,6 +23,7 @@ interface AvanceVentasClienteDrillSheetProps {
   fecha: string;
   sucursal?: string | null;
   vendedor?: string | null;
+  patronCuenta?: string | null;
   periodoLabel?: string;
 }
 
@@ -39,6 +40,7 @@ export function AvanceVentasClienteDrillSheet({
   fecha,
   sucursal,
   vendedor,
+  patronCuenta,
   periodoLabel,
 }: AvanceVentasClienteDrillSheetProps) {
   const [volumenModo] = useVolumenModo();
@@ -50,6 +52,7 @@ export function AvanceVentasClienteDrillSheet({
     sucursal,
     vendedor,
     open,
+    patronCuenta,
   );
 
   const skus = query.data?.skus ?? [];

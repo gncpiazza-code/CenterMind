@@ -1537,6 +1537,10 @@ def supervision_avance_ventas(
     incluir_sin_venta: bool = Query(
         True, description="Incluir SKUs del catálogo 12m sin venta en el período (filas con ceros)"
     ),
+    cuenta: str | None = Query(
+        None,
+        description="Cuenta patrón bajo Ivan Soto: equipo | monchi | jorge_coronel",
+    ),
     user_payload=Depends(verify_auth),
 ):
     """Avance de ventas en volumen (bultos + unidades) — analytics supervisión, sin importes."""
@@ -1554,6 +1558,7 @@ def supervision_avance_ventas(
             sucursal=suc_param,
             vendedor=vendedor,
             incluir_sin_venta=incluir_sin_venta,
+            cuenta=cuenta,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1572,6 +1577,7 @@ def supervision_avance_ventas_sku_clientes(
     fecha: Optional[str] = Query(None, description="YYYY-MM-DD ancla del periodo"),
     sucursal: Optional[str] = Query(None),
     vendedor: Optional[str] = Query(None),
+    cuenta: str | None = Query(None, description="Cuenta patrón: equipo | monchi | jorge_coronel"),
     limit: int = Query(50, ge=1, le=200, description="Página de la lista completa de clientes"),
     offset: int = Query(0, ge=0),
     user_payload=Depends(verify_auth),
@@ -1593,6 +1599,7 @@ def supervision_avance_ventas_sku_clientes(
             vendedor=vendedor,
             limit=limit,
             offset=offset,
+            cuenta=cuenta,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1614,6 +1621,7 @@ def supervision_avance_ventas_cliente_skus(
     fecha: Optional[str] = Query(None, description="YYYY-MM-DD ancla del periodo"),
     sucursal: Optional[str] = Query(None),
     vendedor: Optional[str] = Query(None),
+    cuenta: str | None = Query(None, description="Cuenta patrón: equipo | monchi | jorge_coronel"),
     user_payload=Depends(verify_auth),
 ):
     """Drill inverso (auditoría R8): SKUs comprados por un cliente en el período."""
@@ -1631,6 +1639,7 @@ def supervision_avance_ventas_cliente_skus(
             fecha=fecha_ancla,
             sucursal=suc_param,
             vendedor=vendedor,
+            cuenta=cuenta,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

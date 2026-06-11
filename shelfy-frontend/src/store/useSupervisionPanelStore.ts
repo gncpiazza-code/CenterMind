@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AltasTab } from '@/hooks/useAltasCompradores';
 import { SUPERVISION_PANEL_STORAGE_KEY } from '@/lib/supervision-panel-persist';
+import { PATRON_CUENTA_EQUIPO } from '@/components/estadisticas/PatronCuentaSelector';
 
 export type SupervisionViewMode = 'cc' | 'avance';
 export type AvancePeriodoModo = 'dia' | 'semana' | 'mes';
@@ -19,6 +20,8 @@ interface SupervisionPanelStore {
   // Filtros
   selectedSucursal: string;            // "__all__" = todas
   selectedVendedorNombre: string | null;
+  /** Cuenta patrón bajo Ivan Soto en avance: equipo | monchi | jorge_coronel */
+  patronCuentaAvance: string;
   altasMes: string;                    // YYYY-MM
   altasTab: AltasTab;
 
@@ -36,6 +39,7 @@ interface SupervisionPanelStore {
   setAvancePeriodo: (modo: AvancePeriodoModo, fecha: string) => void;
   setSelectedSucursal: (s: string) => void;
   setSelectedVendedorNombre: (n: string | null) => void;
+  setPatronCuentaAvance: (c: string) => void;
   setAltasMes: (m: string) => void;
   setAltasTab: (t: AltasTab) => void;
   setCCSort: (sort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra', dir: 'desc' | 'asc') => void;
@@ -64,6 +68,7 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       avanceFecha: todayIso(),
       selectedSucursal: '__all__',
       selectedVendedorNombre: null,
+      patronCuentaAvance: PATRON_CUENTA_EQUIPO,
       altasMes: currentMes(),
       altasTab: 'todos',
       ccSort: 'antiguedad',
@@ -86,10 +91,21 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       setAvancePeriodo: (modo, fecha) => set({ avanceModo: modo, avanceFecha: fecha }),
 
       setSelectedSucursal: (s) =>
-        set({ selectedSucursal: s, selectedVendedorNombre: null, selectedClienteErp: null }),
+        set({
+          selectedSucursal: s,
+          selectedVendedorNombre: null,
+          patronCuentaAvance: PATRON_CUENTA_EQUIPO,
+          selectedClienteErp: null,
+        }),
 
       setSelectedVendedorNombre: (n) =>
-        set({ selectedVendedorNombre: n, selectedClienteErp: null }),
+        set({
+          selectedVendedorNombre: n,
+          patronCuentaAvance: PATRON_CUENTA_EQUIPO,
+          selectedClienteErp: null,
+        }),
+
+      setPatronCuentaAvance: (c) => set({ patronCuentaAvance: c }),
 
       setAltasMes: (m) => set({ altasMes: m, altasTab: 'todos' }),
 
@@ -120,6 +136,7 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
         avanceModo: state.avanceModo,
         selectedSucursal: state.selectedSucursal,
         selectedVendedorNombre: state.selectedVendedorNombre,
+        patronCuentaAvance: state.patronCuentaAvance,
         altasMes: state.altasMes,
         altasTab: state.altasTab,
         ccSort: state.ccSort,

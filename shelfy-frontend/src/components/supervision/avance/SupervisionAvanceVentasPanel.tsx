@@ -28,6 +28,8 @@ interface SupervisionAvanceVentasPanelProps {
   sucursal?: string | null;
   /** Nombre display del vendedor, "__sin_vendedor__" o null = todos. */
   vendedor?: string | null;
+  /** Cuenta patrón bajo Ivan Soto: equipo | monchi | jorge_coronel */
+  patronCuenta?: string | null;
   ventasSync?: SyncStatusEntry;
 }
 
@@ -38,6 +40,7 @@ export function SupervisionAvanceVentasPanel({
   fecha,
   sucursal,
   vendedor,
+  patronCuenta,
   ventasSync,
 }: SupervisionAvanceVentasPanelProps) {
   const [drillSku, setDrillSku] = useState<AvanceSkuRankingRow | null>(null);
@@ -52,6 +55,7 @@ export function SupervisionAvanceVentasPanel({
     fecha,
     sucursal,
     vendedor,
+    cuenta: patronCuenta,
     ventasLastUpdated: ventasSync?.last_attempt_at ?? ventasSync?.last_updated,
   });
 
@@ -216,6 +220,7 @@ export function SupervisionAvanceVentasPanel({
         fecha={fecha}
         sucursal={sucursal}
         vendedor={vendedor}
+        patronCuenta={patronCuenta}
         periodoLabel={data?.periodo?.label}
       />
 
@@ -228,6 +233,7 @@ export function SupervisionAvanceVentasPanel({
         fecha={fecha}
         sucursal={sucursal}
         vendedor={vendedor}
+        patronCuenta={patronCuenta}
         periodoLabel={data?.periodo?.label}
       />
     </SupervisionReveal>

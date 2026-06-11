@@ -803,7 +803,7 @@ import services.avance_ventas_service as avs  # noqa: E402
 def patched_build(monkeypatch):
     monkeypatch.setattr(avs, "_fetch_avance_lines", lambda d, desde, hasta: [_linea()])
     monkeypatch.setattr(avs, "_fetch_catalogo_skus", lambda d, hasta: _catalogo_demo())
-    monkeypatch.setattr(avs, "_cartera_scope_count", lambda *a: 10)
+    monkeypatch.setattr(avs, "_cartera_scope_count", lambda *a, **k: 10)
     monkeypatch.setattr(avs, "_get_erp_name_map", lambda d: {})
     monkeypatch.setattr(
         avs,

@@ -1,5 +1,6 @@
 import type { AvanceVentasModo } from "@/lib/api";
 import { mondayOfWeek, todayIsoAr } from "@/lib/avance-ventas-format";
+import { PATRON_CUENTA_EQUIPO } from "@/components/estadisticas/PatronCuentaSelector";
 
 /** Debe coincidir con `useSupervisionPanelStore` persist name. */
 export const SUPERVISION_PANEL_STORAGE_KEY = "supervision-panel-store";
@@ -9,6 +10,7 @@ export interface SupervisionPanelPersistedSlice {
   avanceModo: AvanceVentasModo;
   selectedSucursal: string;
   selectedVendedorNombre: string | null;
+  patronCuentaAvance: string;
 }
 
 /** Lee filtros UI persistidos (Zustand/localStorage) sin hook React — para prefetch T0. */
@@ -27,6 +29,8 @@ export function readSupervisionPanelPersisted(): SupervisionPanelPersistedSlice 
       selectedSucursal: typeof s.selectedSucursal === "string" ? s.selectedSucursal : "__all__",
       selectedVendedorNombre:
         typeof s.selectedVendedorNombre === "string" ? s.selectedVendedorNombre : null,
+      patronCuentaAvance:
+        typeof s.patronCuentaAvance === "string" ? s.patronCuentaAvance : PATRON_CUENTA_EQUIPO,
     };
   } catch {
     return null;
@@ -45,6 +49,7 @@ export function resolveSupervisionAvancePrefetchParams(hoy = todayIsoAr()): {
   vendedor: string | null;
   modo: AvanceVentasModo;
   fecha: string;
+  patronCuenta: string;
 } {
   const p = readSupervisionPanelPersisted();
   const modo = p?.avanceModo ?? "dia";
@@ -53,5 +58,6 @@ export function resolveSupervisionAvancePrefetchParams(hoy = todayIsoAr()): {
     vendedor: p?.selectedVendedorNombre ?? null,
     modo,
     fecha: resolveAvanceFechaAncla(modo, hoy),
+    patronCuenta: p?.patronCuentaAvance ?? PATRON_CUENTA_EQUIPO,
   };
 }

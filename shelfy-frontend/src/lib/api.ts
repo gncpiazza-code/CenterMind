@@ -2501,10 +2501,12 @@ export async function fetchAvanceVentasSupervision(
   fecha: string,
   sucursal?: string,
   vendedor?: string,
+  cuenta?: string,
 ): Promise<AvanceVentasResponse> {
   const qp = new URLSearchParams({ modo, fecha });
   if (sucursal) qp.set("sucursal", sucursal);
   if (vendedor) qp.set("vendedor", vendedor);
+  if (cuenta && cuenta !== "equipo") qp.set("cuenta", cuenta);
   return apiFetch<AvanceVentasResponse>(
     `/api/supervision/avance-ventas/${distId}?${qp.toString()}`,
   );
@@ -2519,10 +2521,12 @@ export async function fetchAvanceVentasSkuClientes(
   vendedor?: string,
   limit = 200,
   offset = 0,
+  cuenta?: string,
 ): Promise<AvanceSkuClientesResponse> {
   const qp = new URLSearchParams({ modo, fecha, limit: String(limit), offset: String(offset) });
   if (sucursal) qp.set("sucursal", sucursal);
   if (vendedor) qp.set("vendedor", vendedor);
+  if (cuenta && cuenta !== "equipo") qp.set("cuenta", cuenta);
   return apiFetch<AvanceSkuClientesResponse>(
     `/api/supervision/avance-ventas/${distId}/sku/${encodeURIComponent(codArticulo)}/clientes?${qp.toString()}`,
   );
@@ -2536,10 +2540,12 @@ export async function fetchAvanceVentasClienteSkus(
   fecha: string,
   sucursal?: string,
   vendedor?: string,
+  cuenta?: string,
 ): Promise<AvanceClienteSkusResponse> {
   const qp = new URLSearchParams({ modo, fecha });
   if (sucursal) qp.set("sucursal", sucursal);
   if (vendedor) qp.set("vendedor", vendedor);
+  if (cuenta && cuenta !== "equipo") qp.set("cuenta", cuenta);
   return apiFetch<AvanceClienteSkusResponse>(
     `/api/supervision/avance-ventas/${distId}/cliente/${encodeURIComponent(idClienteErp)}/skus?${qp.toString()}`,
   );

@@ -48,8 +48,32 @@ AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 VENTAS_RUN_SLOTS_AR = ((9, 45), (13, 0), (17, 0), (21, 0))
 
 SIN_VENDEDOR_LABEL = "Sin vendedor"
+PATRON_CUENTA_EQUIPO = "equipo"
 
 PAGE = 1000
+
+
+def _resolve_avance_patron_erp_filter(
+    dist_id: int,
+    vendedor_clean: str,
+    cuenta: str | None,
+) -> tuple[set[str] | None, dict | None]:
+    """Filtro PDV por cuenta patrón (Monchi/Jorge). `equipo` o vacío = sin filtro."""
+    from core.estadisticas_tabaco_rollup import IVAN_SOTO_V2_ID, TABACO_DIST_ID, _is_ivan_soto
+    from core.vendedor_app_patron_scope import resolve_patron_cartera_filter, resolve_patron_scope
+
+    if dist_id != TABACO_DIST_ID or not vendedor_clean or not _is_ivan_soto(vendedor_clean):
+        return None, None
+    cuenta_clean = (cuenta or "").strip().lower()
+    if cuenta_clean in ("", PATRON_CUENTA_EQUIPO, "__equipo__"):
+        return None, None
+    scope = resolve_patron_scope(sb, dist_id, IVAN_SOTO_V2_ID, cuenta_clean)
+    erp_filter, asignacion = resolve_patron_cartera_filter(
+        sb, dist_id, IVAN_SOTO_V2_ID, scope
+    )
+    if not erp_filter:
+        return set(), asignacion
+    return erp_filter, asignacion
 # Cap defensivo SOLO para series de gráficos (scatter/top-bottom); la tabla
 # ranking va completa (decisión R1 plan 2026-06-11).
 RANKING_MAX_SKUS = 150
@@ -265,6 +289,7 @@ def aggregate_avance_lines(
     vend_branch: Optional[Set[str]] = None,
     vendedor_norm: str = "",
     cod_articulo_hints: dict[str, str] | None = None,
+    pdv_erp_filter: set[str] | None = None,
 ) -> dict:
     """
     Agrega líneas ventas_enriched (ya deduplicadas) a estructura de avance.
@@ -316,6 +341,9 @@ def aggregate_avance_lines(
         fecha = str(row.get("fecha_factura") or "")[:10]
         num = (row.get("numero_documento") or "").strip()
         erp_cli = (row.get("id_cliente_erp") or "").strip()
+        if pdv_erp_filter is not None:
+            if not erp_cli or erp_cli not in pdv_erp_filter:
+                continue
         nombre_cli = (row.get("nombre_cliente") or "").strip()
         cliente_key = erp_cli or nombre_cli
         cod_raw = (row.get("cod_articulo") or "").strip()
@@ -626,6 +654,42 @@ def _count_pdvs_en_rutas(dist_id: int, ruta_ids: list[int]) -> int:
     return total
 
 
+def _count_pdvs_en_rutas_erp_filter(
+    dist_id: int,
+    ruta_ids: list[int],
+    pdv_erp_filter: set[str],
+) -> int:
+    if not ruta_ids or not pdv_erp_filter:
+        return 0
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    erps = list(pdv_erp_filter)
+    seen: set[str] = set()
+    for i in range(0, len(erps), 200):
+        batch = erps[i : i + 200]
+        offset = 0
+        while True:
+            chunk = (
+                sb.table(t_clientes)
+                .select("id_cliente_erp")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_erp", batch)
+                .in_("id_ruta", ruta_ids)
+                .or_(_PADRON_VISIBLE_OR)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+            for row in chunk:
+                erp = str(row.get("id_cliente_erp") or "").strip()
+                if erp:
+                    seen.add(erp)
+            if len(chunk) < PAGE:
+                break
+            offset += PAGE
+    return len(seen)
+
+
 def _cartera_scope_count(
     dist_id: int,
     sucursal: str | None,
@@ -633,6 +697,7 @@ def _cartera_scope_count(
     *,
     modo: str | None = None,
     fecha: str | None = None,
+    pdv_erp_filter: set[str] | None = None,
 ) -> int | None:
     """
     PDVs visibles del padrón en el scope (denominador cobertura / penetración).
@@ -681,6 +746,8 @@ def _cartera_scope_count(
             ruta_ids = [int(r["id_ruta"]) for r in rutas if r.get("id_ruta") is not None]
             if not ruta_ids:
                 return 0
+            if pdv_erp_filter is not None:
+                return _count_pdvs_en_rutas_erp_filter(dist_id, ruta_ids, pdv_erp_filter)
         elif sucursal:
             t_suc = tenant_table_name("sucursales_v2", dist_id)
             t_vend = tenant_table_name("vendedores_v2", dist_id)
@@ -1195,6 +1262,7 @@ def build_avance_ventas(
     sucursal: str | None = None,
     vendedor: str | None = None,
     incluir_sin_venta: bool = True,
+    cuenta: str | None = None,
 ) -> dict:
     """Payload completo de Avance de Ventas para /supervision (sin importes $)."""
     if modo not in ("dia", "semana", "mes"):
@@ -1218,6 +1286,10 @@ def build_avance_ventas(
         else vendedor_clean.lower()
     )
 
+    pdv_erp_filter, asignacion_cartera = _resolve_avance_patron_erp_filter(
+        dist_id, vendedor_clean, cuenta
+    )
+
     vend_branch: Optional[Set[str]] = None
     if sucursal_norm:
         # Lazy import: helper canónico vive en el router (evita import circular).
@@ -1239,6 +1311,7 @@ def build_avance_ventas(
             vend_branch=vend_branch,
             vendedor_norm=vendedor_norm,
             cod_articulo_hints=cod_hints,
+            pdv_erp_filter=pdv_erp_filter,
         )
 
     # Actual + referencias + cartera + catálogo + sync en paralelo
@@ -1257,6 +1330,7 @@ def build_avance_ventas(
             vendedor_clean or None,
             modo=modo,
             fecha=fecha if modo == "dia" else None,
+            pdv_erp_filter=pdv_erp_filter,
         )
         fut_catalogo = pool.submit(_fetch_catalogo_skus, dist_id, periodo["hasta"])
         fut_sync = pool.submit(_ventas_sync_info, dist_id)
@@ -1297,6 +1371,7 @@ def build_avance_ventas(
             vend_branch=vend_branch,
             vendedor_norm=vendedor_norm,
             cod_articulo_hints=sku_hints,
+            pdv_erp_filter=pdv_erp_filter,
         )
         for ref_key, fut in fut_refs.items():
             try:
@@ -1574,7 +1649,9 @@ def build_avance_ventas(
             "sucursal": sucursal_clean or None,
             "vendedor": vendedor_clean or None,
             "incluir_sin_venta": incluir_sin_venta,
+            "cuenta": (cuenta or "").strip() or PATRON_CUENTA_EQUIPO,
         },
+        **({"asignacion_cartera": asignacion_cartera} if asignacion_cartera else {}),
         "cartera_scope": cartera_count,
         "metadatos": metadatos,
         "comparativas": comparativas,
@@ -1602,6 +1679,7 @@ def build_avance_ventas_sku_clientes(
     vendedor: str | None = None,
     limit: int = DRILL_CLIENTES_PAGE,
     offset: int = 0,
+    cuenta: str | None = None,
 ) -> dict:
     """
     Drill bajo demanda de un SKU: top/bottom (compat) + lista completa de
@@ -1627,6 +1705,8 @@ def build_avance_ventas_sku_clientes(
 
         vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal_clean) or set()
 
+    pdv_erp_filter, _ = _resolve_avance_patron_erp_filter(dist_id, vendedor_clean, cuenta)
+
     lines = _fetch_avance_lines(dist_id, periodo["desde"], periodo["hasta"])
     cod_norm = (cod_articulo or "").strip()
     hints = build_cod_articulo_hints(lines)
@@ -1642,6 +1722,7 @@ def build_avance_ventas_sku_clientes(
             if vendedor_clean == "__sin_vendedor__"
             else vendedor_clean.lower()
         ),
+        pdv_erp_filter=pdv_erp_filter,
         cod_articulo_hints=hints,
     )
     drill_key = unify_key if unify_key in agg["clientes_por_sku"] else next(iter(agg["clientes_por_sku"]), None)
@@ -1684,6 +1765,7 @@ def build_avance_ventas_cliente_skus(
     fecha: str,
     sucursal: str | None = None,
     vendedor: str | None = None,
+    cuenta: str | None = None,
 ) -> dict:
     """
     Drill inverso (R8): SKUs que compró un cliente en el período, con
@@ -1709,6 +1791,8 @@ def build_avance_ventas_cliente_skus(
 
         vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal_clean) or set()
 
+    pdv_erp_filter, _ = _resolve_avance_patron_erp_filter(dist_id, vendedor_clean, cuenta)
+
     lines = _fetch_avance_lines(dist_id, periodo["desde"], periodo["hasta"])
     agg = aggregate_avance_lines(
         lines,
@@ -1720,6 +1804,7 @@ def build_avance_ventas_cliente_skus(
             if vendedor_clean == "__sin_vendedor__"
             else vendedor_clean.lower()
         ),
+        pdv_erp_filter=pdv_erp_filter,
     )
 
     cliente_key = (id_cliente_erp or "").strip()

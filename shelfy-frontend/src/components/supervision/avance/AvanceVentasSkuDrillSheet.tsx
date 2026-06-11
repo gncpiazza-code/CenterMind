@@ -32,6 +32,7 @@ interface AvanceVentasSkuDrillSheetProps {
   fecha: string;
   sucursal?: string | null;
   vendedor?: string | null;
+  patronCuenta?: string | null;
   periodoLabel?: string;
 }
 
@@ -118,6 +119,7 @@ export function AvanceVentasSkuDrillSheet({
   fecha,
   sucursal,
   vendedor,
+  patronCuenta,
   periodoLabel,
 }: AvanceVentasSkuDrillSheetProps) {
   const [volumenModo] = useVolumenModo();
@@ -148,6 +150,7 @@ export function AvanceVentasSkuDrillSheet({
     vendedor,
     needsLazy,
     offset,
+    patronCuenta,
   );
 
   // Acumular páginas de la lista completa (mismo patrón render-adjust).

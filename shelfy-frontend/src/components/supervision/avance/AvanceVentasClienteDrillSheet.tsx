@@ -11,7 +11,7 @@ import {
 import type { AvanceClienteMixRow, AvanceVentasModo } from "@/lib/api";
 import { useAvanceVentasClienteSkus } from "@/hooks/useAvanceVentasQuery";
 import { useVolumenModo } from "@/hooks/useVolumenModo";
-import { fmtUnidades, fmtVolumenCell } from "@/lib/avance-ventas-format";
+import { fmtBultos, fmtUnidades, fmtVolumenCell } from "@/lib/avance-ventas-format";
 import { cn } from "@/lib/utils";
 
 interface AvanceVentasClienteDrillSheetProps {

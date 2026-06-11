@@ -43,9 +43,9 @@ export const AVANCE_KPI_HELP = {
   clientes: "Clientes distintos con al menos una compra en el período y filtro activos.",
   skus: "SKUs con movimiento (venta o devolución) en el período y filtro activos.",
   coberturaPdvs:
-    "Cobertura de PDVs: porcentaje de clientes de tu cartera (padrón visible según " +
-    "filtro) que compraron al menos una vez en el período, sobre el 100% de PDVs " +
-    "de esa cartera. Mide alcance de compra en la base, no mix de SKUs.",
+    "Cobertura de PDVs: clientes con compra en el período sobre el universo de PDVs " +
+    "del filtro. En modo Día el denominador son solo los PDVs con visita asignada " +
+    "ese día (ruta del padrón); en Semana/Mes, toda la cartera del vendedor o sucursal.",
   convivencia:
     "Convivencia de SKUs: porcentaje del catálogo (SKUs vendidos por la distribuidora " +
     "en los últimos 12 meses) que tuvo al menos una venta en el período. Mide amplitud " +

@@ -83,6 +83,40 @@ _PADRON_VISIBLE_OR = (
     "motivo_inactivo.is.null,motivo_inactivo.not.in.(padron_absent,padron_anulado)"
 )
 
+# Paridad bot_cartera_pdf / vendedor_cartera: día de visita en rutas_v2.dia_semana.
+_DIA_SEMANA_PY = {
+    0: "Lunes",
+    1: "Martes",
+    2: "Miércoles",
+    3: "Jueves",
+    4: "Viernes",
+    5: "Sábado",
+    6: "Domingo",
+}
+
+
+def _norm_dia_semana(value: str) -> str:
+    s = (value or "").strip().lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        s = s.replace(a, b)
+    return s
+
+
+def _dia_semana_from_fecha(fecha: str) -> str:
+    """Día de la semana normalizado (lunes..domingo) para la fecha ancla AR."""
+    d = _parse_fecha(fecha)
+    return _norm_dia_semana(_DIA_SEMANA_PY.get(d.weekday(), ""))
+
+
+def _filter_rutas_dia_visita(rutas: list[dict], fecha: str) -> list[dict]:
+    """Solo rutas cuyo dia_semana coincide con la fecha (modo día)."""
+    target = _dia_semana_from_fecha(fecha)
+    return [
+        r
+        for r in rutas
+        if _norm_dia_semana(str(r.get("dia_semana") or "")) == target
+    ]
+
 
 def _today_ar() -> date:
     return datetime.now(AR_TZ).date()
@@ -576,18 +610,41 @@ def _totales_volumen_cigarrillos(agg: dict) -> dict:
     }
 
 
+def _count_pdvs_en_rutas(dist_id: int, ruta_ids: list[int]) -> int:
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    total = 0
+    for i in range(0, len(ruta_ids), 200):
+        res = (
+            sb.table(t_clientes)
+            .select("id_cliente", count="exact")
+            .eq("id_distribuidor", dist_id)
+            .in_("id_ruta", ruta_ids[i : i + 200])
+            .or_(_PADRON_VISIBLE_OR)
+            .execute()
+        )
+        total += res.count or 0
+    return total
+
+
 def _cartera_scope_count(
     dist_id: int,
     sucursal: str | None,
     vendedor: str | None,
+    *,
+    modo: str | None = None,
+    fecha: str | None = None,
 ) -> int | None:
     """
-    PDVs visibles del padrón en el scope (denominador de penetración).
+    PDVs visibles del padrón en el scope (denominador cobertura / penetración).
+    Modo día: solo PDVs con ruta asignada al día de visita de la fecha ancla.
+    Semana/mes: cartera completa del filtro (todas las rutas del vendedor/sucursal).
     None si no se puede resolver (penetracion_pct null en respuesta).
     """
+    filtrar_dia = modo == "dia" and bool(fecha)
     try:
         t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
 
+        rutas: list[dict] = []
         ruta_ids: list[int] | None = None
         if vendedor and vendedor != "__sin_vendedor__":
             t_vend = tenant_table_name("vendedores_v2", dist_id)
@@ -612,8 +669,15 @@ def _cartera_scope_count(
                 return None
             t_rutas = tenant_table_name("rutas_v2", dist_id)
             rutas = (
-                sb.table(t_rutas).select("id_ruta").eq("id_vendedor", int(vid)).execute().data or []
+                sb.table(t_rutas)
+                .select("id_ruta,dia_semana")
+                .eq("id_vendedor", int(vid))
+                .execute()
+                .data
+                or []
             )
+            if filtrar_dia:
+                rutas = _filter_rutas_dia_visita(rutas, fecha)  # type: ignore[arg-type]
             ruta_ids = [int(r["id_ruta"]) for r in rutas if r.get("id_ruta") is not None]
             if not ruta_ids:
                 return 0
@@ -649,22 +713,48 @@ def _cartera_scope_count(
             if not vids:
                 return 0
             t_rutas = tenant_table_name("rutas_v2", dist_id)
-            ruta_ids = []
+            rutas = []
             for i in range(0, len(vids), 200):
-                rutas = (
+                batch = (
                     sb.table(t_rutas)
-                    .select("id_ruta")
+                    .select("id_ruta,dia_semana")
                     .in_("id_vendedor", vids[i : i + 200])
                     .execute()
                     .data
                     or []
                 )
-                ruta_ids.extend(int(r["id_ruta"]) for r in rutas if r.get("id_ruta") is not None)
+                rutas.extend(batch)
+            if filtrar_dia:
+                rutas = _filter_rutas_dia_visita(rutas, fecha)  # type: ignore[arg-type]
+            ruta_ids = [int(r["id_ruta"]) for r in rutas if r.get("id_ruta") is not None]
             if not ruta_ids:
                 return 0
 
-        total = 0
         if ruta_ids is None:
+            if filtrar_dia:
+                t_rutas = tenant_table_name("rutas_v2", dist_id)
+                rutas = []
+                offset = 0
+                while True:
+                    batch = (
+                        sb.table(t_rutas)
+                        .select("id_ruta,dia_semana")
+                        .range(offset, offset + PAGE - 1)
+                        .execute()
+                        .data
+                        or []
+                    )
+                    if not batch:
+                        break
+                    rutas.extend(batch)
+                    if len(batch) < PAGE:
+                        break
+                    offset += PAGE
+                rutas = _filter_rutas_dia_visita(rutas, fecha)  # type: ignore[arg-type]
+                ruta_ids = [int(r["id_ruta"]) for r in rutas if r.get("id_ruta") is not None]
+                if not ruta_ids:
+                    return 0
+                return _count_pdvs_en_rutas(dist_id, ruta_ids)
             res = (
                 sb.table(t_clientes)
                 .select("id_cliente", count="exact")
@@ -673,17 +763,7 @@ def _cartera_scope_count(
                 .execute()
             )
             return res.count or 0
-        for i in range(0, len(ruta_ids), 200):
-            res = (
-                sb.table(t_clientes)
-                .select("id_cliente", count="exact")
-                .eq("id_distribuidor", dist_id)
-                .in_("id_ruta", ruta_ids[i : i + 200])
-                .or_(_PADRON_VISIBLE_OR)
-                .execute()
-            )
-            total += res.count or 0
-        return total
+        return _count_pdvs_en_rutas(dist_id, ruta_ids)
     except Exception as e:
         logger.warning("[avance-ventas] cartera scope dist=%s: %s", dist_id, e)
         return None
@@ -1171,7 +1251,12 @@ def build_avance_ventas(
             _fetch_avance_lines, dist_id, periodo["desde"], periodo["hasta"]
         )
         fut_cartera = pool.submit(
-            _cartera_scope_count, dist_id, sucursal_clean or None, vendedor_clean or None
+            _cartera_scope_count,
+            dist_id,
+            sucursal_clean or None,
+            vendedor_clean or None,
+            modo=modo,
+            fecha=fecha if modo == "dia" else None,
         )
         fut_catalogo = pool.submit(_fetch_catalogo_skus, dist_id, periodo["hasta"])
         fut_sync = pool.submit(_ventas_sync_info, dist_id)
@@ -1310,6 +1395,7 @@ def build_avance_ventas(
         if cartera_count and cartera_count > 0
         else None
     )
+    cartera_scope_tipo = "dia_visita" if modo == "dia" else "cartera_periodo"
 
     cig_actual = _totales_volumen_cigarrillos(agg)
 
@@ -1345,6 +1431,7 @@ def build_avance_ventas(
                 "disponible": bool(cartera_count and cartera_count > 0),
                 "cartera": cartera_count or 0,
                 "con_compra": metadatos["clientes_compra"],
+                "cartera_scope_tipo": cartera_scope_tipo,
             },
             "wow": None,
             "mom": None,
@@ -1457,7 +1544,7 @@ def build_avance_ventas(
         ),
     }
 
-    # ── Cobertura PDV: % de la cartera (padrón visible) con compra en el período ──
+    # ── Cobertura PDV: % cartera con compra (día → PDVs visita asignada; sem/mes → cartera período) ──
     clientes_compra = int(metadatos.get("clientes_compra") or 0)
     cobertura_pdvs = {
         "disponible": bool(cartera_count and cartera_count > 0),
@@ -1469,6 +1556,7 @@ def build_avance_ventas(
             if cartera_count and cartera_count > 0
             else None
         ),
+        "cartera_scope_tipo": cartera_scope_tipo,
     }
 
     # ── Drill clientes (precalculado top 20 SKUs) ───────────────────────────

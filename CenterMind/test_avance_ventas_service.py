@@ -1,10 +1,14 @@
 """Avance de Ventas — periodos, comparativas y agregación de volumen."""
+from unittest.mock import MagicMock
+
 import pytest
 
 from core.sku_unify import build_cod_articulo_hints, unify_catalog_entries
 from services.avance_ventas_service import (
     SIN_VENDEDOR_LABEL,
     _bultos_por_canon_en_agg,
+    _dia_semana_from_fecha,
+    _filter_rutas_dia_visita,
     _row_canon_key,
     _sku_rows_from_agg,
     _totales_volumen_cigarrillos,
@@ -954,3 +958,65 @@ def test_sync_info_zombie_detectado(monkeypatch):
     )
     info = avs._ventas_sync_info(1)
     assert info["has_zombie"] is True
+
+
+# ─── Cobertura PDV — día de visita ────────────────────────────────────────────
+
+def test_dia_semana_from_fecha_miercoles():
+    assert _dia_semana_from_fecha("2026-06-10") == "miercoles"
+
+
+def test_filter_rutas_dia_visita_normaliza_acentos():
+    rutas = [
+        {"id_ruta": 1, "dia_semana": "Miércoles"},
+        {"id_ruta": 2, "dia_semana": "Jueves"},
+        {"id_ruta": 3, "dia_semana": "miercoles"},
+    ]
+    out = _filter_rutas_dia_visita(rutas, "2026-06-10")
+    assert [r["id_ruta"] for r in out] == [1, 3]
+
+
+def test_cartera_scope_count_modo_dia_sin_id_distribuidor_en_rutas(monkeypatch):
+    """rutas_v2_d* no tiene id_distribuidor; modo día filtra por dia_semana."""
+    rutas_eq_cols: list[str] = []
+
+    def _table(name):
+        tbl = MagicMock()
+        q = tbl
+        q.select.return_value = q
+        q.eq.return_value = q
+        q.in_.return_value = q
+        q.or_.return_value = q
+        q.range.return_value = q
+
+        if "vendedores_v2" in (name or ""):
+            q.execute.return_value.data = [
+                {"id_vendedor": 42, "nombre_erp": "MELANIA OJEDA"},
+            ]
+        elif "rutas_v2" in (name or ""):
+
+            def _eq(col, val):
+                rutas_eq_cols.append(col)
+                return q
+
+            q.eq = _eq
+            q.execute.return_value.data = [
+                {"id_ruta": 10, "dia_semana": "Miércoles"},
+                {"id_ruta": 20, "dia_semana": "Viernes"},
+            ]
+        elif "clientes_pdv_v2" in (name or ""):
+            q.execute.return_value.count = 5
+        else:
+            q.execute.return_value.data = []
+        return tbl
+
+    sb_mock = MagicMock()
+    sb_mock.table.side_effect = _table
+    monkeypatch.setattr(avs, "sb", sb_mock)
+    monkeypatch.setattr(avs, "_get_erp_name_map", lambda _d: {})
+
+    count = avs._cartera_scope_count(
+        3, None, "MELANIA OJEDA", modo="dia", fecha="2026-06-10"
+    )
+    assert "id_distribuidor" not in rutas_eq_cols
+    assert count == 5

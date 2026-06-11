@@ -516,6 +516,61 @@ def test_catalogo_cod_distinto_sin_fila_sin_venta_si_hay_venta():
     assert any(not r["sin_venta"] and r["bultos"] == pytest.approx(5.0) for r in rows)
 
 
+def test_sku_desglose_agrupacion_placeholder_consolido_20x250():
+    """Beltrocco: agrupacion_art_2 placeholder pero descripción Consolido → unidades y desglose."""
+    lines = [
+        _linea(
+            cod_articulo="10001",
+            descripcion_articulo="DOLCHESTER GOLDEN EDITION BOX 20X250",
+            agrupacion_art_2="Sin forma de Agrupacion 2",
+            bultos_total=66.56,
+            unidades_total=16640.0,
+        ),
+    ]
+    agg = aggregate_avance_lines(lines)
+    rows = _sku_rows_from_agg(agg, cartera_count=5)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["volumen_kind"] == "cig_default"
+    assert row["unidades"] == pytest.approx(16640.0)
+    assert row["bultos_enteros"] == 66
+    assert row["unidades_resto"] == 140
+
+
+def test_dolchester_silver_consolido_vs_legacy_catalogo_sin_fila_sin_venta():
+    """Beltrocco: ventas «DOLCHESTER SILVER EDITION BOX 20X250» + catálogo legacy sin EDITION."""
+    lines = [
+        _linea(
+            cod_articulo="10042",
+            descripcion_articulo="DOLCHESTER SILVER EDITION BOX 20X250",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=3.5,
+            unidades_total=875.0,
+        ),
+    ]
+    catalogo = [
+        {
+            "cod_articulo": "181",
+            "articulo": "CIGARRILLO DOLCHESTER SILVER 20S BOX",
+            "agrupacion": "CIGARRILLOS",
+        },
+        {
+            "cod_articulo": "10042",
+            "articulo": "DOLCHESTER SILVER EDITION BOX 20X250",
+            "agrupacion": "CIGARRILLOS",
+        },
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    catalogo = unify_catalog_entries(catalogo, hints=hints)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=10, catalogo=catalogo)
+    dolchester = [r for r in rows if "dolchester" in (r["articulo"] or "").lower()]
+    sin_venta = [r for r in dolchester if r["sin_venta"]]
+    assert sin_venta == []
+    assert len(dolchester) == 1
+    assert dolchester[0]["bultos"] == pytest.approx(3.5)
+
+
 def test_liverpool_pop_distinto_cod_catalogo_unifica_por_nombre():
     """Catálogo con otro código pero mismo nombre → no fila fantasma sin venta."""
     lines = [
@@ -641,6 +696,18 @@ def test_catalogo_window_12_meses_calendario():
 
 
 # ─── R2 — Desglose volumen por SKU ───────────────────────────────────────────
+
+def test_desglose_placeholder_agrupacion_consolido():
+    f = _sku_volumen_fields(
+        66.56,
+        "Sin forma de Agrupacion 2",
+        "DOLCHESTER GOLDEN EDITION BOX 20X250",
+        unidades=16640.0,
+    )
+    assert f["volumen_kind"] == "cig_default"
+    assert f["bultos_enteros"] == 66
+    assert f["unidades_resto"] == 140
+
 
 def test_desglose_convertido_enteros_y_resto():
     # Cigarrillos: factor 250 → 592 u = 2 enteros + 92 u (desde unidades, no bultos decimal)

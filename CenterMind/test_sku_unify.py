@@ -17,7 +17,7 @@ from core.sku_unify import (
 def test_normalize_quita_prefijo_cigarrillo():
     a = normalize_sku_description("CIGARRILLO DOLCHESTER GOLDEN EDITION")
     b = normalize_sku_description("DOLCHESTER GOLDEN EDITION")
-    assert a == b == "dolchester golden edition"
+    assert a == b == "dolchester golden"
 
 
 def test_normalize_liverpool_con_sin_prefijo_y_empaque():
@@ -31,6 +31,13 @@ def test_normalize_consolido_box_20x250_vs_legacy_cigarrillo():
     venta = normalize_sku_description("CORONA BOX 20X250")
     legacy = normalize_sku_description("CIGARRILLO CORONA 20S BOX")
     assert venta == legacy == "corona"
+
+
+def test_normalize_dolchester_silver_consolido_vs_legacy_sin_edition():
+    """Consolido «… SILVER EDITION BOX 20X250» vs CHESS «CIGARRILLO … SILVER 20S BOX»."""
+    venta = normalize_sku_description("DOLCHESTER SILVER EDITION BOX 20X250")
+    legacy = normalize_sku_description("CIGARRILLO DOLCHESTER SILVER 20S BOX")
+    assert venta == legacy == "dolchester silver"
 
 
 def test_normalize_liverpool_special_red_consolido_vs_sp_legacy():

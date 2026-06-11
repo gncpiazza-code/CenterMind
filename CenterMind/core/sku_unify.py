@@ -41,6 +41,8 @@ _PACK_SIZE_RE = re.compile(
 _BULTOS_PACK_RE = re.compile(r"\b\d+\s*x\s*\d+\b", re.IGNORECASE)
 # CHESS legacy vs Consolido: "SPECIAL" ≈ "SP" en línea Liverpool.
 _SPECIAL_TO_SP_RE = re.compile(r"\bspecial\b", re.IGNORECASE)
+# CHESS legacy omite «EDITION»; Consolido lo incluye (Dolchester Silver/Golden).
+_EDITION_RE = re.compile(r"\bedition\b", re.IGNORECASE)
 _TRAILING_BOX_RE = re.compile(r"\bbox\b", re.IGNORECASE)
 
 
@@ -74,6 +76,7 @@ def normalize_sku_description(desc: str) -> str:
     folded = _SPECIAL_TO_SP_RE.sub(" sp ", folded)
     folded = _PACK_SIZE_RE.sub("", folded).strip()
     folded = _BULTOS_PACK_RE.sub("", folded).strip()
+    folded = _EDITION_RE.sub("", folded).strip()
     folded = _TRAILING_BOX_RE.sub("", folded).strip()
     return re.sub(r"\s+", " ", folded).strip()
 

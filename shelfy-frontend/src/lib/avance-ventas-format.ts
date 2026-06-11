@@ -36,6 +36,27 @@ function unidadesPorBultoFactor(kind: string | null | undefined): number | null 
   return null;
 }
 
+/** Fallback cuando el BE aún no clasificó (agrupación ERP placeholder). */
+function inferFactorFromRow(
+  bultos: number,
+  unidades: number,
+  articulo?: string | null,
+): number | null {
+  const b = Math.abs(Number(bultos) || 0);
+  const u = Math.abs(Number(unidades) || 0);
+  if (u >= 1 && b >= 0.005) {
+    const ratio = u / b;
+    if (ratio >= 225 && ratio <= 275) return 250;
+    if (ratio >= 90 && ratio <= 110) return 100;
+    if (ratio >= 20 && ratio <= 30) return 25;
+  }
+  const name = (articulo ?? "").toUpperCase();
+  if (/\b\d+\s*X\s*250\b/.test(name) || /\b\d+\s*S\s*BOX\b/.test(name) || name.includes("CIGARRILLO")) {
+    return 250;
+  }
+  return null;
+}
+
 /** Desglose desde unidades ERP (misma regla que `bultos_desglose_from_unidades` en BE). */
 function desgloseFromUnidades(
   unidades: number,
@@ -72,6 +93,7 @@ export function fmtVolumenCell(
   row: {
     bultos: number;
     unidades: number;
+    articulo?: string | null;
     volumen_kind?: string | null;
     bultos_enteros?: number;
     unidades_resto?: number;
@@ -80,7 +102,9 @@ export function fmtVolumenCell(
 ): { primary: string; secondary: string | null } {
   if (modo === "bultos") return { primary: fmtBultos(row.bultos), secondary: null };
 
-  const factor = unidadesPorBultoFactor(row.volumen_kind);
+  const factor =
+    unidadesPorBultoFactor(row.volumen_kind) ??
+    inferFactorFromRow(row.bultos, row.unidades, row.articulo);
   if (factor != null && Math.abs(row.unidades) > 0.005) {
     const { enteros, resto } = desgloseFromUnidades(row.unidades, factor);
     return fmtDesgloseBultosUnidades(enteros, resto);

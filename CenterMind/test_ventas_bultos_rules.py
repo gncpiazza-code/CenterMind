@@ -6,6 +6,7 @@ from core.ventas_bultos_rules import (
     bultos_desglose_from_unidades,
     bultos_efectivos,
     classify_volumen,
+    is_cigarrillo_by_description,
     is_encendedor,
 )
 
@@ -35,6 +36,21 @@ def test_mix_exhibidores_25():
 def test_otro_producto_usa_excel():
     b = bultos_efectivos("BEBIDAS", "COCA 2L", "", 12.0, 3.5)
     assert b == pytest.approx(3.5)
+
+
+def test_cigarrillo_por_descripcion_sin_agrupacion_cigarrillos():
+    agr = "Sin forma de Agrupacion 2"
+    desc = "DOLCHESTER GOLDEN EDITION BOX 20X250"
+    assert is_cigarrillo_by_description(agr, desc, "")
+    assert classify_volumen(agr, desc, "") == "cig_default"
+    b = bultos_efectivos(agr, desc, "", 16640.0, 66.56)
+    assert b == pytest.approx(66.56)
+
+
+def test_cigarrillo_por_ratio_unidades_bultos():
+    agr = "Sin forma de Agrupacion 2"
+    desc = "CORONA PROMOCION"
+    assert classify_volumen(agr, desc, "", unidades_total=7705.0, bultos_excel=30.82) == "cig_default"
 
 
 def test_desglose_42_37_bultos_250():

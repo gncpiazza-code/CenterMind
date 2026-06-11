@@ -213,6 +213,8 @@ def _unidades_linea(row: dict, bultos: float) -> float:
         row.get("agrupacion_art_2") or "",
         row.get("descripcion_articulo") or "",
         "",
+        unidades_total=float(row.get("unidades_total") or 0),
+        bultos_excel=bultos,
     )
     if kind == "encendedor_raw":
         return bultos
@@ -507,7 +509,13 @@ def _sku_volumen_fields(
     Desglose de volumen por SKU (R2): kind + bultos enteros / unidades resto.
     Cig/papelillo/mix: parte desde unidades agregadas (fuente ERP). Encendedor: entero 1:1.
     """
-    kind = classify_volumen(agrupacion or "", articulo or "", "")
+    kind = classify_volumen(
+        agrupacion or "",
+        articulo or "",
+        "",
+        unidades_total=unidades,
+        bultos_excel=bultos,
+    )
     out: dict = {"volumen_kind": kind}
 
     if kind == "encendedor_raw" and abs(bultos) > 0.005:
@@ -538,7 +546,13 @@ def _totales_volumen_cigarrillos(agg: dict) -> dict:
     bultos = 0.0
     unidades_by_kind: dict[str, float] = {"cig_default": 0.0, "cig_mix_exhib": 0.0}
     for s in (agg.get("por_sku") or {}).values():
-        kind = classify_volumen(s.get("agrupacion") or "", s.get("articulo") or "", "")
+        kind = classify_volumen(
+            s.get("agrupacion") or "",
+            s.get("articulo") or "",
+            "",
+            unidades_total=float(s.get("unidades") or 0),
+            bultos_excel=float(s.get("bultos") or 0),
+        )
         if kind not in _CIG_KPI_KINDS:
             continue
         bultos += float(s.get("bultos") or 0)

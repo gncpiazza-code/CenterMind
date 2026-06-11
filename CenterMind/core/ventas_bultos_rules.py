@@ -8,6 +8,7 @@ Reglas de volumen — Informe de Ventas Consolido.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 VolumenKind = Literal[
@@ -56,10 +57,46 @@ def is_cigarrillos_agrupacion(agrupacion_art_2: str) -> bool:
     return _contains(agrupacion_art_2 or "", "CIGARRILLOS")
 
 
+_CIG_PACK_20X250_RE = re.compile(r"\b\d+\s*x\s*250\b", re.IGNORECASE)
+_CIG_LEGACY_PACK_RE = re.compile(
+    r"\b\d+\s*s\s*(?:box|soft|hw|ks|cup|ltr|un)?\b",
+    re.IGNORECASE,
+)
+
+
+def is_cigarrillo_by_description(
+    agrupacion_art_2: str,
+    descripcion: str = "",
+    descripcion_comp: str = "",
+) -> bool:
+    """
+    Cigarrillo aunque agrupacion_art_2 venga mal (p. ej. «Sin forma de Agrupacion 2»).
+    Consolido: «BOX 20X250»; CHESS legacy: «20S BOX».
+    """
+    blob = _blob(agrupacion_art_2, descripcion, descripcion_comp)
+    if _contains(blob, "CIGARRILLO"):
+        return True
+    if _CIG_PACK_20X250_RE.search(blob):
+        return True
+    return bool(_CIG_LEGACY_PACK_RE.search(blob))
+
+
+def _ratio_suggests_cigarrillo(bultos: float, unidades: float) -> bool:
+    """unidades/bultos ≈ 250 cuando el ERP trae ambos pero la agrupación falló."""
+    b, u = abs(float(bultos or 0)), abs(float(unidades or 0))
+    if u < 1.0 or b < 0.005:
+        return False
+    ratio = u / b
+    return 225.0 <= ratio <= 275.0
+
+
 def classify_volumen(
     agrupacion_art_2: str,
     descripcion: str = "",
     descripcion_comp: str = "",
+    *,
+    unidades_total: float | None = None,
+    bultos_excel: float | None = None,
 ) -> VolumenKind:
     """Clasifica la línea para aplicar conversión o bulto crudo."""
     if is_encendedor(agrupacion_art_2, descripcion, descripcion_comp):
@@ -72,6 +109,11 @@ def classify_volumen(
         return "cig_default"
     if is_mix_exhibidores(agrupacion_art_2, descripcion, descripcion_comp):
         return "cig_mix_exhib"
+    if is_cigarrillo_by_description(agrupacion_art_2, descripcion, descripcion_comp):
+        return "cig_default"
+    if unidades_total is not None and bultos_excel is not None:
+        if _ratio_suggests_cigarrillo(bultos_excel, unidades_total):
+            return "cig_default"
     return "otro_raw"
 
 
@@ -100,7 +142,13 @@ def bultos_efectivos(
     Bultos a persistir / sumar en KPIs.
     Encendedores y no-cig: valor del Excel. Cigarrillos: unidades / factor.
     """
-    kind = classify_volumen(agrupacion_art_2, descripcion, descripcion_comp)
+    kind = classify_volumen(
+        agrupacion_art_2,
+        descripcion,
+        descripcion_comp,
+        unidades_total=float(unidades_total or 0),
+        bultos_excel=float(bultos_excel or 0),
+    )
     if not volumen_es_convertido(kind):
         return float(bultos_excel or 0)
     u = float(unidades_total or 0)

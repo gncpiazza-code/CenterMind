@@ -8,11 +8,18 @@ export type SupervisionMode = "cc" | "avance";
 interface SupervisionModeToggleProps {
   mode: SupervisionMode;
   onChange: (mode: SupervisionMode) => void;
+  /** Precarga avance de ventas al pasar el mouse (TanStack prefetch). */
+  onAvanceIntent?: () => void;
   className?: string;
 }
 
 /** Segment control CC | Avance de ventas en el header sticky de /supervision. */
-export function SupervisionModeToggle({ mode, onChange, className }: SupervisionModeToggleProps) {
+export function SupervisionModeToggle({
+  mode,
+  onChange,
+  onAvanceIntent,
+  className,
+}: SupervisionModeToggleProps) {
   return (
     <div
       role="tablist"
@@ -41,6 +48,8 @@ export function SupervisionModeToggle({ mode, onChange, className }: Supervision
         type="button"
         role="tab"
         aria-selected={mode === "avance"}
+        onMouseEnter={onAvanceIntent}
+        onFocus={onAvanceIntent}
         onClick={() => onChange("avance")}
         className={cn(
           "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-bold tracking-tight transition-colors",

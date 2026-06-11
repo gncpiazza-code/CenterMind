@@ -115,6 +115,32 @@ def bultos_display_2dec(value: float) -> float:
     return round(float(value or 0), 2)
 
 
+def bultos_desglose_from_unidades(
+    unidades: float,
+    kind: VolumenKind,
+) -> tuple[int, int] | None:
+    """
+    Desglose canónico desde unidades reales (suma de líneas).
+    Más fiable que partir bultos decimales agregados cuando hay redondeo por comprobante.
+    """
+    if not volumen_es_convertido(kind):
+        return None
+    u = float(unidades or 0)
+    if abs(u) < 0.005:
+        return None
+    factor = int(unidades_por_bulto(kind) or 250)
+    if factor <= 0:
+        return None
+    sign = -1 if u < 0 else 1
+    u_abs = abs(u)
+    enteros = int(u_abs // factor)
+    resto = int(round(u_abs - enteros * factor))
+    if resto >= factor:
+        enteros += resto // factor
+        resto = resto % factor
+    return sign * enteros, resto
+
+
 def bultos_desglose_decimal(
     bultos: float,
     unidades_por_bulto_factor: float,
@@ -157,7 +183,12 @@ def fmt_bultos_unidades_desglose(bultos_enteros: int, unidades_resto: int) -> st
     return f"{b} Bultos"
 
 
-def enrich_bultos_desglose_row(bultos_raw: float, kind: VolumenKind | None) -> dict:
+def enrich_bultos_desglose_row(
+    bultos_raw: float,
+    kind: VolumenKind | None,
+    *,
+    unidades_total: float | None = None,
+) -> dict:
     """Campos de display alineados a estadísticas / VendorCardExpanded."""
     b_raw = float(bultos_raw or 0)
     row: dict = {
@@ -166,8 +197,16 @@ def enrich_bultos_desglose_row(bultos_raw: float, kind: VolumenKind | None) -> d
         "kind": kind,
     }
     if kind and volumen_es_convertido(kind):
-        factor = unidades_por_bulto(kind) or 250.0
-        enteros, resto = bultos_desglose_decimal(b_raw, factor)
+        from_unidades = (
+            bultos_desglose_from_unidades(float(unidades_total or 0), kind)
+            if unidades_total is not None and abs(float(unidades_total or 0)) > 0.005
+            else None
+        )
+        if from_unidades:
+            enteros, resto = from_unidades
+        else:
+            factor = unidades_por_bulto(kind) or 250.0
+            enteros, resto = bultos_desglose_decimal(b_raw, factor)
         row["bultos_enteros"] = enteros
         row["unidades_resto"] = resto
     return row

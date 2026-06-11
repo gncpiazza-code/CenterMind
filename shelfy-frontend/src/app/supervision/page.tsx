@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -28,6 +29,11 @@ import {
   useSupervisionPanelQueries,
   usePrefetchDeudoresBatch,
 } from "@/hooks/useSupervisionQueries";
+import {
+  prefetchAvanceVentasDefault,
+  prefetchAvanceVentasIdle,
+  prefetchAvanceVentasWarm,
+} from "@/hooks/useAvanceVentasQuery";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
 import {
   SupervisionPageLoadingShell,
@@ -159,6 +165,7 @@ export default function SupervisionPage() {
   const { user, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
   const distId = effectiveDistribuidorId ?? 0;
+  const queryClient = useQueryClient();
 
   // ── Zustand store ────────────────────────────────────────────────────────────
   const {
@@ -210,6 +217,32 @@ export default function SupervisionPage() {
 
   const isAvance = viewMode === "avance";
   const isRefreshing = vendedoresFetching || (!isAvance && fetchingCuentas);
+
+  const prefetchAvanceIntent = useCallback(() => {
+    if (distId <= 0) return;
+    prefetchAvanceVentasDefault(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
+  }, [distId, queryClient, sucursalParam, selectedVendedorNombre]);
+
+  useEffect(() => {
+    if (!isAvance || distId <= 0) return;
+    prefetchAvanceVentasIdle(
+      queryClient,
+      distId,
+      avanceModo,
+      avanceFecha,
+      sucursalParam ?? null,
+      selectedVendedorNombre,
+    );
+    prefetchAvanceVentasWarm(queryClient, distId, sucursalParam ?? null, selectedVendedorNombre);
+  }, [
+    isAvance,
+    distId,
+    avanceModo,
+    avanceFecha,
+    sucursalParam,
+    selectedVendedorNombre,
+    queryClient,
+  ]);
 
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
@@ -317,7 +350,11 @@ export default function SupervisionPage() {
                   <div className="flex flex-col gap-2 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3 min-w-0">
                       <div className="flex items-center gap-2 shrink-0">
-                        <SupervisionModeToggle mode={viewMode} onChange={setViewMode} />
+                        <SupervisionModeToggle
+                          mode={viewMode}
+                          onChange={setViewMode}
+                          onAvanceIntent={prefetchAvanceIntent}
+                        />
                         {isRefreshing && (
                           <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--shelfy-muted)]" />
                         )}

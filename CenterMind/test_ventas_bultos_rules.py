@@ -3,6 +3,7 @@ import pytest
 
 from core.ventas_bultos_rules import (
     bultos_desglose_decimal,
+    bultos_desglose_from_unidades,
     bultos_efectivos,
     classify_volumen,
     is_encendedor,
@@ -40,6 +41,14 @@ def test_desglose_42_37_bultos_250():
     enteros, resto = bultos_desglose_decimal(42.37, 250)
     assert enteros == 42
     assert resto == 92
+
+
+def test_desglose_from_unidades_cig_250():
+    assert bultos_desglose_from_unidades(1092.0, "cig_default") == (4, 92)
+
+
+def test_desglose_from_unidades_papelillo_100():
+    assert bultos_desglose_from_unidades(150.0, "cig_papelillo") == (1, 50)
 
 
 def test_bultos_pdf_html_cigarrillos_con_unidades():

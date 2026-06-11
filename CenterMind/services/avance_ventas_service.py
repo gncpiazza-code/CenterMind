@@ -21,6 +21,13 @@ from time import monotonic
 
 from core.helpers import _get_erp_name_map
 from core.tenant_tables import tenant_table_name
+from core.sku_unify import (
+    merge_sku_bucket,
+    resolve_unify_key_from_ref,
+    row_matches_unify_key,
+    sku_unify_key,
+    unify_catalog_entries,
+)
 from core.ventas_bultos_rules import (
     classify_volumen,
     enrich_bultos_desglose_row,
@@ -281,18 +288,19 @@ def aggregate_avance_lines(
         vb["bultos"] += bultos
         vb["unidades"] += unidades
 
-        sku_key = cod or desc or "Sin código"
+        sku_key = sku_unify_key(cod, desc, agr2)
         sk = por_sku.setdefault(
             sku_key,
             {
-                "cod_articulo": cod,
-                "articulo": desc or cod or "Artículo sin descripción",
+                "cod_articulo": "",
+                "articulo": "Artículo sin descripción",
                 "agrupacion": agr2,
                 "bultos": 0.0,
                 "unidades": 0.0,
                 "clientes": set(),
             },
         )
+        merge_sku_bucket(sk, cod=cod, desc=desc, agrupacion=agr2)
         sk["bultos"] += bultos
         sk["unidades"] += unidades
         if cliente_key:
@@ -458,18 +466,34 @@ def _fetch_catalogo_skus(dist_id: int, hasta: str) -> list[dict]:
         if not prev_cod:
             break
 
+    catalogo = unify_catalog_entries(catalogo)
     _catalogo_cache[cache_key] = (monotonic(), catalogo)
     return catalogo
 
 
-def _sku_volumen_fields(bultos: float, agrupacion: str, articulo: str) -> dict:
+def _sku_volumen_fields(
+    bultos: float,
+    agrupacion: str,
+    articulo: str,
+    *,
+    unidades: float = 0.0,
+) -> dict:
     """
-    Desglose de volumen por SKU (R2): kind + bultos enteros / unidades resto
-    en líneas convertidas (cig/papelillo/mix), misma lógica que estadísticas/PDF.
+    Desglose de volumen por SKU (R2): kind + bultos enteros / unidades resto.
+    Cig/papelillo/mix: parte desde unidades agregadas (fuente ERP). Encendedor: entero 1:1.
     """
     kind = classify_volumen(agrupacion or "", articulo or "", "")
-    enriched = enrich_bultos_desglose_row(bultos, kind)
     out: dict = {"volumen_kind": kind}
+
+    if kind == "encendedor_raw" and abs(bultos) > 0.005:
+        qty = float(unidades) if abs(unidades) > 0.005 else float(bultos)
+        sign = -1 if qty < 0 else 1
+        n = int(round(abs(qty)))
+        out["bultos_enteros"] = sign * n
+        out["unidades_resto"] = 0
+        return out
+
+    enriched = enrich_bultos_desglose_row(bultos, kind, unidades_total=unidades)
     if "bultos_enteros" in enriched:
         out["bultos_enteros"] = enriched["bultos_enteros"]
         out["unidades_resto"] = enriched["unidades_resto"]
@@ -681,17 +705,24 @@ def _sku_rows_from_agg(
                 round(n_cli / cartera_count * 100, 1) if cartera_count else None
             ),
             "sin_venta": False,
-            **_sku_volumen_fields(s["bultos"], s["agrupacion"], s["articulo"]),
+            **_sku_volumen_fields(
+                s["bultos"], s["agrupacion"], s["articulo"], unidades=s["unidades"]
+            ),
         }
         rows.append(row)
 
     if catalogo:
         en_periodo = {
-            (s["cod_articulo"] or k).strip()
-            for k, s in agg["por_sku"].items()
+            sku_unify_key(s.get("cod_articulo") or "", s["articulo"], s.get("agrupacion") or "")
+            for s in agg["por_sku"].values()
         }
         for c in catalogo:
-            if c["cod_articulo"] in en_periodo:
+            cat_key = sku_unify_key(
+                c.get("cod_articulo") or "",
+                c.get("articulo") or "",
+                c.get("agrupacion") or "",
+            )
+            if cat_key in en_periodo:
                 continue
             rows.append(
                 {
@@ -705,7 +736,9 @@ def _sku_rows_from_agg(
                     "intensidad": 0.0,
                     "penetracion_pct": 0.0 if cartera_count else None,
                     "sin_venta": True,
-                    **_sku_volumen_fields(0.0, c["agrupacion"], c["articulo"]),
+                    **_sku_volumen_fields(
+                        0.0, c["agrupacion"], c["articulo"], unidades=0.0
+                    ),
                 }
             )
 
@@ -976,20 +1009,43 @@ def build_avance_ventas(
         bloque = comparativas.get(ref_key)
         return bloque.get(metric) if bloque else None
 
+    cobertura_pct = (
+        round(metadatos["clientes_compra"] / cartera_count * 100, 1)
+        if cartera_count and cartera_count > 0
+        else None
+    )
+
     kpis_cards = [
         {
-            "id": metric_id,
-            "valor": metadatos[meta_key],
-            "wow": _delta_for(metric_id, delta_primary_key[0]),
-            "mom": _delta_for(metric_id, delta_primary_key[1]),
-        }
-        for metric_id, meta_key in (
-            ("bultos", "total_bultos"),
-            ("unidades", "total_unidades"),
-            ("clientes", "clientes_compra"),
-            ("skus", "skus_activos"),
-            ("comprobantes", "comprobantes"),
-        )
+            "id": "volumen",
+            "valor": metadatos["total_bultos"],
+            "extra": {"unidades": metadatos["total_unidades"]},
+            "wow": _delta_for("bultos", delta_primary_key[0]),
+            "mom": _delta_for("bultos", delta_primary_key[1]),
+        },
+        {
+            "id": "cobertura_pdvs",
+            "valor": cobertura_pct if cobertura_pct is not None else 0.0,
+            "extra": {
+                "disponible": bool(cartera_count and cartera_count > 0),
+                "cartera": cartera_count or 0,
+                "con_compra": metadatos["clientes_compra"],
+            },
+            "wow": None,
+            "mom": None,
+        },
+        {
+            "id": "clientes",
+            "valor": metadatos["clientes_compra"],
+            "wow": _delta_for("clientes", delta_primary_key[0]),
+            "mom": _delta_for("clientes", delta_primary_key[1]),
+        },
+        {
+            "id": "skus",
+            "valor": metadatos["skus_activos"],
+            "wow": _delta_for("skus", delta_primary_key[0]),
+            "mom": _delta_for("skus", delta_primary_key[1]),
+        },
     ]
 
     # ── Share vendedores (solo scope "todos") ───────────────────────────────
@@ -1056,15 +1112,29 @@ def build_avance_ventas(
         if not r["sin_venta"]
     ]
 
-    # ── Cobertura de catálogo (R4): SKUs vendidos vs sin venta en el scope ──
+    # ── Convivencia SKU: % del catálogo 12m con al menos 1 venta en el período ──
     n_con_venta = len(sku_rows_full) - n_sin_venta
-    cobertura_skus = {
+    convivencia_skus = {
         "disponible": catalogo is not None,
         "catalogo": len(sku_rows_full),
         "con_venta": n_con_venta,
         "sin_venta": n_sin_venta,
-        "pct_con_venta": (
+        "pct_convivencia": (
             round(n_con_venta / len(sku_rows_full) * 100, 1) if sku_rows_full else None
+        ),
+    }
+
+    # ── Cobertura PDV: % de la cartera (padrón visible) con compra en el período ──
+    clientes_compra = int(metadatos.get("clientes_compra") or 0)
+    cobertura_pdvs = {
+        "disponible": bool(cartera_count and cartera_count > 0),
+        "cartera": cartera_count or 0,
+        "con_compra": clientes_compra,
+        "sin_compra": max(0, (cartera_count or 0) - clientes_compra),
+        "pct_cobertura": (
+            round(clientes_compra / cartera_count * 100, 1)
+            if cartera_count and cartera_count > 0
+            else None
         ),
     }
 
@@ -1094,7 +1164,8 @@ def build_avance_ventas(
         "series": {
             "scatter_penetracion_intensidad": scatter,
             "heatmap_top_skus": heatmap,
-            "cobertura_skus": cobertura_skus,
+            "convivencia_skus": convivencia_skus,
+            "cobertura_pdvs": cobertura_pdvs,
         },
         "auditoria_clientes": _build_auditoria_clientes(agg, cartera_count),
         "drill_clientes_por_sku": drill,
@@ -1137,12 +1208,8 @@ def build_avance_ventas_sku_clientes(
 
     lines = _fetch_avance_lines(dist_id, periodo["desde"], periodo["hasta"])
     cod_norm = (cod_articulo or "").strip()
-    lines = [
-        r
-        for r in lines
-        if (r.get("cod_articulo") or "").strip() == cod_norm
-        or (not (r.get("cod_articulo") or "").strip() and (r.get("descripcion_articulo") or "").strip() == cod_norm)
-    ]
+    unify_key = resolve_unify_key_from_ref(lines, cod_norm)
+    lines = [r for r in lines if row_matches_unify_key(r, unify_key)]
     agg = aggregate_avance_lines(
         lines,
         erp_name_map=erp_name_map,
@@ -1248,7 +1315,12 @@ def build_avance_ventas_cliente_skus(
                     "agrupacion": agrupacion,
                     "bultos": round(bultos, 2),
                     "unidades": round(float(cli_vol.get("unidades") or 0), 2),
-                    **_sku_volumen_fields(bultos, agrupacion, articulo),
+                    **_sku_volumen_fields(
+                        bultos,
+                        agrupacion,
+                        articulo,
+                        unidades=float(cli_vol.get("unidades") or 0),
+                    ),
                 }
             )
         skus_out.sort(key=lambda r: r["bultos"], reverse=True)

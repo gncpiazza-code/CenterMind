@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import {
   fetchAvanceVentasClienteSkus,
   fetchAvanceVentasSkuClientes,
@@ -11,10 +16,92 @@ import {
   type AvanceVentasModo,
   type AvanceVentasResponse,
 } from "@/lib/api";
+import { mondayOfWeek, todayIsoAr } from "@/lib/avance-ventas-format";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 
 export const AVANCE_VENTAS_STALE = 5 * 60_000;
 export const AVANCE_VENTAS_GC_MS = 15 * 60_000;
+
+function avanceVentasKey(
+  distId: number,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string | null,
+  vendedor?: string | null,
+) {
+  return supervisionPanelKeys.avanceVentas(distId, modo, fecha, sucursal, vendedor);
+}
+
+/** Invalida panel avance + drills (sync ventas o ingesta). */
+export function invalidateAvanceVentasQueries(queryClient: QueryClient, distId: number) {
+  void queryClient.invalidateQueries({
+    queryKey: ["supervision-panel", "avance-ventas", distId],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["supervision-panel", "avance-ventas-sku", distId],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["supervision-panel", "avance-ventas-cliente", distId],
+  });
+}
+
+export async function prefetchAvanceVentas(
+  queryClient: QueryClient,
+  distId: number,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string | null,
+  vendedor?: string | null,
+) {
+  if (distId <= 0 || !fecha) return;
+  const key = avanceVentasKey(distId, modo, fecha, sucursal, vendedor);
+  const state = queryClient.getQueryState(key);
+  if (state?.fetchStatus === "fetching") return;
+  if (state?.dataUpdatedAt && Date.now() - state.dataUpdatedAt < AVANCE_VENTAS_STALE) return;
+  await queryClient.prefetchQuery(avanceVentasQueryOptions(distId, modo, fecha, sucursal, vendedor));
+}
+
+export function prefetchAvanceVentasIdle(
+  queryClient: QueryClient,
+  distId: number,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string | null,
+  vendedor?: string | null,
+) {
+  void prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor);
+}
+
+/** Precarga el día en curso (hover / entrada a supervisión). */
+export function prefetchAvanceVentasDefault(
+  queryClient: QueryClient,
+  distId: number,
+  sucursal?: string | null,
+  vendedor?: string | null,
+) {
+  prefetchAvanceVentasIdle(queryClient, distId, "dia", todayIsoAr(), sucursal, vendedor);
+}
+
+/** Precarga día + semana + mes en curso al activar modo avance. */
+export function prefetchAvanceVentasWarm(
+  queryClient: QueryClient,
+  distId: number,
+  sucursal?: string | null,
+  vendedor?: string | null,
+) {
+  if (distId <= 0) return;
+  const hoy = todayIsoAr();
+  const targets: Array<[AvanceVentasModo, string]> = [
+    ["dia", hoy],
+    ["semana", mondayOfWeek(hoy)],
+    ["mes", `${hoy.slice(0, 7)}-01`],
+  ];
+  void Promise.all(
+    targets.map(([modo, fecha]) =>
+      prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor),
+    ),
+  );
+}
 
 export function avanceVentasQueryOptions(
   distId: number,
@@ -69,15 +156,7 @@ export function useAvanceVentasQuery({
     }
     if (ventasLastUpdated !== lastSyncRef.current) {
       lastSyncRef.current = ventasLastUpdated;
-      void queryClient.invalidateQueries({
-        queryKey: ["supervision-panel", "avance-ventas", distId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["supervision-panel", "avance-ventas-sku", distId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["supervision-panel", "avance-ventas-cliente", distId],
-      });
+      invalidateAvanceVentasQueries(queryClient, distId);
     }
   }, [ventasLastUpdated, distId, queryClient]);
 

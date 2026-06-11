@@ -21,6 +21,10 @@ export const AVANCE_KPI_HELP = {
   deltaMes:
     "Variación de bultos netos respecto al mes anterior completo. Muestra " +
     "«Sin dato» si el mes de referencia no tiene información.",
+  volumen:
+    "Volumen del período: bultos netos (ventas menos devoluciones) y unidades " +
+    "de líneas convertidas (cigarrillos, papelillos, mix) y encendedores. Los " +
+    "deltas comparan solo bultos.",
   bultos:
     "Bultos netos del período: ventas menos devoluciones. Cigarrillos y " +
     "convertidos se expresan en bultos equivalentes según las reglas de volumen.",
@@ -33,9 +37,14 @@ export const AVANCE_KPI_HELP = {
     "encendedores (1 bulto = 1 unidad). El resto de los artículos no suma unidades.",
   clientes: "Clientes distintos con al menos una compra en el período y filtro activos.",
   skus: "SKUs con movimiento (venta o devolución) en el período y filtro activos.",
-  cobertura:
-    "Cobertura del catálogo: SKUs con venta en el período sobre el total de " +
-    "SKUs vendidos por la distribuidora en los últimos 12 meses.",
+  coberturaPdvs:
+    "Cobertura de PDVs: porcentaje de clientes de tu cartera (padrón visible según " +
+    "filtro) que compraron al menos una vez en el período, sobre el 100% de PDVs " +
+    "de esa cartera. Mide alcance de compra en la base, no mix de SKUs.",
+  convivencia:
+    "Convivencia de SKUs: porcentaje del catálogo (SKUs vendidos por la distribuidora " +
+    "en los últimos 12 meses) que tuvo al menos una venta en el período. Mide amplitud " +
+    "del mix vendido, no cuántos PDVs compraron.",
   monoproducto:
     "Clientes que concentran todo su volumen del período en un solo SKU. " +
     "Riesgo de dependencia y oportunidad de ampliar mix.",

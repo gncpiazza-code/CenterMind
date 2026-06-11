@@ -23,6 +23,7 @@ import {
   type VendedorSupervision,
   type SupervisionBundle,
 } from "@/lib/api";
+import { invalidateAvanceVentasQueries } from "@/hooks/useAvanceVentasQuery";
 import { supervisionPanelKeys, bundleKeys } from "@/lib/query-keys";
 import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
 
@@ -198,6 +199,7 @@ export function useSupervisionPanelQueries(
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
   const qc = useQueryClient();
   const prevCcSyncRef = useRef<string | null>(null);
+  const prevVentasSyncRef = useRef<string | null>(null);
 
   const bundleQuery = useQuery<SupervisionBundle>({
     ...supervisionBundleQueryOptions(distId, sucursalParam ?? null, null),
@@ -275,6 +277,26 @@ export function useSupervisionPanelQueries(
     distId,
     syncQuery.data?.cuentas_corrientes?.last_updated,
     syncQuery.data?.cuentas_corrientes?.last_run_ok_at,
+    qc,
+  ]);
+
+  // Tras ingesta ventas (sync-status), invalidar avance de ventas
+  useEffect(() => {
+    const ventasKey =
+      syncQuery.data?.ventas?.last_attempt_at ??
+      syncQuery.data?.ventas?.last_updated ??
+      syncQuery.data?.ventas?.last_run_ok_at ??
+      null;
+    if (!distId || !ventasKey) return;
+    if (prevVentasSyncRef.current && prevVentasSyncRef.current !== ventasKey) {
+      invalidateAvanceVentasQueries(qc, distId);
+    }
+    prevVentasSyncRef.current = ventasKey;
+  }, [
+    distId,
+    syncQuery.data?.ventas?.last_attempt_at,
+    syncQuery.data?.ventas?.last_updated,
+    syncQuery.data?.ventas?.last_run_ok_at,
     qc,
   ]);
 

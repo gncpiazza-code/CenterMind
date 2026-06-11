@@ -29,10 +29,36 @@ export function fmtDelta(delta: AvanceDeltaKpi | null | undefined): string {
   return `${sign}${delta.pct.toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 }
 
+function unidadesPorBultoFactor(kind: string | null | undefined): number | null {
+  if (kind === "cig_papelillo") return 100;
+  if (kind === "cig_mix_exhib") return 25;
+  if (kind === "cig_default") return 250;
+  return null;
+}
+
+/** Desglose desde unidades ERP (misma regla que `bultos_desglose_from_unidades` en BE). */
+function desgloseFromUnidades(
+  unidades: number,
+  factor: number,
+): { enteros: number; resto: number } {
+  const u = Number(unidades) || 0;
+  if (Math.abs(u) < 0.005) return { enteros: 0, resto: 0 };
+  const f = Math.max(1, Math.round(factor));
+  const sign = u < 0 ? -1 : 1;
+  const uAbs = Math.abs(u);
+  let enteros = Math.floor(uAbs / f);
+  let resto = Math.round(uAbs - enteros * f);
+  if (resto >= f) {
+    enteros += Math.floor(resto / f);
+    resto = resto % f;
+  }
+  return { enteros: sign * enteros, resto };
+}
+
 /**
- * Celda de volumen según modo (R2). En "desglose", las líneas convertidas
- * muestran bultos enteros + unidades restantes (42 · 92 u) y los encendedores
- * su equivalencia 1:1; el resto queda igual que en modo bultos.
+ * Celda de volumen según modo (R2). En "desglose", cig/papelillo/mix muestran
+ * bultos enteros + unidades restantes desde unidades reales; encendedores en
+ * entero 1:1; el resto queda en bultos.
  */
 export function fmtVolumenCell(
   row: {
@@ -45,15 +71,30 @@ export function fmtVolumenCell(
   modo: "bultos" | "desglose",
 ): { primary: string; secondary: string | null } {
   if (modo === "bultos") return { primary: fmtBultos(row.bultos), secondary: null };
+
+  const factor = unidadesPorBultoFactor(row.volumen_kind);
+  if (factor != null && Math.abs(row.unidades) > 0.005) {
+    const { enteros, resto } = desgloseFromUnidades(row.unidades, factor);
+    return {
+      primary: fmtEntero(enteros),
+      secondary: resto > 0 ? `· ${fmtUnidades(resto)} u` : null,
+    };
+  }
+
+  if (row.volumen_kind === "encendedor_raw" && Math.abs(row.bultos) > 0.005) {
+    const qty = Math.abs(row.unidades) > 0.005 ? row.unidades : row.bultos;
+    const n = Math.round(Math.abs(qty));
+    const sign = qty < 0 ? -1 : 1;
+    return { primary: fmtEntero(sign * n), secondary: null };
+  }
+
   if (row.bultos_enteros != null && row.unidades_resto != null) {
     return {
       primary: fmtEntero(row.bultos_enteros),
       secondary: row.unidades_resto > 0 ? `· ${fmtUnidades(row.unidades_resto)} u` : null,
     };
   }
-  if (row.volumen_kind === "encendedor_raw" && Math.abs(row.unidades) > 0) {
-    return { primary: fmtBultos(row.bultos), secondary: `· ${fmtUnidades(row.unidades)} u` };
-  }
+
   return { primary: fmtBultos(row.bultos), secondary: null };
 }
 

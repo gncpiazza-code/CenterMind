@@ -34,12 +34,14 @@ Auditoría cliente×SKU integrada para corroborar números sin salir de la panta
 
 ### Catálogo y ranking
 
+- **Unificación SKU** (`core/sku_unify.py`): agrupa variantes ERP del mismo artículo (prefijos tipo «CIGARRILLO …», `[COD]` en descripción, líneas con/sin `cod_articulo`). Clave canónica = descripción normalizada.
 - Universo: SKUs distintos en ventana **12 meses** (`CATALOGO_MESES`).
 - `incluir_sin_venta=true` (default): ranking completo; `false` excluye filas con `bultos=0`.
 - Sin cap 150 en tabla; series gráficas siguen top-N (`HEATMAP_TOP_SKUS`, etc.).
 - Por fila: `sin_venta`, `volumen_kind`, `bultos_enteros`, `unidades_resto` (desglose convertido).
 - Payload `auditoria_clientes`: monoproducto_fuerte, mix_bajo, por_cliente_resumen (top 20 c/u).
-- Payload `series.cobertura_skus`: vendidos vs sin venta en catálogo.
+- Payload `series.convivencia_skus`: % SKUs del catálogo 12m con venta en el período.
+- Payload `series.cobertura_pdvs`: % PDVs de la cartera visible con compra en el período.
 
 ### Periodos y comparativas
 
@@ -61,13 +63,15 @@ FE invalida cache avance ante cambio de `last_attempt_at`.
 | Pieza | Path |
 |-------|------|
 | Panel | `components/supervision/avance/SupervisionAvanceVentasPanel.tsx` |
-| Carrusel gráficos | `AvanceVentasChartCarousel.tsx` (share, top/bottom, scatter, heatmap, cobertura) |
+| Carrusel gráficos | `AvanceVentasChartCarousel.tsx` (share, top/bottom, scatter, heatmap, cobertura PDV + convivencia SKU) |
+| Alcance dual | `AvanceVentasAlcanceCharts.tsx` — cobertura PDV vs convivencia SKU con tooltips distintos |
 | Ranking tabla | `AvanceVentasSkuRanking.tsx` — switch bultos/desglose, toggle solo con venta, tooltips `(?)` |
 | Auditoría clientes | `AvanceVentasClienteAuditoriaPanel.tsx` + `AvanceVentasClienteDrillSheet.tsx` |
 | KPI help textos | `lib/avance-ventas-kpi-help.ts` |
 | Volumen modo | `hooks/useVolumenModo.ts` (localStorage) |
 | Badge sync | `VentasSyncStatusBadge.tsx` — última OK + último intento fallido |
-| Hook | `hooks/useAvanceVentasQuery.ts` |
+| Hook + prefetch | `hooks/useAvanceVentasQuery.ts` — stale 5m, gc 15m, `keepPreviousData`, prefetch portal/hover/warm |
+| Derive alcance | `lib/avance-ventas-alcance.ts` |
 
 ### UX clave
 

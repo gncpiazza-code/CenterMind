@@ -9,6 +9,7 @@ import type {
 } from "@/lib/api";
 import type { SyncStatusEntry } from "@/lib/api";
 import { useAvanceVentasQuery } from "@/hooks/useAvanceVentasQuery";
+import { deriveCoberturaPdvs } from "@/lib/avance-ventas-alcance";
 import { fmtHoraAr } from "@/lib/avance-ventas-format";
 import { SupervisionReveal, SupervisionRevealItem } from "@/components/supervision/SupervisionReveal";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,6 +61,10 @@ export function SupervisionAvanceVentasPanel({
 
   const sinVentas = !loading && !!data && data.metadatos.comprobantes === 0;
   const hayCatalogo = (data?.ranking_skus?.length ?? 0) > 0;
+  const coberturaPdvs = useMemo(
+    () => deriveCoberturaPdvs(data, data?.series?.cobertura_pdvs),
+    [data],
+  );
   const totalSinVenta = useMemo(
     () => (data?.ranking_skus ?? []).filter((r) => r.sin_venta).length,
     [data?.ranking_skus],
@@ -144,7 +149,12 @@ export function SupervisionAvanceVentasPanel({
       {banner && <SupervisionRevealItem className="shrink-0">{banner}</SupervisionRevealItem>}
 
       <SupervisionRevealItem className="shrink-0">
-        <AvanceVentasKpiStrip cards={data?.kpis_cards} modo={modo} loading={loading} />
+        <AvanceVentasKpiStrip
+          cards={data?.kpis_cards}
+          modo={modo}
+          coberturaPdvs={coberturaPdvs}
+          loading={loading}
+        />
       </SupervisionRevealItem>
 
       {sinVentas && (

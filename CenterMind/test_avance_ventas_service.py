@@ -108,6 +108,30 @@ def test_delta_kpi_pct():
 
 # ─── Agregación ───────────────────────────────────────────────────────────────
 
+def test_unifica_variantes_mismo_articulo():
+    """CHESS: mismo producto con/sin prefijo CIGARRILLO o sin cod_articulo."""
+    lines = [
+        _linea(
+            cod_articulo="DOL01",
+            descripcion_articulo="CIGARRILLO DOLCHESTER GOLDEN EDITION",
+            bultos_total=3.0,
+            unidades_total=750.0,
+        ),
+        _linea(
+            numero_documento="A-0002",
+            cod_articulo="",
+            descripcion_articulo="DOLCHESTER GOLDEN EDITION",
+            bultos_total=2.0,
+            unidades_total=500.0,
+        ),
+    ]
+    agg = aggregate_avance_lines(lines)
+    assert len(agg["por_sku"]) == 1
+    sku = next(iter(agg["por_sku"].values()))
+    assert sku["bultos"] == 5.0
+    assert sku["unidades"] == 1250.0
+
+
 def test_devolucion_resta_bultos_neto():
     lines = [
         _linea(bultos_total=5.0, unidades_total=1250.0),
@@ -286,11 +310,24 @@ def test_catalogo_window_12_meses_calendario():
 # ─── R2 — Desglose volumen por SKU ───────────────────────────────────────────
 
 def test_desglose_convertido_enteros_y_resto():
-    # Cigarrillos: factor 250 → 2,37 bultos = 2 enteros + 92,5→ redondeo unidades
-    f = _sku_volumen_fields(2.368, "CIGARRILLOS", "MARLBORO BOX")
+    # Cigarrillos: factor 250 → 592 u = 2 enteros + 92 u (desde unidades, no bultos decimal)
+    f = _sku_volumen_fields(2.368, "CIGARRILLOS", "MARLBORO BOX", unidades=592.0)
     assert f["volumen_kind"] is not None
     assert f["bultos_enteros"] == 2
     assert f["unidades_resto"] == 92
+
+
+def test_desglose_convertido_prioriza_unidades_sobre_bultos_redondeados():
+    # Bultos agregados redondeados ≠ unidades ERP → gana unidades
+    f = _sku_volumen_fields(4.37, "CIGARRILLOS", "MARLBORO BOX", unidades=1092.0)
+    assert f["bultos_enteros"] == 4
+    assert f["unidades_resto"] == 92
+
+
+def test_desglose_encendedor_entero():
+    f = _sku_volumen_fields(12.0, "ENCENDEDORES", "CLIPPER", unidades=12.0)
+    assert f["bultos_enteros"] == 12
+    assert f["unidades_resto"] == 0
 
 
 def test_desglose_no_convertido_sin_campos():
@@ -384,10 +421,14 @@ def test_build_incluye_sin_venta_por_default(patched_build):
     assert "SKU9" in cods and "SKU8" in cods
     assert out["metadatos"]["skus_catalogo"] == 3
     assert out["metadatos"]["skus_sin_venta"] == 2
-    cob = out["series"]["cobertura_skus"]
+    conv = out["series"]["convivencia_skus"]
+    assert conv["disponible"] is True
+    assert (conv["con_venta"], conv["sin_venta"]) == (1, 2)
+    assert conv["pct_convivencia"] == pytest.approx(33.3)
+    cob = out["series"]["cobertura_pdvs"]
     assert cob["disponible"] is True
-    assert (cob["con_venta"], cob["sin_venta"]) == (1, 2)
-    assert cob["pct_con_venta"] == pytest.approx(33.3)
+    assert cob["con_compra"] == 1
+    assert cob["pct_cobertura"] == pytest.approx(1.0)
     assert out["filtros"]["incluir_sin_venta"] is True
     # R3: sync expone OK + intento posterior con estado
     assert out["sync"]["last_attempt_at"] > out["sync"]["last_run_ok_at"]
@@ -398,8 +439,7 @@ def test_build_incluir_sin_venta_false_excluye_ceros(patched_build):
     out = avs.build_avance_ventas(1, "dia", "2026-06-09", incluir_sin_venta=False)
     cods = [r["cod_articulo"] for r in out["ranking_skus"]]
     assert cods == ["SKU1"]
-    # cobertura se calcula igual sobre el catálogo completo
-    assert out["series"]["cobertura_skus"]["sin_venta"] == 2
+    assert out["series"]["convivencia_skus"]["sin_venta"] == 2
     assert out["auditoria_clientes"]["clientes_con_compra"] == 1
 
 
@@ -409,7 +449,7 @@ def test_build_catalogo_caido_no_rompe(patched_build, monkeypatch):
 
     monkeypatch.setattr(avs, "_fetch_catalogo_skus", _boom)
     out = avs.build_avance_ventas(1, "dia", "2026-06-09")
-    assert out["series"]["cobertura_skus"]["disponible"] is False
+    assert out["series"]["convivencia_skus"]["disponible"] is False
     assert [r["cod_articulo"] for r in out["ranking_skus"]] == ["SKU1"]
 
 

@@ -13,6 +13,7 @@ import {
   syncStatusQueryOptions,
   vendedoresLiteQueryOptions,
 } from "@/hooks/useSupervisionQueries";
+import { prefetchAvanceVentasDefault } from "@/hooks/useAvanceVentasQuery";
 
 export function dashboardBundleQueryOptions(
   distId: number,
@@ -92,6 +93,7 @@ export async function prefetchPortalModule(
       prefetchQueryIfStale(queryClient, vendedoresLiteQueryOptions(distId)),
       prefetchQueryIfStale(queryClient, syncStatusQueryOptions(distId)),
     ]);
+    prefetchAvanceVentasDefault(queryClient, distId, null, null);
     return;
   }
   const opts = moduleBundleQueryOptions(mod, distId);

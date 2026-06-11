@@ -2280,9 +2280,17 @@ export interface AvanceComparativaBloque {
   comprobantes: AvanceDeltaKpi;
 }
 
+export interface AvanceKpiCardExtra {
+  unidades?: number;
+  disponible?: boolean;
+  cartera?: number;
+  con_compra?: number;
+}
+
 export interface AvanceKpiCard {
-  id: "bultos" | "unidades" | "clientes" | "skus" | "comprobantes";
+  id: "volumen" | "cobertura_pdvs" | "bultos" | "unidades" | "clientes" | "skus" | "comprobantes";
   valor: number;
+  extra?: AvanceKpiCardExtra;
   wow?: AvanceDeltaKpi | null;
   mom?: AvanceDeltaKpi | null;
 }
@@ -2375,12 +2383,31 @@ export interface AvanceClienteSkusResponse {
   total_unidades: number;
 }
 
+/** @deprecated Usar AvanceConvivenciaSkus — nombre legacy confundía con cobertura PDV. */
 export interface AvanceCoberturaSkus {
   disponible: boolean;
   catalogo: number;
   con_venta: number;
   sin_venta: number;
   pct_con_venta: number | null;
+}
+
+/** % SKUs del catálogo 12m con al menos una venta en el período (convivencia de mix). */
+export interface AvanceConvivenciaSkus {
+  disponible: boolean;
+  catalogo: number;
+  con_venta: number;
+  sin_venta: number;
+  pct_convivencia: number | null;
+}
+
+/** % PDVs de la cartera visible con compra en el período (cobertura de visita/compra). */
+export interface AvanceCoberturaPdvs {
+  disponible: boolean;
+  cartera: number;
+  con_compra: number;
+  sin_compra: number;
+  pct_cobertura: number | null;
 }
 
 export interface AvanceVentasResponse {
@@ -2435,6 +2462,9 @@ export interface AvanceVentasResponse {
       ref_wow: number | null;
       ref_mom: number | null;
     }>;
+    convivencia_skus?: AvanceConvivenciaSkus;
+    cobertura_pdvs?: AvanceCoberturaPdvs;
+    /** @deprecated API anterior — usar convivencia_skus */
     cobertura_skus?: AvanceCoberturaSkus;
   };
   auditoria_clientes?: AvanceAuditoriaClientes;

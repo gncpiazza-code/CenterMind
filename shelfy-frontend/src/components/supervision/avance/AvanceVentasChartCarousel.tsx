@@ -6,7 +6,7 @@ import { BarChart3, Grid3X3, PieChart, ScanSearch, Target } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import type { AvanceVentasModo, AvanceVentasResponse } from "@/lib/api";
 import { AVANCE_KPI_HELP } from "@/lib/avance-ventas-kpi-help";
-import { deriveCoberturaSkus } from "@/lib/avance-ventas-cobertura";
+import { deriveCoberturaPdvs, deriveConvivenciaSkus } from "@/lib/avance-ventas-alcance";
 import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useIsDesktop } from "@/hooks/useViewport";
 import { cn } from "@/lib/utils";
@@ -14,9 +14,9 @@ import { AvanceVentasShareChart } from "./AvanceVentasShareChart";
 import { AvanceVentasTopSkusChart } from "./AvanceVentasTopSkusChart";
 import { AvanceVentasScatter } from "./AvanceVentasScatter";
 import { AvanceVentasHeatmap } from "./AvanceVentasHeatmap";
-import { AvanceVentasCoberturaChart } from "./AvanceVentasCoberturaChart";
+import { AvanceVentasAlcanceCharts } from "./AvanceVentasAlcanceCharts";
 
-type CarouselTab = "vendedores" | "top" | "scatter" | "heatmap" | "cobertura";
+type CarouselTab = "vendedores" | "top" | "scatter" | "heatmap" | "alcance";
 
 interface AvanceVentasChartCarouselProps {
   data: AvanceVentasResponse | undefined;
@@ -34,7 +34,12 @@ const TAB_META: Record<
   top: { label: "Top / bottom", icon: BarChart3, accent: "bg-blue-500" },
   scatter: { label: "Penetración", icon: ScanSearch, accent: "bg-violet-500" },
   heatmap: { label: "Comparativa", icon: Grid3X3, accent: "bg-rose-500" },
-  cobertura: { label: "Cobertura", icon: Target, accent: "bg-emerald-600", help: AVANCE_KPI_HELP.cobertura },
+  alcance: {
+    label: "Cobertura / convivencia",
+    icon: Target,
+    accent: "bg-emerald-600",
+    help: `${AVANCE_KPI_HELP.coberturaPdvs} ${AVANCE_KPI_HELP.convivencia}`,
+  },
 };
 
 const SWIPE_THRESHOLD_PX = 48;
@@ -54,9 +59,18 @@ export function AvanceVentasChartCarousel({
   const [active, setActive] = useState<CarouselTab>("top");
   const touchStartX = useRef<number | null>(null);
 
-  const cobertura = useMemo(
-    () => deriveCoberturaSkus(data?.ranking_skus, data?.series?.cobertura_skus),
-    [data?.ranking_skus, data?.series?.cobertura_skus],
+  const convivencia = useMemo(
+    () =>
+      deriveConvivenciaSkus(
+        data?.ranking_skus,
+        data?.series?.convivencia_skus,
+        data?.series?.cobertura_skus,
+      ),
+    [data?.ranking_skus, data?.series?.convivencia_skus, data?.series?.cobertura_skus],
+  );
+  const coberturaPdvs = useMemo(
+    () => deriveCoberturaPdvs(data, data?.series?.cobertura_pdvs),
+    [data],
   );
 
   const tabs = useMemo(() => {
@@ -69,9 +83,9 @@ export function AvanceVentasChartCarousel({
       data?.series?.heatmap_top_skus?.some((r) => r.ref_wow !== null || r.ref_mom !== null)
     )
       out.push("heatmap");
-    if (cobertura?.disponible) out.push("cobertura");
+    if (convivencia?.disponible || coberturaPdvs?.disponible) out.push("alcance");
     return out;
-  }, [data, consolidado, isDesktop, cobertura?.disponible]);
+  }, [data, consolidado, isDesktop, convivencia?.disponible, coberturaPdvs?.disponible]);
 
   // Derivado en render (sin efecto): si el tab activo dejó de existir, cae al primero.
   const effectiveActive = tabs.includes(active) ? active : tabs[0];
@@ -178,8 +192,8 @@ export function AvanceVentasChartCarousel({
             {effectiveActive === "heatmap" && (
               <AvanceVentasHeatmap data={data.series?.heatmap_top_skus} modo={modo} embedded />
             )}
-            {effectiveActive === "cobertura" && (
-              <AvanceVentasCoberturaChart data={cobertura} embedded />
+            {effectiveActive === "alcance" && (
+              <AvanceVentasAlcanceCharts convivencia={convivencia} cobertura={coberturaPdvs} />
             )}
           </motion.div>
         </AnimatePresence>

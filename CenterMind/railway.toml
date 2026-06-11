@@ -10,7 +10,7 @@
 #
 # watchPatterns: no redeploy por cambios en RPA ni frontend (Vercel).
 # Paths desde la raíz del repo: https://docs.railway.com/guides/build-configuration#configure-watch-paths
-# Redeploy trigger: 2026-06-10 supervision avance-ventas endpoint
+# Redeploy trigger: 2026-06-11 pin Python 3.11.11 (Railpack 3.13 sin binario mise)
 
 [build]
 watchPatterns = ["/CenterMind/**"]

@@ -17,11 +17,13 @@ const MAX_SLICES = 10;
 
 interface AvanceVentasShareChartProps {
   data: AvanceShareVendedor[] | null | undefined;
+  /** Sin Card externo (para usar dentro del carrusel). */
+  embedded?: boolean;
   className?: string;
 }
 
 /** Donut share de bultos por vendedor (incluye "Sin vendedor"); solo scope todos. */
-export function AvanceVentasShareChart({ data, className }: AvanceVentasShareChartProps) {
+export function AvanceVentasShareChart({ data, embedded = false, className }: AvanceVentasShareChartProps) {
   const slices = useMemo(() => {
     const rows = (data ?? []).filter((r) => r.bultos > 0);
     if (rows.length <= MAX_SLICES) return rows;
@@ -40,16 +42,9 @@ export function AvanceVentasShareChart({ data, className }: AvanceVentasShareCha
 
   if (!slices.length) return null;
 
-  return (
-    <Card className={className}>
-      <CardHeader className="pb-2 pt-4 px-5">
-        <CardTitle className="text-sm font-bold flex items-center gap-2">
-          <PieIcon size={15} className="text-emerald-500" />
-          Share por vendedor
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="px-3 pb-4 pt-0">
-        <div className="h-[230px]">
+  const body = (
+    <>
+        <div className={embedded ? "h-full min-h-[200px] flex-1" : "h-[230px]"}>
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
             <PieChart>
               <Pie
@@ -69,11 +64,22 @@ export function AvanceVentasShareChart({ data, className }: AvanceVentasShareCha
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number, _name, item) => [
-                  `${fmtBultos(value)} bultos · ${(item?.payload?.pct_bultos ?? 0).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`,
-                  item?.payload?.vendedor,
-                ]}
-                contentStyle={{ fontSize: 11, borderRadius: 8 }}
+                content={({ payload }) => {
+                  const p = payload?.[0];
+                  if (!p || typeof p.value !== "number") return null;
+                  const slice = p.payload as AvanceShareVendedor | undefined;
+                  return (
+                    <div className="rounded-lg border bg-card px-2.5 py-1.5 text-[11px] shadow-md max-w-[240px]">
+                      <p className="font-semibold whitespace-normal break-words">
+                        {slice?.vendedor ?? String(p.name ?? "")}
+                      </p>
+                      <p className="text-muted-foreground tabular-nums">
+                        {fmtBultos(p.value)} bultos ·{" "}
+                        {(slice?.pct_bultos ?? 0).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%
+                      </p>
+                    </div>
+                  );
+                }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -95,7 +101,20 @@ export function AvanceVentasShareChart({ data, className }: AvanceVentasShareCha
             </span>
           ))}
         </div>
-      </CardContent>
+    </>
+  );
+
+  if (embedded) return <div className="flex flex-col h-full min-h-0">{body}</div>;
+
+  return (
+    <Card className={className}>
+      <CardHeader className="pb-2 pt-4 px-5">
+        <CardTitle className="text-sm font-bold flex items-center gap-2">
+          <PieIcon size={15} className="text-emerald-500" />
+          Share por vendedor
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-3 pb-4 pt-0">{body}</CardContent>
     </Card>
   );
 }

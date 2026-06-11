@@ -17,24 +17,18 @@ import { fmtBultos } from "@/lib/avance-ventas-format";
 
 interface AvanceVentasScatterProps {
   data: AvanceVentasResponse["series"]["scatter_penetracion_intensidad"] | undefined;
+  /** Sin Card externo (para usar dentro del carrusel). */
+  embedded?: boolean;
   className?: string;
 }
 
 /** Scatter: clientes alcanzados (x) vs intensidad bultos/cliente (y); tamaño = bultos. */
-export function AvanceVentasScatter({ data, className }: AvanceVentasScatterProps) {
+export function AvanceVentasScatter({ data, embedded = false, className }: AvanceVentasScatterProps) {
   const rows = (data ?? []).filter((r) => r.clientes > 0);
   if (!rows.length) return null;
 
-  return (
-    <Card className={className}>
-      <CardHeader className="pb-2 pt-4 px-5">
-        <CardTitle className="text-sm font-bold flex items-center gap-2">
-          <ScanSearch size={15} className="text-violet-500" />
-          Penetración × intensidad por SKU
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="px-3 pb-4 pt-0">
-        <div className="h-[230px]">
+  const chart = (
+    <div className={embedded ? "h-full min-h-[230px]" : "h-[230px]"}>
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
             <ScatterChart margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
@@ -59,8 +53,9 @@ export function AvanceVentasScatter({ data, className }: AvanceVentasScatterProp
                   const p = payload?.[0]?.payload;
                   if (!p) return null;
                   return (
-                    <div className="rounded-lg border bg-card px-2.5 py-1.5 text-[11px] shadow-md max-w-[220px]">
-                      <p className="font-semibold truncate">{p.sku}</p>
+                    <div className="rounded-lg border bg-card px-2.5 py-1.5 text-[11px] shadow-md max-w-[260px]">
+                      {/* R6: nombre completo en tooltip, sin truncar */}
+                      <p className="font-semibold whitespace-normal break-words">{p.sku}</p>
                       <p className="text-muted-foreground tabular-nums">
                         {p.clientes} clientes · {fmtBultos(p.bultos)} bultos ·{" "}
                         {fmtBultos(p.intensidad)} b/cliente
@@ -73,7 +68,19 @@ export function AvanceVentasScatter({ data, className }: AvanceVentasScatterProp
             </ScatterChart>
           </ResponsiveContainer>
         </div>
-      </CardContent>
+  );
+
+  if (embedded) return chart;
+
+  return (
+    <Card className={className}>
+      <CardHeader className="pb-2 pt-4 px-5">
+        <CardTitle className="text-sm font-bold flex items-center gap-2">
+          <ScanSearch size={15} className="text-violet-500" />
+          Penetración × intensidad por SKU
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-3 pb-4 pt-0">{chart}</CardContent>
     </Card>
   );
 }

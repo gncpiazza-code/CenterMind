@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ListOrdered, TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -13,11 +14,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AvanceDeltaKpi, AvanceSkuRankingRow, AvanceVentasModo } from "@/lib/api";
-import { deltaDir, deltaRefLabel, fmtBultos, fmtDelta, fmtUnidades } from "@/lib/avance-ventas-format";
+import {
+  deltaDir,
+  deltaRefLabel,
+  fmtBultos,
+  fmtDelta,
+  fmtEntero,
+  fmtUnidades,
+  fmtVolumenCell,
+} from "@/lib/avance-ventas-format";
+import { AVANCE_KPI_HELP, deltaHelpText } from "@/lib/avance-ventas-kpi-help";
+import { useVolumenModo } from "@/hooks/useVolumenModo";
+import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { cn } from "@/lib/utils";
 import { AvanceVentasExportButton } from "./AvanceVentasExportButton";
 
-type SortKey = "bultos" | "unidades" | "clientes" | "intensidad" | "penetracion";
+type SortKey = "default" | "bultos" | "unidades" | "clientes" | "intensidad" | "penetracion";
 
 interface AvanceVentasSkuRankingProps {
   ranking: AvanceSkuRankingRow[] | undefined;
@@ -37,7 +49,11 @@ function DeltaMini({ delta }: { delta: AvanceDeltaKpi | undefined }) {
     <span
       className={cn(
         "inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums",
-        dir === "up" ? "text-emerald-600" : dir === "down" ? "text-rose-600" : "text-slate-500",
+        dir === "up"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : dir === "down"
+            ? "text-rose-600 dark:text-rose-400"
+            : "text-slate-500 dark:text-slate-400",
       )}
     >
       {dir === "up" ? (
@@ -57,30 +73,48 @@ function SortHeader({
   active,
   dir,
   onClick,
+  helpText,
   className,
 }: {
   label: string;
   active: boolean;
   dir: "asc" | "desc";
   onClick: () => void;
+  /** Tooltip (?) — el click en el ícono no dispara el sort (R7). */
+  helpText?: string;
   className?: string;
 }) {
   return (
     <TableHead
-      className={cn("text-right cursor-pointer select-none hover:text-foreground whitespace-nowrap", className)}
-      onClick={onClick}
+      className={cn("text-right whitespace-nowrap", className)}
+      aria-sort={active ? (dir === "desc" ? "descending" : "ascending") : "none"}
     >
-      {label}{" "}
-      {active ? (
-        <span className="text-foreground">{dir === "desc" ? "↓" : "↑"}</span>
-      ) : (
-        <span className="opacity-30">↕</span>
-      )}
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "inline-flex min-h-8 items-center gap-1 justify-end cursor-pointer select-none rounded-md",
+          "transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          active && "text-foreground",
+        )}
+      >
+        {label}
+        {helpText ? <KpiHelpTip text={helpText} size={11} side="top" /> : null}
+        {active ? (
+          <span className="text-foreground" aria-hidden>{dir === "desc" ? "↓" : "↑"}</span>
+        ) : (
+          <span className="opacity-30" aria-hidden>↕</span>
+        )}
+      </button>
     </TableHead>
   );
 }
 
-/** Tabla ranking SKUs sortable; tap/click en fila → drill de clientes. */
+/**
+ * Tabla ranking SKUs: catálogo 12m completo (sin venta atenuado), nombres sin
+ * truncar (R6), tooltips (?) en KPIs (R7), switch bultos/desglose (R2) y
+ * toggle "Solo con venta" (R1). Tap/click en fila → drill de clientes.
+ */
 export function AvanceVentasSkuRanking({
   ranking,
   modo,
@@ -88,10 +122,12 @@ export function AvanceVentasSkuRanking({
   onSelectSku,
   className,
 }: AvanceVentasSkuRankingProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("bultos");
+  const [sortKey, setSortKey] = useState<SortKey>("default");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [soloConVenta, setSoloConVenta] = useState(false);
+  const [volumenModo, setVolumenModo] = useVolumenModo();
 
-  const toggleSort = (key: SortKey) => {
+  const toggleSort = (key: Exclude<SortKey, "default">) => {
     if (key === sortKey) setSortDir(sortDir === "desc" ? "asc" : "desc");
     else {
       setSortKey(key);
@@ -99,17 +135,25 @@ export function AvanceVentasSkuRanking({
     }
   };
 
+  const totalSinVenta = useMemo(
+    () => (ranking ?? []).filter((r) => r.sin_venta).length,
+    [ranking],
+  );
+
   const rows = useMemo(() => {
-    const list = [...(ranking ?? [])];
+    let list = [...(ranking ?? [])];
+    if (soloConVenta) list = list.filter((r) => !r.sin_venta);
+    if (sortKey === "default") return list; // orden BE: con venta desc, sin venta al final
     const get = (r: AvanceSkuRankingRow): number =>
       sortKey === "penetracion" ? (r.penetracion_pct ?? -1) : r[sortKey];
     list.sort((a, b) => (sortDir === "desc" ? get(b) - get(a) : get(a) - get(b)));
     return list;
-  }, [ranking, sortKey, sortDir]);
+  }, [ranking, sortKey, sortDir, soloConVenta]);
 
   const hasWow = rows.some((r) => r.wow_bultos);
   const hasMom = rows.some((r) => r.mom_bultos);
   const hasPenetracion = rows.some((r) => r.penetracion_pct != null);
+  const conVenta = rows.length - rows.filter((r) => r.sin_venta).length;
 
   return (
     <Card className={cn("flex flex-col min-h-0 overflow-hidden", className)}>
@@ -118,11 +162,56 @@ export function AvanceVentasSkuRanking({
           <CardTitle className="text-sm font-bold flex items-center gap-2">
             <ListOrdered size={15} className="text-emerald-500" />
             Ranking SKUs
-            <span className="text-[10px] font-medium text-muted-foreground">
+            <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
               {rows.length} artículos
+              {!soloConVenta && totalSinVenta > 0 ? ` (${totalSinVenta} sin venta)` : ""}
             </span>
           </CardTitle>
-          <AvanceVentasExportButton ranking={rows} periodoLabel={periodoLabel} />
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Switch global Bultos ↔ Bultos + unidades (R2) */}
+            <label className="flex min-h-8 items-center gap-1.5 cursor-pointer select-none">
+              <span
+                className={cn(
+                  "text-[10px] font-semibold transition-colors",
+                  volumenModo === "bultos" ? "text-foreground" : "text-muted-foreground",
+                )}
+              >
+                Bultos
+              </span>
+              <Switch
+                checked={volumenModo === "desglose"}
+                onCheckedChange={(v) => setVolumenModo(v ? "desglose" : "bultos")}
+                className="scale-75"
+                aria-label="Alternar bultos / bultos + unidades"
+              />
+              <span
+                className={cn(
+                  "text-[10px] font-semibold transition-colors",
+                  volumenModo === "desglose" ? "text-foreground" : "text-muted-foreground",
+                )}
+              >
+                + unidades
+              </span>
+            </label>
+            {totalSinVenta > 0 && (
+              <label className="flex min-h-8 items-center gap-1.5 cursor-pointer select-none">
+                <Switch
+                  checked={soloConVenta}
+                  onCheckedChange={setSoloConVenta}
+                  className="scale-75"
+                  aria-label="Mostrar solo SKUs con venta"
+                />
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  Solo con venta
+                </span>
+              </label>
+            )}
+            <AvanceVentasExportButton
+              ranking={rows}
+              periodoLabel={periodoLabel}
+              volumenModo={volumenModo}
+            />
+          </div>
         </div>
       </CardHeader>
       <Separator />
@@ -135,77 +224,131 @@ export function AvanceVentasSkuRanking({
           <Table>
             <TableHeader className="sticky top-0 bg-card z-10">
               <TableRow className="text-[10px]">
-                <TableHead className="pl-5 min-w-[160px]">Artículo</TableHead>
-                <SortHeader label="Bultos" active={sortKey === "bultos"} dir={sortDir} onClick={() => toggleSort("bultos")} />
-                <SortHeader label="Unid." active={sortKey === "unidades"} dir={sortDir} onClick={() => toggleSort("unidades")} className="hidden sm:table-cell" />
+                <TableHead className="pl-5 min-w-[240px]">Artículo</TableHead>
+                <SortHeader label="Bultos" helpText={AVANCE_KPI_HELP.bultos} active={sortKey === "bultos"} dir={sortDir} onClick={() => toggleSort("bultos")} />
+                <SortHeader label="Unid." helpText={AVANCE_KPI_HELP.unidades} active={sortKey === "unidades"} dir={sortDir} onClick={() => toggleSort("unidades")} className="hidden sm:table-cell" />
                 <SortHeader label="Clientes" active={sortKey === "clientes"} dir={sortDir} onClick={() => toggleSort("clientes")} />
-                <SortHeader label="Intens." active={sortKey === "intensidad"} dir={sortDir} onClick={() => toggleSort("intensidad")} className="hidden md:table-cell" />
+                <SortHeader label="Intens." helpText={AVANCE_KPI_HELP.intensidad} active={sortKey === "intensidad"} dir={sortDir} onClick={() => toggleSort("intensidad")} className="hidden md:table-cell" />
                 {hasPenetracion && (
-                  <SortHeader label="Penetr." active={sortKey === "penetracion"} dir={sortDir} onClick={() => toggleSort("penetracion")} className="hidden md:table-cell" />
+                  <SortHeader label="Penetr." helpText={AVANCE_KPI_HELP.penetracion} active={sortKey === "penetracion"} dir={sortDir} onClick={() => toggleSort("penetracion")} className="hidden md:table-cell" />
                 )}
                 {hasWow && (
                   <TableHead className="text-right hidden lg:table-cell whitespace-nowrap">
-                    Δ {deltaRefLabel(modo, "wow")}
+                    <span className="inline-flex items-center gap-1">
+                      Δ {deltaRefLabel(modo, "wow")}
+                      <KpiHelpTip text={deltaHelpText(modo)} size={11} side="top" />
+                    </span>
                   </TableHead>
                 )}
                 {hasMom && (
                   <TableHead className="text-right hidden lg:table-cell pr-4 whitespace-nowrap">
-                    Δ {deltaRefLabel(modo, "mom")}
+                    <span className="inline-flex items-center gap-1">
+                      Δ {deltaRefLabel(modo, "mom")}
+                      {!hasWow ? <KpiHelpTip text={deltaHelpText(modo)} size={11} side="top" /> : null}
+                    </span>
                   </TableHead>
                 )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => (
-                <TableRow
-                  key={r.cod_articulo}
-                  className="text-xs cursor-pointer hover:bg-muted/40 transition-colors"
-                  onClick={() => onSelectSku(r)}
-                >
-                  <TableCell className="pl-5 py-2 max-w-[220px]">
-                    <p className="font-medium truncate" title={r.articulo}>{r.articulo}</p>
-                    {r.agrupacion && (
-                      <p className="text-[9px] text-muted-foreground truncate">{r.agrupacion}</p>
-                    )}
-                  </TableCell>
-                  <TableCell
+              {rows.map((r) => {
+                const vol = fmtVolumenCell(r, volumenModo);
+                return (
+                  <TableRow
+                    key={r.cod_articulo}
+                    tabIndex={0}
                     className={cn(
-                      "text-right font-mono text-[11px] font-semibold tabular-nums",
-                      r.bultos < 0 && "text-rose-600",
+                      "text-xs cursor-pointer transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                      r.sin_venta
+                        ? "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                        : "hover:bg-muted/40",
                     )}
+                    onClick={() => onSelectSku(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onSelectSku(r);
+                      }
+                    }}
                   >
-                    {fmtBultos(r.bultos)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground hidden sm:table-cell">
-                    {fmtUnidades(r.unidades)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {r.clientes}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground hidden md:table-cell">
-                    {fmtBultos(r.intensidad)}
-                  </TableCell>
-                  {hasPenetracion && (
-                    <TableCell className="text-right tabular-nums text-muted-foreground hidden md:table-cell">
-                      {r.penetracion_pct != null ? `${r.penetracion_pct.toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "—"}
+                    <TableCell className="pl-5 py-2 min-w-[240px] align-top">
+                      {/* R6: nombre completo siempre, sin truncate */}
+                      <p
+                        className={cn(
+                          "font-medium whitespace-normal break-words leading-snug",
+                          r.sin_venta && "font-normal",
+                        )}
+                      >
+                        {r.articulo}
+                        {r.sin_venta && (
+                          <span className="ml-1.5 inline-block align-middle rounded-full border border-border/70 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Sin venta
+                          </span>
+                        )}
+                      </p>
+                      {r.agrupacion && (
+                        <p className="text-[9px] text-muted-foreground whitespace-normal break-words">
+                          {r.agrupacion}
+                        </p>
+                      )}
                     </TableCell>
-                  )}
-                  {hasWow && (
-                    <TableCell className="text-right hidden lg:table-cell">
-                      <DeltaMini delta={r.wow_bultos} />
+                    <TableCell
+                      className={cn(
+                        "text-right font-mono text-[11px] font-semibold tabular-nums whitespace-nowrap",
+                        r.bultos < 0 && "text-rose-600",
+                      )}
+                    >
+                      {vol.primary}
+                      {vol.secondary && (
+                        <span className="text-muted-foreground font-normal text-[10px]">
+                          {" "}
+                          {vol.secondary}
+                        </span>
+                      )}
                     </TableCell>
-                  )}
-                  {hasMom && (
-                    <TableCell className="text-right hidden lg:table-cell pr-4">
-                      <DeltaMini delta={r.mom_bultos} />
+                    <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground hidden sm:table-cell">
+                      {fmtUnidades(r.unidades)}
                     </TableCell>
-                  )}
-                </TableRow>
-              ))}
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {fmtEntero(r.clientes)}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground hidden md:table-cell">
+                      {fmtBultos(r.intensidad)}
+                    </TableCell>
+                    {hasPenetracion && (
+                      <TableCell className="text-right tabular-nums text-muted-foreground hidden md:table-cell">
+                        {r.penetracion_pct != null
+                          ? `${r.penetracion_pct.toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`
+                          : "—"}
+                      </TableCell>
+                    )}
+                    {hasWow && (
+                      <TableCell className="text-right hidden lg:table-cell">
+                        <DeltaMini delta={r.wow_bultos} />
+                      </TableCell>
+                    )}
+                    {hasMom && (
+                      <TableCell className="text-right hidden lg:table-cell pr-4">
+                        <DeltaMini delta={r.mom_bultos} />
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
       </CardContent>
+      {conVenta > 0 && totalSinVenta > 0 && !soloConVenta && (
+        <>
+          <Separator />
+          <p className="px-5 py-2 text-[10px] leading-snug text-muted-foreground">
+            Catálogo de los últimos 12 meses · {conVenta} con venta + {totalSinVenta} sin venta en{" "}
+            {periodoLabel}.
+          </p>
+        </>
+      )}
     </Card>
   );
 }

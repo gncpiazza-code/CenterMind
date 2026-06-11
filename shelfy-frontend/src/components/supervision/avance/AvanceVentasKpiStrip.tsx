@@ -14,16 +14,18 @@ import {
   fmtEntero,
   fmtUnidades,
 } from "@/lib/avance-ventas-format";
+import { AVANCE_KPI_HELP } from "@/lib/avance-ventas-kpi-help";
+import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { cn } from "@/lib/utils";
 
 const CARD_META: Record<
   string,
-  { label: string; icon: React.ElementType; color: string; bg: string; fmt: (n: number) => string }
+  { label: string; icon: React.ElementType; color: string; bg: string; fmt: (n: number) => string; help?: string }
 > = {
-  bultos: { label: "Bultos", icon: Package, color: "text-emerald-600", bg: "bg-emerald-500/8", fmt: fmtBultos },
-  unidades: { label: "Unidades", icon: Boxes, color: "text-blue-600", bg: "bg-blue-500/8", fmt: fmtUnidades },
-  clientes: { label: "Clientes con compra", icon: Store, color: "text-violet-600", bg: "bg-violet-500/8", fmt: fmtEntero },
-  skus: { label: "SKUs activos", icon: Barcode, color: "text-amber-600", bg: "bg-amber-500/8", fmt: fmtEntero },
+  bultos: { label: "Bultos", icon: Package, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/8 dark:bg-emerald-500/15", fmt: fmtBultos, help: AVANCE_KPI_HELP.bultos },
+  unidades: { label: "Unidades", icon: Boxes, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-500/8 dark:bg-blue-500/15", fmt: fmtUnidades, help: AVANCE_KPI_HELP.unidades },
+  clientes: { label: "Clientes con compra", icon: Store, color: "text-violet-600 dark:text-violet-400", bg: "bg-violet-500/8 dark:bg-violet-500/15", fmt: fmtEntero, help: AVANCE_KPI_HELP.clientes },
+  skus: { label: "SKUs activos", icon: Barcode, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/8 dark:bg-amber-500/15", fmt: fmtEntero, help: AVANCE_KPI_HELP.skus },
 };
 
 function DeltaRow({
@@ -41,10 +43,10 @@ function DeltaRow({
   // En ventas, subir es bueno (verde) — inverso a CC deuda.
   const colorClass =
     dir === "flat" || !delta.disponible
-      ? "text-slate-500"
+      ? "text-slate-500 dark:text-slate-400"
       : (dir === "up") !== invertColor
-        ? "text-emerald-600"
-        : "text-rose-600";
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-rose-600 dark:text-rose-400";
   return (
     <span
       className={cn("inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums", colorClass)}
@@ -94,8 +96,9 @@ export function AvanceVentasKpiStrip({ cards, modo, loading, className }: Avance
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
-                        {meta.label}
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1 min-w-0">
+                        <span className="truncate">{meta.label}</span>
+                        {meta.help ? <KpiHelpTip text={meta.help} size={11} side="top" /> : null}
                       </p>
                       {loading || !card ? (
                         <Skeleton className="mt-1 h-7 w-20 rounded" />

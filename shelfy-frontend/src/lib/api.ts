@@ -2245,6 +2245,8 @@ export interface SyncStatusEntry {
   ausentes?: number;
   last_run_estado?: "ok" | "sin_cambios" | "error" | "en_curso" | null;
   has_zombie?: boolean;
+  /** Último intento de corrida (cualquier estado) — ventas R3. */
+  last_attempt_at?: string | null;
 }
 
 export interface SyncStatus {
@@ -2301,6 +2303,13 @@ export interface AvanceSkuRankingRow {
   clientes: number;
   intensidad: number;
   penetracion_pct?: number | null;
+  /** true = SKU del catálogo 12m sin líneas en el período (fila con ceros). */
+  sin_venta?: boolean;
+  /** Kind de volumen (cigarrillos/encendedor/papelillo/mix/null). */
+  volumen_kind?: string | null;
+  /** Desglose para líneas convertidas: 42,37 bultos → 42 enteros + 92 u. */
+  bultos_enteros?: number;
+  unidades_resto?: number;
   wow_bultos?: AvanceDeltaKpi;
   mom_bultos?: AvanceDeltaKpi;
 }
@@ -2322,12 +2331,71 @@ export interface AvanceClienteVolumen {
   unidades: number;
 }
 
+/** Fila de auditoría cliente×SKU (R8): mix de compra del período. */
+export interface AvanceClienteMixRow {
+  id_cliente_erp: string | null;
+  cliente: string;
+  bultos: number;
+  unidades: number;
+  skus_distintos: number;
+  sku_principal: string;
+  cod_sku_principal: string;
+  bultos_sku_principal: number;
+  /** % del volumen del cliente concentrado en su SKU principal. */
+  pct_concentracion: number | null;
+}
+
+export interface AvanceAuditoriaClientes {
+  cartera_scope: number | null;
+  clientes_con_compra: number;
+  monoproducto_fuerte: AvanceClienteMixRow[];
+  mix_bajo: AvanceClienteMixRow[];
+  por_cliente_resumen: AvanceClienteMixRow[];
+  resumen_total: number;
+  resumen_truncado: boolean;
+}
+
+/** Drill inverso: SKUs comprados por un cliente en el período. */
+export interface AvanceClienteSkusResponse {
+  id_cliente_erp: string;
+  cliente: string;
+  modo: AvanceVentasModo;
+  periodo: { desde: string; hasta: string; label: string; parcial: boolean };
+  skus: Array<{
+    cod_articulo: string;
+    articulo: string;
+    agrupacion: string;
+    bultos: number;
+    unidades: number;
+    volumen_kind?: string | null;
+    bultos_enteros?: number;
+    unidades_resto?: number;
+  }>;
+  total_bultos: number;
+  total_unidades: number;
+}
+
+export interface AvanceCoberturaSkus {
+  disponible: boolean;
+  catalogo: number;
+  con_venta: number;
+  sin_venta: number;
+  pct_con_venta: number | null;
+}
+
 export interface AvanceVentasResponse {
   modo: AvanceVentasModo;
   fecha_ancla: string;
   periodo: { desde: string; hasta: string; label: string; parcial: boolean };
-  sync: { last_updated: string | null; next_run_hint?: string };
-  filtros: { sucursal: string | null; vendedor: string | null };
+  sync: {
+    last_updated: string | null;
+    next_run_hint?: string;
+    last_run_ok_at?: string | null;
+    last_attempt_at?: string | null;
+    last_run_estado?: string | null;
+    has_zombie?: boolean;
+  };
+  filtros: { sucursal: string | null; vendedor: string | null; incluir_sin_venta?: boolean };
   cartera_scope: number | null;
   metadatos: {
     total_bultos: number;
@@ -2335,6 +2403,8 @@ export interface AvanceVentasResponse {
     clientes_compra: number;
     skus_activos: number;
     comprobantes: number;
+    skus_catalogo?: number;
+    skus_sin_venta?: number;
   };
   comparativas: Partial<
     Record<"wow" | "mom" | "semana_anterior" | "mes_anterior", AvanceComparativaBloque>
@@ -2365,7 +2435,9 @@ export interface AvanceVentasResponse {
       ref_wow: number | null;
       ref_mom: number | null;
     }>;
+    cobertura_skus?: AvanceCoberturaSkus;
   };
+  auditoria_clientes?: AvanceAuditoriaClientes;
   drill_clientes_por_sku: Record<
     string,
     { top: AvanceClienteVolumen[]; bottom: AvanceClienteVolumen[] }
@@ -2376,6 +2448,12 @@ export interface AvanceSkuClientesResponse {
   cod_articulo: string;
   modo: AvanceVentasModo;
   periodo: { desde: string; hasta: string; label: string; parcial: boolean };
+  /** Lista completa paginada (auditoría 100%), orden bultos desc. */
+  clientes?: AvanceClienteVolumen[];
+  total?: number;
+  total_bultos?: number;
+  limit?: number;
+  offset?: number;
   top: AvanceClienteVolumen[];
   bottom: AvanceClienteVolumen[];
 }
@@ -2402,12 +2480,31 @@ export async function fetchAvanceVentasSkuClientes(
   fecha: string,
   sucursal?: string,
   vendedor?: string,
+  limit = 200,
+  offset = 0,
 ): Promise<AvanceSkuClientesResponse> {
-  const qp = new URLSearchParams({ modo, fecha });
+  const qp = new URLSearchParams({ modo, fecha, limit: String(limit), offset: String(offset) });
   if (sucursal) qp.set("sucursal", sucursal);
   if (vendedor) qp.set("vendedor", vendedor);
   return apiFetch<AvanceSkuClientesResponse>(
     `/api/supervision/avance-ventas/${distId}/sku/${encodeURIComponent(codArticulo)}/clientes?${qp.toString()}`,
+  );
+}
+
+/** Drill inverso (auditoría): SKUs comprados por un cliente en el período. */
+export async function fetchAvanceVentasClienteSkus(
+  distId: number,
+  idClienteErp: string,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string,
+  vendedor?: string,
+): Promise<AvanceClienteSkusResponse> {
+  const qp = new URLSearchParams({ modo, fecha });
+  if (sucursal) qp.set("sucursal", sucursal);
+  if (vendedor) qp.set("vendedor", vendedor);
+  return apiFetch<AvanceClienteSkusResponse>(
+    `/api/supervision/avance-ventas/${distId}/cliente/${encodeURIComponent(idClienteErp)}/skus?${qp.toString()}`,
   );
 }
 

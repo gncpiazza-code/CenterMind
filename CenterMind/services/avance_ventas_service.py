@@ -17,9 +17,15 @@ from datetime import date, datetime, time, timedelta
 from typing import Optional, Set
 from zoneinfo import ZoneInfo
 
+from time import monotonic
+
 from core.helpers import _get_erp_name_map
 from core.tenant_tables import tenant_table_name
-from core.ventas_bultos_rules import classify_volumen, volumen_es_convertido
+from core.ventas_bultos_rules import (
+    classify_volumen,
+    enrich_bultos_desglose_row,
+    volumen_es_convertido,
+)
 from db import sb
 
 logger = logging.getLogger("ShelfyAPI")
@@ -32,10 +38,27 @@ VENTAS_RUN_SLOTS_AR = ((9, 30), (13, 0), (17, 0), (21, 0))
 SIN_VENDEDOR_LABEL = "Sin vendedor"
 
 PAGE = 1000
+# Cap defensivo SOLO para series de gráficos (scatter/top-bottom); la tabla
+# ranking va completa (decisión R1 plan 2026-06-11).
 RANKING_MAX_SKUS = 150
 HEATMAP_TOP_SKUS = 15
 DRILL_TOP_SKUS = 20
 DRILL_CLIENTES_N = 10
+DRILL_CLIENTES_PAGE = 50
+
+# Catálogo SKU 12 meses (R1) — descubrimiento keyset (cod_articulo > último,
+# limit N) porque PostgREST no soporta DISTINCT y el scan completo de 12 meses
+# son 30k–100k filas por tenant. El catálogo real es chico (~25-30 SKUs).
+CATALOGO_MESES = 12
+CATALOGO_CACHE_TTL_S = 6 * 3600
+_CATALOGO_DISCOVERY_BATCH = 50
+_CATALOGO_MAX_ITER = 400
+_catalogo_cache: dict[tuple[int, str, str], tuple[float, list[dict]]] = {}
+
+# Auditoría cliente×SKU (R8)
+AUDITORIA_TOP_N = 20
+MIX_BAJO_MAX_SKUS = 3
+AUDITORIA_RESUMEN_MAX = 1000
 
 _VENTAS_SELECT_COLS = (
     "fecha_factura,nombre_vendedor,nombre_cliente,id_cliente_erp,"
@@ -211,6 +234,7 @@ def aggregate_avance_lines(
     por_sku: dict[str, dict] = {}
     por_agrupacion: dict[str, dict] = {}
     clientes_por_sku: dict[str, dict[str, dict]] = {}
+    por_cliente: dict[str, dict] = {}
 
     for row in lines:
         tipo = (row.get("tipo_documento") or "").strip()
@@ -287,6 +311,21 @@ def aggregate_avance_lines(
             cb["bultos"] += bultos
             cb["unidades"] += unidades
 
+            # Mix por cliente (R8 auditoría): volumen total + bultos por SKU.
+            pc = por_cliente.setdefault(
+                cliente_key,
+                {
+                    "cliente": nombre_cli or cliente_key,
+                    "id_cliente_erp": erp_cli or None,
+                    "bultos": 0.0,
+                    "unidades": 0.0,
+                    "skus": {},
+                },
+            )
+            pc["bultos"] += bultos
+            pc["unidades"] += unidades
+            pc["skus"][sku_key] = pc["skus"].get(sku_key, 0.0) + bultos
+
     return {
         "total_bultos": total_bultos,
         "total_unidades": total_unidades,
@@ -296,6 +335,7 @@ def aggregate_avance_lines(
         "por_sku": por_sku,
         "por_agrupacion": por_agrupacion,
         "clientes_por_sku": clientes_por_sku,
+        "por_cliente": por_cliente,
     }
 
 
@@ -351,6 +391,89 @@ def _fetch_avance_lines(dist_id: int, desde: str, hasta: str) -> list[dict]:
 
     rows = filter_ventas_rows_for_tenant(rows, ventas_ctx)
     return _dedupe_ventas_enriched_lines(rows)
+
+
+def _catalogo_window(hasta: str) -> tuple[str, str]:
+    """Ventana catálogo: 12 meses calendario hasta el mes del período (estable para cache)."""
+    h = _parse_fecha(hasta)
+    desde = _shift_month_clamped(h.replace(day=1), -(CATALOGO_MESES - 1))
+    return desde.isoformat(), h.isoformat()
+
+
+def _fetch_catalogo_skus(dist_id: int, hasta: str) -> list[dict]:
+    """
+    SKUs distintos (cod_articulo, articulo, agrupacion) en la ventana de 12 meses.
+
+    PostgREST no soporta DISTINCT y el scan completo es inviable (30k–100k filas),
+    así que se descubre por keyset: pedir el menor cod_articulo > último visto.
+    Catálogos reales ~25-30 SKUs → ~30 requests livianos, cacheados con TTL.
+    Solo incluye SKUs con cod_articulo no vacío (los sin código entran igual al
+    ranking vía las líneas del período).
+    """
+    from core.ventas_enriched_tenant import (
+        apply_ventas_tenant_filters,
+        build_ventas_read_context,
+        filter_ventas_rows_for_tenant,
+    )
+
+    desde_cat, hasta_cat = _catalogo_window(hasta)
+    cache_key = (dist_id, desde_cat, hasta_cat)
+    cached = _catalogo_cache.get(cache_key)
+    if cached and monotonic() - cached[0] < CATALOGO_CACHE_TTL_S:
+        return cached[1]
+
+    ventas_ctx = build_ventas_read_context(dist_id)
+    t_ventas = ventas_ctx["table_name"]
+
+    catalogo: list[dict] = []
+    prev_cod = ""
+    for _ in range(_CATALOGO_MAX_ITER):
+        q = (
+            sb.table(t_ventas)
+            .select("cod_articulo,descripcion_articulo,agrupacion_art_2")
+            .eq("anulado", False)
+            .gte("fecha_factura", desde_cat)
+            .lte("fecha_factura", hasta_cat)
+            .gt("cod_articulo", prev_cod)
+        )
+        q = apply_ventas_tenant_filters(q, ventas_ctx)
+        batch = (
+            q.order("cod_articulo").limit(_CATALOGO_DISCOVERY_BATCH).execute().data or []
+        )
+        if not batch:
+            break
+        first_cod = (batch[0].get("cod_articulo") or "").strip()
+        same_cod = [r for r in batch if (r.get("cod_articulo") or "").strip() == first_cod]
+        visible = filter_ventas_rows_for_tenant(same_cod, ventas_ctx)
+        if visible and first_cod:
+            row = visible[0]
+            catalogo.append(
+                {
+                    "cod_articulo": first_cod,
+                    "articulo": (row.get("descripcion_articulo") or "").strip() or first_cod,
+                    "agrupacion": (row.get("agrupacion_art_2") or "").strip() or "Sin agrupación",
+                }
+            )
+        prev_cod = first_cod or (batch[-1].get("cod_articulo") or "").strip()
+        if not prev_cod:
+            break
+
+    _catalogo_cache[cache_key] = (monotonic(), catalogo)
+    return catalogo
+
+
+def _sku_volumen_fields(bultos: float, agrupacion: str, articulo: str) -> dict:
+    """
+    Desglose de volumen por SKU (R2): kind + bultos enteros / unidades resto
+    en líneas convertidas (cig/papelillo/mix), misma lógica que estadísticas/PDF.
+    """
+    kind = classify_volumen(agrupacion or "", articulo or "", "")
+    enriched = enrich_bultos_desglose_row(bultos, kind)
+    out: dict = {"volumen_kind": kind}
+    if "bultos_enteros" in enriched:
+        out["bultos_enteros"] = enriched["bultos_enteros"]
+        out["unidades_resto"] = enriched["unidades_resto"]
+    return out
 
 
 def _cartera_scope_count(
@@ -467,10 +590,21 @@ def _cartera_scope_count(
 
 
 def _ventas_sync_info(dist_id: int) -> dict:
-    """last_updated del motor ventas_enriched + próxima ingesta programada (AR)."""
-    last_updated: str | None = None
+    """
+    Frescura del motor ventas_enriched (R3): última sync OK + último intento
+    (cualquier estado) + zombies en_curso >2h. El badge FE muestra ambos para
+    no mentir frescura cuando una corrida quedó colgada o falló.
+    """
+    info: dict = {
+        "last_updated": None,
+        "last_run_ok_at": None,
+        "last_attempt_at": None,
+        "last_run_estado": None,
+        "has_zombie": False,
+        "next_run_hint": next_ventas_run_ar().isoformat(),
+    }
     try:
-        run = (
+        run_ok = (
             sb.table("motor_runs")
             .select("finalizado_en,iniciado_en")
             .eq("motor", "ventas_enriched")
@@ -480,20 +614,56 @@ def _ventas_sync_info(dist_id: int) -> dict:
             .limit(1)
             .execute()
         )
-        if run.data:
-            row = run.data[0]
-            last_updated = row.get("finalizado_en") or row.get("iniciado_en")
+        if run_ok.data:
+            row = run_ok.data[0]
+            info["last_run_ok_at"] = row.get("finalizado_en") or row.get("iniciado_en")
+            info["last_updated"] = info["last_run_ok_at"]
+
+        run_any = (
+            sb.table("motor_runs")
+            .select("iniciado_en,finalizado_en,estado")
+            .eq("motor", "ventas_enriched")
+            .eq("dist_id", dist_id)
+            .order("iniciado_en", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if run_any.data:
+            row = run_any.data[0]
+            info["last_attempt_at"] = row.get("iniciado_en") or row.get("finalizado_en")
+            info["last_run_estado"] = row.get("estado")
+
+        from datetime import timezone
+
+        two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        zombie = (
+            sb.table("motor_runs")
+            .select("id_run", count="exact")
+            .eq("motor", "ventas_enriched")
+            .eq("dist_id", dist_id)
+            .eq("estado", "en_curso")
+            .lt("iniciado_en", two_hours_ago)
+            .execute()
+        )
+        info["has_zombie"] = (zombie.count or 0) > 0
     except Exception as e:
         logger.debug("[avance-ventas] sync motor_runs dist=%s: %s", dist_id, e)
-    return {
-        "last_updated": last_updated,
-        "next_run_hint": next_ventas_run_ar().isoformat(),
-    }
+    return info
 
 
 # ─── Builders de respuesta ────────────────────────────────────────────────────
 
-def _sku_rows_from_agg(agg: dict, cartera_count: int | None) -> list[dict]:
+def _sku_rows_from_agg(
+    agg: dict,
+    cartera_count: int | None,
+    catalogo: list[dict] | None = None,
+) -> list[dict]:
+    """
+    Filas SKU del período + left-join con catálogo 12m (R1): los SKUs del
+    catálogo sin líneas en el período entran con ceros y `sin_venta=True`.
+    Orden: con venta por bultos desc (empate por nombre), sin venta al final
+    alfabético.
+    """
     rows = []
     for sku_key, s in agg["por_sku"].items():
         n_cli = len(s["clientes"])
@@ -510,10 +680,88 @@ def _sku_rows_from_agg(agg: dict, cartera_count: int | None) -> list[dict]:
             "penetracion_pct": (
                 round(n_cli / cartera_count * 100, 1) if cartera_count else None
             ),
+            "sin_venta": False,
+            **_sku_volumen_fields(s["bultos"], s["agrupacion"], s["articulo"]),
         }
         rows.append(row)
-    rows.sort(key=lambda r: r["bultos"], reverse=True)
+
+    if catalogo:
+        en_periodo = {
+            (s["cod_articulo"] or k).strip()
+            for k, s in agg["por_sku"].items()
+        }
+        for c in catalogo:
+            if c["cod_articulo"] in en_periodo:
+                continue
+            rows.append(
+                {
+                    "sku_key": c["cod_articulo"],
+                    "cod_articulo": c["cod_articulo"],
+                    "articulo": c["articulo"],
+                    "agrupacion": c["agrupacion"],
+                    "bultos": 0.0,
+                    "unidades": 0.0,
+                    "clientes": 0,
+                    "intensidad": 0.0,
+                    "penetracion_pct": 0.0 if cartera_count else None,
+                    "sin_venta": True,
+                    **_sku_volumen_fields(0.0, c["agrupacion"], c["articulo"]),
+                }
+            )
+
+    rows.sort(key=lambda r: (1 if r["sin_venta"] else 0, -r["bultos"], r["articulo"].lower()))
     return rows
+
+
+def _build_auditoria_clientes(agg: dict, cartera_count: int | None) -> dict:
+    """
+    Bloque auditoría cliente×SKU (R8): monoproducto fuerte, mix bajo y resumen
+    por cliente, calculado desde las mismas líneas deduplicadas del período.
+    """
+    sku_meta = agg["por_sku"]
+
+    def _mix_row(cliente_key: str, pc: dict) -> dict:
+        skus = pc.get("skus") or {}
+        principal_key, principal_bultos = "", 0.0
+        for k, b in skus.items():
+            if not principal_key or b > principal_bultos:
+                principal_key, principal_bultos = k, b
+        meta = sku_meta.get(principal_key) or {}
+        bultos = round(pc["bultos"], 2)
+        return {
+            "id_cliente_erp": pc.get("id_cliente_erp"),
+            "cliente": pc.get("cliente") or cliente_key,
+            "bultos": bultos,
+            "unidades": round(pc["unidades"], 2),
+            "skus_distintos": len(skus),
+            "sku_principal": meta.get("articulo") or principal_key,
+            "cod_sku_principal": meta.get("cod_articulo") or principal_key,
+            "bultos_sku_principal": round(principal_bultos, 2),
+            "pct_concentracion": (
+                round(principal_bultos / pc["bultos"] * 100, 1) if pc["bultos"] > 0 else None
+            ),
+        }
+
+    todos = sorted(
+        (_mix_row(k, pc) for k, pc in (agg.get("por_cliente") or {}).items()),
+        key=lambda r: r["bultos"],
+        reverse=True,
+    )
+    positivos = [r for r in todos if r["bultos"] > 0]
+    monoproducto = [r for r in positivos if r["skus_distintos"] == 1][:AUDITORIA_TOP_N]
+    mix_bajo = [
+        r for r in positivos if 2 <= r["skus_distintos"] <= MIX_BAJO_MAX_SKUS
+    ][:AUDITORIA_TOP_N]
+
+    return {
+        "cartera_scope": cartera_count,
+        "clientes_con_compra": len(positivos),
+        "monoproducto_fuerte": monoproducto,
+        "mix_bajo": mix_bajo,
+        "por_cliente_resumen": todos[:AUDITORIA_RESUMEN_MAX],
+        "resumen_total": len(todos),
+        "resumen_truncado": len(todos) > AUDITORIA_RESUMEN_MAX,
+    }
 
 
 def _build_insights(sku_rows: list[dict]) -> dict:
@@ -573,6 +821,7 @@ def build_avance_ventas(
     fecha: str,
     sucursal: str | None = None,
     vendedor: str | None = None,
+    incluir_sin_venta: bool = True,
 ) -> dict:
     """Payload completo de Avance de Ventas para /supervision (sin importes $)."""
     if modo not in ("dia", "semana", "mes"):
@@ -613,15 +862,18 @@ def build_avance_ventas(
             vendedor_norm=vendedor_norm,
         )
 
-    # Actual + referencias + cartera en paralelo (fetches PostgREST independientes).
+    # Actual + referencias + cartera + catálogo + sync en paralelo
+    # (fetches PostgREST independientes).
     from concurrent.futures import ThreadPoolExecutor
 
     agg_refs: dict[str, dict | None] = {}
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         fut_actual = pool.submit(_agg_rango, periodo["desde"], periodo["hasta"])
         fut_cartera = pool.submit(
             _cartera_scope_count, dist_id, sucursal_clean or None, vendedor_clean or None
         )
+        fut_catalogo = pool.submit(_fetch_catalogo_skus, dist_id, periodo["hasta"])
+        fut_sync = pool.submit(_ventas_sync_info, dist_id)
         fut_refs = {
             ref_key: pool.submit(_agg_rango, rango["desde"], rango["hasta"])
             for ref_key, rango in refs.items()
@@ -641,6 +893,25 @@ def build_avance_ventas(
         except Exception as e:
             logger.warning("[avance-ventas] cartera dist=%s: %s", dist_id, e)
             cartera_count = None
+        try:
+            catalogo = fut_catalogo.result()
+        except Exception as e:
+            logger.warning("[avance-ventas] catálogo 12m dist=%s: %s", dist_id, e)
+            catalogo = None
+        try:
+            sync_info = fut_sync.result()
+        except Exception as e:
+            logger.debug("[avance-ventas] sync dist=%s: %s", dist_id, e)
+            sync_info = {"last_updated": None, "next_run_hint": next_ventas_run_ar().isoformat()}
+
+    # ── Ranking SKUs: período + left-join catálogo 12m (R1) ─────────────────
+    sku_rows_full = _sku_rows_from_agg(agg, cartera_count, catalogo)
+    sku_rows = (
+        sku_rows_full
+        if incluir_sin_venta
+        else [r for r in sku_rows_full if not r["sin_venta"]]
+    )
+    n_sin_venta = sum(1 for r in sku_rows_full if r["sin_venta"])
 
     # ── Metadatos + comparativas ────────────────────────────────────────────
     metadatos = {
@@ -649,6 +920,8 @@ def build_avance_ventas(
         "clientes_compra": len(agg["clientes"]),
         "skus_activos": sum(1 for s in agg["por_sku"].values() if abs(s["bultos"]) > 0),
         "comprobantes": agg["comprobantes"],
+        "skus_catalogo": len(sku_rows_full),
+        "skus_sin_venta": n_sin_venta,
     }
 
     def _comparativa_bloque(ref_agg: dict | None, rango: dict | None) -> dict:
@@ -737,9 +1010,7 @@ def build_avance_ventas(
             reverse=True,
         )
 
-    # ── Ranking SKUs + deltas por SKU ───────────────────────────────────────
-    sku_rows = _sku_rows_from_agg(agg, cartera_count)
-
+    # ── Deltas por SKU ──────────────────────────────────────────────────────
     def _ref_sku_bultos(ref_key: str | None) -> dict[str, float] | None:
         if not ref_key:
             return None
@@ -751,8 +1022,9 @@ def build_avance_ventas(
     wow_sku = _ref_sku_bultos(delta_primary_key[0])
     mom_sku = _ref_sku_bultos(delta_primary_key[1])
 
+    # Tabla completa, sin cap (R1) — el cap defensivo queda solo en series gráficas.
     ranking_skus = []
-    for r in sku_rows[:RANKING_MAX_SKUS]:
+    for r in sku_rows:
         item = {k: v for k, v in r.items() if k != "sku_key"}
         if wow_sku is not None:
             item["wow_bultos"] = build_delta_kpi(r["bultos"], wow_sku.get(r["sku_key"], 0.0))
@@ -789,7 +1061,20 @@ def build_avance_ventas(
             "ref_mom": round(mom_sku.get(r["sku_key"], 0.0), 2) if mom_sku is not None else None,
         }
         for r in sku_rows[:HEATMAP_TOP_SKUS]
+        if not r["sin_venta"]
     ]
+
+    # ── Cobertura de catálogo (R4): SKUs vendidos vs sin venta en el scope ──
+    n_con_venta = len(sku_rows_full) - n_sin_venta
+    cobertura_skus = {
+        "disponible": catalogo is not None,
+        "catalogo": len(sku_rows_full),
+        "con_venta": n_con_venta,
+        "sin_venta": n_sin_venta,
+        "pct_con_venta": (
+            round(n_con_venta / len(sku_rows_full) * 100, 1) if sku_rows_full else None
+        ),
+    }
 
     # ── Drill clientes (precalculado top 20 SKUs) ───────────────────────────
     drill = {
@@ -801,10 +1086,11 @@ def build_avance_ventas(
         "modo": modo,
         "fecha_ancla": str(fecha)[:10],
         "periodo": periodo,
-        "sync": _ventas_sync_info(dist_id),
+        "sync": sync_info,
         "filtros": {
             "sucursal": sucursal_clean or None,
             "vendedor": vendedor_clean or None,
+            "incluir_sin_venta": incluir_sin_venta,
         },
         "cartera_scope": cartera_count,
         "metadatos": metadatos,
@@ -817,7 +1103,9 @@ def build_avance_ventas(
             "por_agrupacion": por_agrupacion,
             "scatter_penetracion_intensidad": scatter,
             "heatmap_top_skus": heatmap,
+            "cobertura_skus": cobertura_skus,
         },
+        "auditoria_clientes": _build_auditoria_clientes(agg, cartera_count),
         "drill_clientes_por_sku": drill,
     }
 
@@ -829,8 +1117,14 @@ def build_avance_ventas_sku_clientes(
     fecha: str,
     sucursal: str | None = None,
     vendedor: str | None = None,
+    limit: int = DRILL_CLIENTES_PAGE,
+    offset: int = 0,
 ) -> dict:
-    """Drill bajo demanda: top/bottom clientes de un SKU fuera del top 20 precalculado."""
+    """
+    Drill bajo demanda de un SKU: top/bottom (compat) + lista completa de
+    clientes paginada (R8 — auditoría al 100%, suma de la lista = bultos del
+    ranking para el mismo scope).
+    """
     if modo not in ("dia", "semana", "mes"):
         raise ValueError("modo debe ser dia | semana | mes")
 
@@ -871,9 +1165,109 @@ def build_avance_ventas_sku_clientes(
     )
     sku_keys = list(agg["clientes_por_sku"].keys())
     drill = _drill_for_sku(agg, sku_keys[0]) if sku_keys else {"top": [], "bottom": []}
+
+    # Lista completa ordenada por bultos desc, paginada (auditoría 100%).
+    bucket = (agg["clientes_por_sku"].get(sku_keys[0]) if sku_keys else None) or {}
+    todos = sorted(
+        (
+            {
+                "cliente": c["cliente"],
+                "id_cliente_erp": c["id_cliente_erp"],
+                "bultos": round(c["bultos"], 2),
+                "unidades": round(c["unidades"], 2),
+            }
+            for c in bucket.values()
+        ),
+        key=lambda r: r["bultos"],
+        reverse=True,
+    )
+    limit = max(1, min(int(limit or DRILL_CLIENTES_PAGE), 200))
+    offset = max(0, int(offset or 0))
     return {
         "cod_articulo": cod_norm,
         "modo": modo,
         "periodo": periodo,
+        "clientes": todos[offset : offset + limit],
+        "total": len(todos),
+        "total_bultos": round(sum(r["bultos"] for r in todos), 2),
+        "limit": limit,
+        "offset": offset,
         **drill,
+    }
+
+
+def build_avance_ventas_cliente_skus(
+    dist_id: int,
+    id_cliente_erp: str,
+    modo: str,
+    fecha: str,
+    sucursal: str | None = None,
+    vendedor: str | None = None,
+) -> dict:
+    """
+    Drill inverso (R8): SKUs que compró un cliente en el período, con
+    bultos/unidades + desglose de volumen. Mismas líneas deduplicadas que el
+    payload principal — la suma por cliente cierra contra el ranking.
+    """
+    if modo not in ("dia", "semana", "mes"):
+        raise ValueError("modo debe ser dia | semana | mes")
+
+    sucursal_clean = (sucursal or "").strip()
+    if sucursal_clean in ("", "__all__"):
+        sucursal_clean = ""
+    vendedor_clean = (vendedor or "").strip()
+    if vendedor_clean in ("", "__all__"):
+        vendedor_clean = ""
+
+    periodo = resolve_periodo(modo, fecha)
+    erp_name_map = _get_erp_name_map(dist_id)
+
+    vend_branch: Optional[Set[str]] = None
+    if sucursal_clean:
+        from routers.supervision import _vendor_display_names_for_sucursal_erp
+
+        vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal_clean) or set()
+
+    lines = _fetch_avance_lines(dist_id, periodo["desde"], periodo["hasta"])
+    agg = aggregate_avance_lines(
+        lines,
+        erp_name_map=erp_name_map,
+        sucursal_norm=sucursal_clean.lower(),
+        vend_branch=vend_branch,
+        vendedor_norm=(
+            "__sin_vendedor__"
+            if vendedor_clean == "__sin_vendedor__"
+            else vendedor_clean.lower()
+        ),
+    )
+
+    cliente_key = (id_cliente_erp or "").strip()
+    pc = (agg.get("por_cliente") or {}).get(cliente_key)
+    skus_out: list[dict] = []
+    if pc:
+        for sku_key, bultos in pc["skus"].items():
+            meta = agg["por_sku"].get(sku_key) or {}
+            cli_vol = (agg["clientes_por_sku"].get(sku_key) or {}).get(cliente_key) or {}
+            articulo = meta.get("articulo") or sku_key
+            agrupacion = meta.get("agrupacion") or ""
+            skus_out.append(
+                {
+                    "cod_articulo": meta.get("cod_articulo") or sku_key,
+                    "articulo": articulo,
+                    "agrupacion": agrupacion,
+                    "bultos": round(bultos, 2),
+                    "unidades": round(float(cli_vol.get("unidades") or 0), 2),
+                    **_sku_volumen_fields(bultos, agrupacion, articulo),
+                }
+            )
+        skus_out.sort(key=lambda r: r["bultos"], reverse=True)
+
+    return {
+        "id_cliente_erp": cliente_key,
+        "cliente": (pc or {}).get("cliente") or cliente_key,
+        "modo": modo,
+        "periodo": periodo,
+        "skus": skus_out,
+        "total_bultos": round((pc or {}).get("bultos", 0.0), 2),
+        "total_unidades": round((pc or {}).get("unidades", 0.0), 2),
     }

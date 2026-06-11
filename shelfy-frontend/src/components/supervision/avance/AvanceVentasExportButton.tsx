@@ -7,6 +7,8 @@ import type { AvanceSkuRankingRow } from "@/lib/api";
 interface AvanceVentasExportButtonProps {
   ranking: AvanceSkuRankingRow[];
   periodoLabel: string;
+  /** Modo de volumen activo (R2): "desglose" agrega bultos enteros + unidades resto. */
+  volumenModo?: "bultos" | "desglose";
 }
 
 function csvNum(n: number | null | undefined): string {
@@ -14,11 +16,18 @@ function csvNum(n: number | null | undefined): string {
   return String(n).replace(".", ",");
 }
 
-/** Exporta el ranking visible a CSV (es-AR, separador ;). */
-export function AvanceVentasExportButton({ ranking, periodoLabel }: AvanceVentasExportButtonProps) {
+/** Exporta el ranking visible a CSV (es-AR, separador ;) — nombres completos, sin abreviar. */
+export function AvanceVentasExportButton({
+  ranking,
+  periodoLabel,
+  volumenModo = "bultos",
+}: AvanceVentasExportButtonProps) {
   const handleExport = () => {
     if (!ranking.length) return;
-    const header = "articulo;cod_articulo;agrupacion;bultos;unidades;clientes;intensidad;penetracion_pct";
+    const desglose = volumenModo === "desglose";
+    const header =
+      "articulo;cod_articulo;agrupacion;bultos;unidades;clientes;intensidad;penetracion_pct;sin_venta" +
+      (desglose ? ";bultos_enteros;unidades_resto" : "");
     const lines = ranking.map((r) =>
       [
         `"${(r.articulo ?? "").replaceAll('"', '""')}"`,
@@ -29,6 +38,8 @@ export function AvanceVentasExportButton({ ranking, periodoLabel }: AvanceVentas
         String(r.clientes ?? 0),
         csvNum(r.intensidad),
         csvNum(r.penetracion_pct),
+        r.sin_venta ? "1" : "0",
+        ...(desglose ? [csvNum(r.bultos_enteros), csvNum(r.unidades_resto)] : []),
       ].join(";"),
     );
     // BOM para que Excel es-AR abra con acentos correctos.

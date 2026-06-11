@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 interface AvanceVentasHeatmapProps {
   data: AvanceVentasResponse["series"]["heatmap_top_skus"] | undefined;
   modo: AvanceVentasModo;
+  /** Sin Card externo (para usar dentro del carrusel). */
+  embedded?: boolean;
   className?: string;
 }
 
@@ -45,12 +47,42 @@ function HeatCell({ actual, refValue }: { actual: number; refValue: number | nul
 }
 
 /** Heatmap top 15 SKUs: bultos actuales vs referencias WoW/MoM. */
-export function AvanceVentasHeatmap({ data, modo, className }: AvanceVentasHeatmapProps) {
+export function AvanceVentasHeatmap({ data, modo, embedded = false, className }: AvanceVentasHeatmapProps) {
   const rows = data ?? [];
   if (!rows.length) return null;
   const hasWow = rows.some((r) => r.ref_wow !== null);
   const hasMom = rows.some((r) => r.ref_mom !== null);
   if (!hasWow && !hasMom) return null;
+
+  const table = (
+    <table className="w-full border-collapse">
+      <thead>
+        <tr className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          <th className="px-2 py-1 text-left font-semibold">SKU</th>
+          <th className="px-2 py-1 text-right font-semibold">Bultos</th>
+          {hasWow && <th className="px-2 py-1 text-center font-semibold">{deltaRefLabel(modo, "wow")}</th>}
+          {hasMom && <th className="px-2 py-1 text-center font-semibold">{deltaRefLabel(modo, "mom")}</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.cod_articulo} className="border-t border-border/50 text-xs">
+            {/* R6: nombre completo, sin truncate */}
+            <td className="px-2 py-1 font-medium whitespace-normal break-words leading-snug">
+              {r.sku}
+            </td>
+            <td className="px-2 py-1 text-right font-mono text-[11px] tabular-nums">
+              {fmtBultos(r.actual)}
+            </td>
+            {hasWow && <HeatCell actual={r.actual} refValue={r.ref_wow} />}
+            {hasMom && <HeatCell actual={r.actual} refValue={r.ref_mom} />}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
+  if (embedded) return <div className="overflow-y-auto h-full min-h-0">{table}</div>;
 
   return (
     <Card className={className}>
@@ -60,32 +92,7 @@ export function AvanceVentasHeatmap({ data, modo, className }: AvanceVentasHeatm
           Comparativa top {rows.length} SKUs
         </CardTitle>
       </CardHeader>
-      <CardContent className="px-3 pb-4 pt-0 overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              <th className="px-2 py-1 text-left font-semibold">SKU</th>
-              <th className="px-2 py-1 text-right font-semibold">Bultos</th>
-              {hasWow && <th className="px-2 py-1 text-center font-semibold">{deltaRefLabel(modo, "wow")}</th>}
-              {hasMom && <th className="px-2 py-1 text-center font-semibold">{deltaRefLabel(modo, "mom")}</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.cod_articulo} className="border-t border-border/50 text-xs">
-                <td className="px-2 py-1 max-w-[180px] truncate font-medium" title={r.sku}>
-                  {r.sku}
-                </td>
-                <td className="px-2 py-1 text-right font-mono text-[11px] tabular-nums">
-                  {fmtBultos(r.actual)}
-                </td>
-                {hasWow && <HeatCell actual={r.actual} refValue={r.ref_wow} />}
-                {hasMom && <HeatCell actual={r.actual} refValue={r.ref_mom} />}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
+      <CardContent className="px-3 pb-4 pt-0 overflow-x-auto">{table}</CardContent>
     </Card>
   );
 }

@@ -29,6 +29,34 @@ export function fmtDelta(delta: AvanceDeltaKpi | null | undefined): string {
   return `${sign}${delta.pct.toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 }
 
+/**
+ * Celda de volumen según modo (R2). En "desglose", las líneas convertidas
+ * muestran bultos enteros + unidades restantes (42 · 92 u) y los encendedores
+ * su equivalencia 1:1; el resto queda igual que en modo bultos.
+ */
+export function fmtVolumenCell(
+  row: {
+    bultos: number;
+    unidades: number;
+    volumen_kind?: string | null;
+    bultos_enteros?: number;
+    unidades_resto?: number;
+  },
+  modo: "bultos" | "desglose",
+): { primary: string; secondary: string | null } {
+  if (modo === "bultos") return { primary: fmtBultos(row.bultos), secondary: null };
+  if (row.bultos_enteros != null && row.unidades_resto != null) {
+    return {
+      primary: fmtEntero(row.bultos_enteros),
+      secondary: row.unidades_resto > 0 ? `· ${fmtUnidades(row.unidades_resto)} u` : null,
+    };
+  }
+  if (row.volumen_kind === "encendedor_raw" && Math.abs(row.unidades) > 0) {
+    return { primary: fmtBultos(row.bultos), secondary: `· ${fmtUnidades(row.unidades)} u` };
+  }
+  return { primary: fmtBultos(row.bultos), secondary: null };
+}
+
 export type DeltaDir = "up" | "down" | "flat";
 
 export function deltaDir(delta: AvanceDeltaKpi | null | undefined): DeltaDir {

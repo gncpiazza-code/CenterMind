@@ -1486,6 +1486,9 @@ def supervision_avance_ventas(
         None,
         description="Vendedor ERP display; omitir/__all__ = todos; __sin_vendedor__ = bucket sin vendedor",
     ),
+    incluir_sin_venta: bool = Query(
+        True, description="Incluir SKUs del catálogo 12m sin venta en el período (filas con ceros)"
+    ),
     user_payload=Depends(verify_auth),
 ):
     """Avance de ventas en volumen (bultos + unidades) — analytics supervisión, sin importes."""
@@ -1502,6 +1505,7 @@ def supervision_avance_ventas(
             fecha=fecha_ancla,
             sucursal=suc_param,
             vendedor=vendedor,
+            incluir_sin_venta=incluir_sin_venta,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1520,9 +1524,11 @@ def supervision_avance_ventas_sku_clientes(
     fecha: Optional[str] = Query(None, description="YYYY-MM-DD ancla del periodo"),
     sucursal: Optional[str] = Query(None),
     vendedor: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200, description="Página de la lista completa de clientes"),
+    offset: int = Query(0, ge=0),
     user_payload=Depends(verify_auth),
 ):
-    """Drill lazy: top/bottom clientes de un SKU fuera del top 20 precalculado."""
+    """Drill lazy de un SKU: top/bottom + lista completa de clientes paginada (auditoría)."""
     check_dist_permission(user_payload, dist_id)
     suc_param = None if (sucursal or "").strip() in ("", "__all__") else sucursal
     assert_sucursal_nombre_allowed(user_payload, suc_param)
@@ -1537,6 +1543,8 @@ def supervision_avance_ventas_sku_clientes(
             fecha=fecha_ancla,
             sucursal=suc_param,
             vendedor=vendedor,
+            limit=limit,
+            offset=offset,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1544,6 +1552,44 @@ def supervision_avance_ventas_sku_clientes(
         raise
     except Exception as e:
         logger.error(f"Error en supervision_avance_ventas_sku dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/api/supervision/avance-ventas/{dist_id}/cliente/{id_cliente_erp}/skus",
+    tags=["Supervisión"],
+)
+def supervision_avance_ventas_cliente_skus(
+    dist_id: int,
+    id_cliente_erp: str,
+    modo: str = Query("dia", description="dia | semana | mes"),
+    fecha: Optional[str] = Query(None, description="YYYY-MM-DD ancla del periodo"),
+    sucursal: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
+    """Drill inverso (auditoría R8): SKUs comprados por un cliente en el período."""
+    check_dist_permission(user_payload, dist_id)
+    suc_param = None if (sucursal or "").strip() in ("", "__all__") else sucursal
+    assert_sucursal_nombre_allowed(user_payload, suc_param)
+    try:
+        from services.avance_ventas_service import build_avance_ventas_cliente_skus
+
+        fecha_ancla = (fecha or "").strip() or _today_ar().isoformat()
+        return build_avance_ventas_cliente_skus(
+            dist_id,
+            id_cliente_erp=id_cliente_erp,
+            modo=modo,
+            fecha=fecha_ancla,
+            sucursal=suc_param,
+            vendedor=vendedor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en supervision_avance_ventas_cliente dist={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4871,8 +4917,22 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo CC dist={dist_id}: {e}")
 
-        ventas_data: dict = {"last_updated": None, "count": 0}
+        # Ventas (R3): última OK + último intento (cualquier estado) + zombies,
+        # mismo criterio que padrón — el badge FE muestra ambos timestamps.
+        ventas_data: dict = {
+            "last_updated": None,
+            "count": 0,
+            "last_run_ok_at": None,
+            "last_attempt_at": None,
+            "last_run_estado": None,
+            "has_zombie": False,
+            "next_run_at": None,
+        }
         try:
+            from services.avance_ventas_service import next_ventas_run_ar
+
+            ventas_data["next_run_at"] = next_ventas_run_ar().isoformat()
+
             run_ventas = (
                 sb.table("motor_runs")
                 .select("finalizado_en,iniciado_en,registros")
@@ -4886,6 +4946,7 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             if run_ventas.data:
                 row = run_ventas.data[0]
                 ventas_data["last_updated"] = row.get("finalizado_en") or row.get("iniciado_en")
+                ventas_data["last_run_ok_at"] = ventas_data["last_updated"]
                 try:
                     reg = row.get("registros") or {}
                     if isinstance(reg, dict):
@@ -4894,6 +4955,46 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
                         ventas_data["count"] = int(reg or 0)
                 except Exception:
                     ventas_data["count"] = 0
+
+            try:
+                run_attempt = (
+                    sb.table("motor_runs")
+                    .select("iniciado_en,finalizado_en,estado,registros")
+                    .eq("motor", "ventas_enriched")
+                    .eq("dist_id", dist_id)
+                    .order("iniciado_en", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if run_attempt.data:
+                    row = run_attempt.data[0]
+                    ventas_data["last_attempt_at"] = row.get("iniciado_en") or row.get("finalizado_en")
+                    estado = row.get("estado")
+                    regs = row.get("registros")
+                    if isinstance(regs, str):
+                        try:
+                            regs = json.loads(regs)
+                        except Exception:
+                            regs = None
+                    if estado == "ok" and isinstance(regs, dict) and regs.get("sin_cambios"):
+                        estado = "sin_cambios"
+                    ventas_data["last_run_estado"] = estado
+
+                from datetime import timezone
+                two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+                zombie_v = (
+                    sb.table("motor_runs")
+                    .select("id_run", count="exact")
+                    .eq("motor", "ventas_enriched")
+                    .eq("dist_id", dist_id)
+                    .eq("estado", "en_curso")
+                    .lt("iniciado_en", two_hours_ago)
+                    .execute()
+                )
+                ventas_data["has_zombie"] = (zombie_v.count or 0) > 0
+            except Exception:
+                pass
+
             if not ventas_data["last_updated"]:
                 t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
                 res_v = (

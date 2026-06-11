@@ -1,0 +1,48 @@
+import type { AvanceVentasModo } from "@/lib/api";
+
+/**
+ * Textos centralizados de los tooltips `(?)` del Avance de Ventas (R7).
+ * es-AR, lenguaje operativo del supervisor — sin jerga técnica.
+ */
+export const AVANCE_KPI_HELP = {
+  intensidad:
+    "Promedio de bultos netos por cliente que compró este SKU en el período. " +
+    "Ej.: 100 bultos entre 10 clientes → intensidad 10.",
+  penetracion:
+    "Porcentaje de clientes de tu cartera (padrón visible según el filtro) " +
+    "que compraron este SKU al menos una vez en el período.",
+  deltaDia:
+    "Variación de bultos netos respecto al período de referencia (WoW: mismo " +
+    "día de la semana pasada · MoM: mismo día del mes pasado). Muestra «Sin " +
+    "dato» si el período de referencia no tiene información.",
+  deltaSemana:
+    "Variación de bultos netos respecto a la semana anterior (lun–sáb). " +
+    "Muestra «Sin dato» si la semana de referencia no tiene información.",
+  deltaMes:
+    "Variación de bultos netos respecto al mes anterior completo. Muestra " +
+    "«Sin dato» si el mes de referencia no tiene información.",
+  bultos:
+    "Bultos netos del período: ventas menos devoluciones. Cigarrillos y " +
+    "convertidos se expresan en bultos equivalentes según las reglas de volumen.",
+  unidades:
+    "Unidades de líneas convertidas (cigarrillos, papelillos, mix) y " +
+    "encendedores (1 bulto = 1 unidad). El resto de los artículos no suma unidades.",
+  clientes: "Clientes distintos con al menos una compra en el período y filtro activos.",
+  skus: "SKUs con movimiento (venta o devolución) en el período y filtro activos.",
+  cobertura:
+    "Cobertura del catálogo: SKUs con venta en el período sobre el total de " +
+    "SKUs vendidos por la distribuidora en los últimos 12 meses.",
+  monoproducto:
+    "Clientes que concentran todo su volumen del período en un solo SKU. " +
+    "Riesgo de dependencia y oportunidad de ampliar mix.",
+  mixBajo:
+    "Clientes con compra en el período pero pocos SKUs distintos (2–3). " +
+    "Oportunidad de cross-sell con el resto del catálogo.",
+} as const;
+
+/** Texto del tooltip Δ según el modo del período activo. */
+export function deltaHelpText(modo: AvanceVentasModo): string {
+  if (modo === "semana") return AVANCE_KPI_HELP.deltaSemana;
+  if (modo === "mes") return AVANCE_KPI_HELP.deltaMes;
+  return AVANCE_KPI_HELP.deltaDia;
+}

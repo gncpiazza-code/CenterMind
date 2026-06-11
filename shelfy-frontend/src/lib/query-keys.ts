@@ -150,6 +150,24 @@ export const supervisionPanelKeys = {
       sucursal ?? '__all__',
       vendedor ?? '__all__',
     ] as const,
+  avanceVentasCliente: (
+    distId: number,
+    idClienteErp: string,
+    modo: string,
+    fecha: string,
+    sucursal?: string | null,
+    vendedor?: string | null,
+  ) =>
+    [
+      'supervision-panel',
+      'avance-ventas-cliente',
+      distId,
+      idClienteErp,
+      modo,
+      fecha,
+      sucursal ?? '__all__',
+      vendedor ?? '__all__',
+    ] as const,
   avanceVentasSku: (
     distId: number,
     codArticulo: string,
@@ -157,6 +175,7 @@ export const supervisionPanelKeys = {
     fecha: string,
     sucursal?: string | null,
     vendedor?: string | null,
+    offset = 0,
   ) =>
     [
       'supervision-panel',
@@ -167,6 +186,7 @@ export const supervisionPanelKeys = {
       fecha,
       sucursal ?? '__all__',
       vendedor ?? '__all__',
+      offset,
     ] as const,
 };
 

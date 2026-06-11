@@ -239,3 +239,278 @@ def test_skus_y_clientes_y_comprobantes():
     assert len(agg["por_sku"]) == 2
     assert agg["clientes"] == {"1001", "2002"}
     assert agg["comprobantes"] == 2
+
+
+# ─── R1 — Catálogo 12m: SKUs sin venta ──────────────────────────────────────
+
+from services.avance_ventas_service import (  # noqa: E402
+    _build_auditoria_clientes,
+    _catalogo_window,
+    _sku_rows_from_agg,
+    _sku_volumen_fields,
+)
+
+
+def _catalogo_demo():
+    return [
+        {"cod_articulo": "SKU1", "articulo": "MARLBORO BOX", "agrupacion": "CIGARRILLOS"},
+        {"cod_articulo": "SKU9", "articulo": "ZETA SIN VENTA", "agrupacion": "CIGARRILLOS"},
+        {"cod_articulo": "SKU8", "articulo": "ALFA SIN VENTA", "agrupacion": "ENCENDEDORES"},
+    ]
+
+
+def test_sku_catalogo_sin_venta_aparece_con_ceros():
+    agg = aggregate_avance_lines([_linea()])
+    rows = _sku_rows_from_agg(agg, cartera_count=10, catalogo=_catalogo_demo())
+    sin_venta = [r for r in rows if r["sin_venta"]]
+    assert {r["cod_articulo"] for r in sin_venta} == {"SKU8", "SKU9"}
+    z = next(r for r in sin_venta if r["cod_articulo"] == "SKU9")
+    assert z["bultos"] == 0.0 and z["unidades"] == 0.0 and z["clientes"] == 0
+    assert z["intensidad"] == 0.0
+    assert z["penetracion_pct"] == 0.0
+
+
+def test_sin_venta_van_al_final_y_alfabetico():
+    agg = aggregate_avance_lines([_linea()])
+    rows = _sku_rows_from_agg(agg, cartera_count=None, catalogo=_catalogo_demo())
+    assert rows[0]["cod_articulo"] == "SKU1"  # con venta primero
+    assert [r["articulo"] for r in rows[1:]] == ["ALFA SIN VENTA", "ZETA SIN VENTA"]
+
+
+def test_catalogo_window_12_meses_calendario():
+    desde, hasta = _catalogo_window("2026-06-13")
+    assert desde == "2025-07-01"
+    assert hasta == "2026-06-13"
+
+
+# ─── R2 — Desglose volumen por SKU ───────────────────────────────────────────
+
+def test_desglose_convertido_enteros_y_resto():
+    # Cigarrillos: factor 250 → 2,37 bultos = 2 enteros + 92,5→ redondeo unidades
+    f = _sku_volumen_fields(2.368, "CIGARRILLOS", "MARLBORO BOX")
+    assert f["volumen_kind"] is not None
+    assert f["bultos_enteros"] == 2
+    assert f["unidades_resto"] == 92
+
+
+def test_desglose_no_convertido_sin_campos():
+    f = _sku_volumen_fields(4.0, "BEBIDAS", "COCA 2L")
+    assert "bultos_enteros" not in f
+
+
+# ─── R8 — Auditoría cliente×SKU ──────────────────────────────────────────────
+
+def _lineas_auditoria():
+    return [
+        # Cliente 1001: monoproducto fuerte (solo SKU1, mucho volumen)
+        _linea(bultos_total=50.0, unidades_total=12500.0),
+        _linea(bultos_total=30.0, unidades_total=7500.0, numero_documento="A-0002"),
+        # Cliente 2002: mix de 2 SKUs
+        _linea(id_cliente_erp="2002", nombre_cliente="ALMACEN SOL", numero_documento="B-1", bultos_total=5.0),
+        _linea(
+            id_cliente_erp="2002", nombre_cliente="ALMACEN SOL", numero_documento="B-2",
+            cod_articulo="SKU2", descripcion_articulo="PHILIP", bultos_total=3.0,
+        ),
+        # Cliente 3003: mix amplio (4 SKUs) → no entra en mix_bajo
+        *[
+            _linea(
+                id_cliente_erp="3003", nombre_cliente="SUPER RIO", numero_documento=f"C-{i}",
+                cod_articulo=f"SKU{i+1}", descripcion_articulo=f"ART{i+1}", bultos_total=2.0,
+            )
+            for i in range(4)
+        ],
+    ]
+
+
+def test_monoproducto_fuerte_detectado():
+    agg = aggregate_avance_lines(_lineas_auditoria())
+    aud = _build_auditoria_clientes(agg, cartera_count=100)
+    mono = aud["monoproducto_fuerte"]
+    assert len(mono) == 1
+    assert mono[0]["id_cliente_erp"] == "1001"
+    assert mono[0]["skus_distintos"] == 1
+    assert mono[0]["bultos"] == pytest.approx(80.0)
+    assert mono[0]["pct_concentracion"] == pytest.approx(100.0)
+
+
+def test_mix_bajo_excluye_mono_y_amplio():
+    agg = aggregate_avance_lines(_lineas_auditoria())
+    aud = _build_auditoria_clientes(agg, cartera_count=None)
+    assert [r["id_cliente_erp"] for r in aud["mix_bajo"]] == ["2002"]
+    assert aud["mix_bajo"][0]["sku_principal"] == "MARLBORO BOX"
+    assert aud["mix_bajo"][0]["pct_concentracion"] == pytest.approx(62.5)
+    assert aud["clientes_con_compra"] == 3
+    assert aud["resumen_total"] == 3
+    assert aud["resumen_truncado"] is False
+
+
+def test_suma_drill_clientes_igual_bultos_sku():
+    agg = aggregate_avance_lines(_lineas_auditoria())
+    for sku_key, meta in agg["por_sku"].items():
+        bucket = agg["clientes_por_sku"].get(sku_key) or {}
+        assert sum(c["bultos"] for c in bucket.values()) == pytest.approx(
+            meta["bultos"], abs=0.01
+        )
+
+
+# ─── Integración build_avance_ventas (fetch/cartera/catálogo monkeypatched) ──
+
+import services.avance_ventas_service as avs  # noqa: E402
+
+
+@pytest.fixture
+def patched_build(monkeypatch):
+    monkeypatch.setattr(avs, "_fetch_avance_lines", lambda d, desde, hasta: [_linea()])
+    monkeypatch.setattr(avs, "_fetch_catalogo_skus", lambda d, hasta: _catalogo_demo())
+    monkeypatch.setattr(avs, "_cartera_scope_count", lambda *a: 10)
+    monkeypatch.setattr(avs, "_get_erp_name_map", lambda d: {})
+    monkeypatch.setattr(
+        avs,
+        "_ventas_sync_info",
+        lambda d: {
+            "last_updated": "2026-06-11T12:00:00",
+            "last_run_ok_at": "2026-06-11T12:00:00",
+            "last_attempt_at": "2026-06-11T12:30:00",
+            "last_run_estado": "error",
+            "has_zombie": False,
+            "next_run_hint": "2026-06-11T17:00:00-03:00",
+        },
+    )
+
+
+def test_build_incluye_sin_venta_por_default(patched_build):
+    out = avs.build_avance_ventas(1, "dia", "2026-06-09")
+    cods = [r["cod_articulo"] for r in out["ranking_skus"]]
+    assert "SKU9" in cods and "SKU8" in cods
+    assert out["metadatos"]["skus_catalogo"] == 3
+    assert out["metadatos"]["skus_sin_venta"] == 2
+    cob = out["series"]["cobertura_skus"]
+    assert cob["disponible"] is True
+    assert (cob["con_venta"], cob["sin_venta"]) == (1, 2)
+    assert cob["pct_con_venta"] == pytest.approx(33.3)
+    assert out["filtros"]["incluir_sin_venta"] is True
+    # R3: sync expone OK + intento posterior con estado
+    assert out["sync"]["last_attempt_at"] > out["sync"]["last_run_ok_at"]
+    assert out["sync"]["last_run_estado"] == "error"
+
+
+def test_build_incluir_sin_venta_false_excluye_ceros(patched_build):
+    out = avs.build_avance_ventas(1, "dia", "2026-06-09", incluir_sin_venta=False)
+    cods = [r["cod_articulo"] for r in out["ranking_skus"]]
+    assert cods == ["SKU1"]
+    # cobertura se calcula igual sobre el catálogo completo
+    assert out["series"]["cobertura_skus"]["sin_venta"] == 2
+    assert out["auditoria_clientes"]["clientes_con_compra"] == 1
+
+
+def test_build_catalogo_caido_no_rompe(patched_build, monkeypatch):
+    def _boom(d, hasta):
+        raise RuntimeError("catalogo down")
+
+    monkeypatch.setattr(avs, "_fetch_catalogo_skus", _boom)
+    out = avs.build_avance_ventas(1, "dia", "2026-06-09")
+    assert out["series"]["cobertura_skus"]["disponible"] is False
+    assert [r["cod_articulo"] for r in out["ranking_skus"]] == ["SKU1"]
+
+
+def test_drill_sku_paginado_y_total(monkeypatch):
+    lines = [
+        _linea(id_cliente_erp=str(1000 + i), nombre_cliente=f"CLI {i}", numero_documento=f"A-{i}", bultos_total=float(i + 1))
+        for i in range(7)
+    ]
+    monkeypatch.setattr(avs, "_fetch_avance_lines", lambda d, desde, hasta: lines)
+    monkeypatch.setattr(avs, "_get_erp_name_map", lambda d: {})
+    out = avs.build_avance_ventas_sku_clientes(1, "SKU1", "dia", "2026-06-09", limit=3, offset=0)
+    assert out["total"] == 7
+    assert len(out["clientes"]) == 3
+    assert out["clientes"][0]["bultos"] == pytest.approx(7.0)  # orden desc
+    page2 = avs.build_avance_ventas_sku_clientes(1, "SKU1", "dia", "2026-06-09", limit=3, offset=6)
+    assert len(page2["clientes"]) == 1
+    # Auditoría 100%: total de la lista = bultos del SKU
+    assert out["total_bultos"] == pytest.approx(sum(float(i + 1) for i in range(7)))
+
+
+def test_drill_cliente_skus(monkeypatch):
+    monkeypatch.setattr(avs, "_fetch_avance_lines", lambda d, desde, hasta: _lineas_auditoria())
+    monkeypatch.setattr(avs, "_get_erp_name_map", lambda d: {})
+    out = avs.build_avance_ventas_cliente_skus(1, "2002", "dia", "2026-06-09")
+    assert out["cliente"] == "ALMACEN SOL"
+    assert [s["cod_articulo"] for s in out["skus"]] == ["SKU1", "SKU2"]
+    assert out["total_bultos"] == pytest.approx(8.0)
+    assert sum(s["bultos"] for s in out["skus"]) == pytest.approx(out["total_bultos"], abs=0.01)
+
+
+def test_drill_cliente_inexistente_vacio(monkeypatch):
+    monkeypatch.setattr(avs, "_fetch_avance_lines", lambda d, desde, hasta: _lineas_auditoria())
+    monkeypatch.setattr(avs, "_get_erp_name_map", lambda d: {})
+    out = avs.build_avance_ventas_cliente_skus(1, "9999", "dia", "2026-06-09")
+    assert out["skus"] == []
+    assert out["total_bultos"] == 0.0
+
+
+# ─── R3 — _ventas_sync_info con motor_runs stub ──────────────────────────────
+
+class _StubQuery:
+    def __init__(self, rows_by_filter):
+        self._rows_by_filter = rows_by_filter
+        self._estado = None
+        self._is_count = False
+
+    def select(self, *a, **kw):
+        self._is_count = kw.get("count") == "exact"
+        return self
+
+    def eq(self, col, val):
+        if col == "estado":
+            self._estado = val
+        return self
+
+    def order(self, *a, **kw):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def lt(self, *a):
+        return self
+
+    def execute(self):
+        rows = self._rows_by_filter.get(self._estado, self._rows_by_filter.get(None, []))
+
+        class R:
+            data = rows
+            count = len(rows)
+
+        return R()
+
+
+class _StubSb:
+    def __init__(self, rows_by_filter):
+        self._rows_by_filter = rows_by_filter
+
+    def table(self, name):
+        return _StubQuery(self._rows_by_filter)
+
+
+def test_sync_info_error_despues_de_ok(monkeypatch):
+    rows_ok = [{"finalizado_en": "2026-06-11T12:00:00", "iniciado_en": "2026-06-11T11:58:00"}]
+    rows_any = [{"iniciado_en": "2026-06-11T17:01:00", "finalizado_en": None, "estado": "error"}]
+    monkeypatch.setattr(
+        avs, "sb", _StubSb({"ok": rows_ok, None: rows_any, "en_curso": []})
+    )
+    info = avs._ventas_sync_info(1)
+    assert info["last_run_ok_at"] == "2026-06-11T12:00:00"
+    assert info["last_attempt_at"] == "2026-06-11T17:01:00"
+    assert info["last_run_ok_at"] < info["last_attempt_at"]
+    assert info["last_run_estado"] == "error"
+    assert info["has_zombie"] is False
+
+
+def test_sync_info_zombie_detectado(monkeypatch):
+    rows_ok = [{"finalizado_en": "2026-06-09T12:00:00", "iniciado_en": None}]
+    zombie = [{"id_run": 1, "iniciado_en": "2026-06-09T16:00:00", "estado": "en_curso"}]
+    monkeypatch.setattr(
+        avs, "sb", _StubSb({"ok": rows_ok, None: zombie, "en_curso": zombie})
+    )
+    info = avs._ventas_sync_info(1)
+    assert info["has_zombie"] is True

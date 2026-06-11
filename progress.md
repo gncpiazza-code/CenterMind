@@ -1,6 +1,6 @@
 # Progress — Shelfy (Lean)
 
-**Última actualización:** 10 Jun 2026 (v26 — Supervisión Avance de Ventas)  
+**Última actualización:** 11 Jun 2026 (v27 — Avance Ventas refactor auditoría)  
 **Historial detallado:** `docs/context/changelog/archive/`
 
 ## Estado general
@@ -30,7 +30,8 @@
 
 ## Cambios recientes (máx 5)
 
-1. **Supervisión Avance de Ventas (2026-06-10):** Nuevo modo en `/supervision` alternable con CC (toggle sticky) — volumen sin $ (bultos + unidades) desde `ventas_enriched_v2`; periodos día/semana lun–sáb/mes con comparativas WoW/MoM (clamp 31→fin de mes); BE `services/avance_ventas_service.py` + `GET /api/supervision/avance-ventas/{dist_id}` (+drill lazy SKU) con bultos neto + encendedor 1:1 + bucket "Sin vendedor"; FE panel analytics (KPI strip, donut share, top/bottom SKUs, scatter, agrupación, heatmap, ranking sortable, drill 10 clientes, export CSV, badge sync ventas, banner parcial); 21 tests pytest verde; módulo `docs/context/modules/supervision-avance-ventas.md`.
+1. **Avance Ventas refactor (2026-06-11):** Catálogo SKU 12m con/sin venta; switch bultos+unidades; carrusel gráficos (cobertura reemplaza agrupación); auditoría cliente×SKU (monoproducto/mix/drill inverso); tooltips KPI `(?)`; nombres SKU sin truncar; badge sync OK + último intento; 37 tests pytest; ver `docs/context/modules/supervision-avance-ventas.md`.
+2. **Supervisión Avance de Ventas (2026-06-10):** Modo `/supervision` alternable con CC — volumen sin $ desde `ventas_enriched_v2`; periodos día/semana/mes + WoW/MoM; panel analytics inicial + drill SKU lazy.
 2. **Topbar brand sweep (2026-06-10):** Animación desktop — ícono L→R hacia Evaluar, huella SHELFY debajo, rebote spring y tapa texto; loop 30s.
 2. **SHELFYAPP Captura Burst Apple (2026-06-10):** Flujo burst photos-first — `onPhotoTaken()` nunca abre sheet; botón "Listo" (≥1 foto) → `assignPdv`; filmstrip Z2 sobre shutter; GPS chip top (nunca center); memoria ingreso (`CapturePdvMemory` SharedPreferences) con countdown 5s auto-avance; fallback cámara nativa Android gama baja (`NativeCaptureService` + `DeviceProfile.shouldUseNativeCamera()`) + toggle en `SettingsScreen`; GPS metadata cacheado (sin petición GPS por disparo); zoom badge top-right (no center); skill `capture-vendedor-auditor`; `flutter analyze lib/features/capture/` 0 errores/warnings.
 2. **Mapa integrado `/modo-mapa` (2026-06-10):** Rediseño UX — mapa rellena edge-to-edge (sin card ni padding), chrome flota como glass overlay (z-30, `backdrop-blur-md`, 52px); `SupervisionMapShell` wrapper con dock vendedores slide-in (z-20); `integratedMap`+`mapChromeTop` props en `SupervisionMapView`/`MapaRutas`; overlays ajustan `topOffset`; MarkerClusterer auto (>800 pins explorar); `fitBounds` efecto separado con `fittedRef`; progress spinner en "Mostrar todos"; toolbar `glass` variant con `sucursalSlot`+`vendorsDockOpen`+`showAllProgress`.

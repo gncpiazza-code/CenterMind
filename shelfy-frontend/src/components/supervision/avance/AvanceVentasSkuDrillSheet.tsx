@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { Loader2, Package, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ClipboardCheck, Loader2, Package, Users } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -17,7 +17,7 @@ import type {
   AvanceVentasResponse,
 } from "@/lib/api";
 import { useAvanceVentasSkuClientes } from "@/hooks/useAvanceVentasQuery";
-import { fmtBultos, fmtUnidades } from "@/lib/avance-ventas-format";
+import { fmtBultos, fmtEntero, fmtUnidades } from "@/lib/avance-ventas-format";
 import { cn } from "@/lib/utils";
 
 interface AvanceVentasSkuDrillSheetProps {
@@ -47,8 +47,13 @@ function ClientesList({ title, rows, empty }: { title: string; rows: AvanceClien
             const pct = Math.min(100, (Math.abs(c.bultos) / maxB) * 100);
             return (
               <div key={`${c.id_cliente_erp ?? c.cliente}-${idx}`} className="py-1.5 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium truncate min-w-0">{c.cliente}</span>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-xs font-medium min-w-0 whitespace-normal break-words leading-snug">
+                    {c.id_cliente_erp ? (
+                      <span className="text-muted-foreground font-normal">#{c.id_cliente_erp} </span>
+                    ) : null}
+                    {c.cliente}
+                  </span>
                   <span
                     className={cn(
                       "font-mono text-[11px] font-semibold tabular-nums shrink-0",
@@ -76,7 +81,10 @@ function ClientesList({ title, rows, empty }: { title: string; rows: AvanceClien
   );
 }
 
-/** Sheet con top/bottom 10 clientes del SKU; lazy-fetch fuera del top 20 precalculado. */
+/**
+ * Sheet de drill por SKU: top/bottom inmediato + auditoría completa lazy con
+ * la lista total de clientes paginada (R8 — la suma cierra contra el ranking).
+ */
 export function AvanceVentasSkuDrillSheet({
   distId,
   sku,
@@ -89,8 +97,23 @@ export function AvanceVentasSkuDrillSheet({
   vendedor,
   periodoLabel,
 }: AvanceVentasSkuDrillSheetProps) {
+  const [auditoriaAbierta, setAuditoriaAbierta] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [acumulados, setAcumulados] = useState<AvanceClienteVolumen[]>([]);
+
+  // Reset al cambiar de SKU o cerrar — patrón "adjust state during render"
+  // (https://react.dev/learn/you-might-not-need-an-effect).
+  const drillKey = `${sku?.cod_articulo ?? ""}|${open ? 1 : 0}`;
+  const [prevDrillKey, setPrevDrillKey] = useState(drillKey);
+  if (drillKey !== prevDrillKey) {
+    setPrevDrillKey(drillKey);
+    setAuditoriaAbierta(false);
+    setOffset(0);
+    setAcumulados([]);
+  }
+
   const pre = sku ? precomputed?.[sku.cod_articulo] : undefined;
-  const needsLazy = open && !!sku && !pre;
+  const needsLazy = open && !!sku && (!pre || auditoriaAbierta);
 
   const lazyQuery = useAvanceVentasSkuClientes(
     distId,
@@ -100,7 +123,19 @@ export function AvanceVentasSkuDrillSheet({
     sucursal,
     vendedor,
     needsLazy,
+    offset,
   );
+
+  // Acumular páginas de la lista completa (mismo patrón render-adjust).
+  const page = lazyQuery.data?.clientes;
+  const [seenPage, setSeenPage] = useState<AvanceClienteVolumen[] | undefined>(undefined);
+  if (page && page !== seenPage) {
+    setSeenPage(page);
+    setAcumulados((prev) => {
+      const seen = new Set(prev.map((c) => c.id_cliente_erp ?? c.cliente));
+      return [...prev, ...page.filter((c) => !seen.has(c.id_cliente_erp ?? c.cliente))];
+    });
+  }
 
   const drill = useMemo(
     () =>
@@ -108,8 +143,15 @@ export function AvanceVentasSkuDrillSheet({
       (lazyQuery.data ? { top: lazyQuery.data.top, bottom: lazyQuery.data.bottom } : null),
     [pre, lazyQuery.data],
   );
+
+  const total = lazyQuery.data?.total ?? null;
+  const totalBultos = lazyQuery.data?.total_bultos ?? null;
+  const hayMas = total != null && acumulados.length < total;
+
   const exportRows = useMemo(() => {
-    if (!drill || !sku) return [];
+    if (!sku) return [];
+    if (acumulados.length > 0) return acumulados;
+    if (!drill) return [];
     const seen = new Set<string>();
     return [...drill.top, ...drill.bottom].filter((c) => {
       const key = c.id_cliente_erp ?? c.cliente;
@@ -117,7 +159,7 @@ export function AvanceVentasSkuDrillSheet({
       seen.add(key);
       return true;
     });
-  }, [drill, sku]);
+  }, [drill, sku, acumulados]);
 
   const handleExportCsv = () => {
     if (!sku || exportRows.length === 0) return;
@@ -145,9 +187,12 @@ export function AvanceVentasSkuDrillSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <Package size={16} className="text-emerald-500 shrink-0" />
-            <span className="min-w-0 truncate">{sku?.articulo ?? "SKU"}</span>
+          <SheetTitle className="flex items-start gap-2 text-base">
+            <Package size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+            {/* R6: título completo, sin truncar */}
+            <span className="min-w-0 whitespace-normal break-words leading-snug">
+              {sku?.articulo ?? "SKU"}
+            </span>
           </SheetTitle>
           <SheetDescription className="text-xs">
             {periodoLabel ? `${periodoLabel} · ` : ""}
@@ -173,27 +218,77 @@ export function AvanceVentasSkuDrillSheet({
             </div>
           )}
 
-          {needsLazy && lazyQuery.isLoading ? (
+          {needsLazy && lazyQuery.isLoading && acumulados.length === 0 ? (
             <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground text-xs">
               <Loader2 className="w-4 h-4 animate-spin" /> Cargando clientes…
             </div>
           ) : drill ? (
             <>
-              <ClientesList
-                title={`Top ${drill.top.length} clientes`}
-                rows={drill.top}
-                empty="Sin clientes con compra en el período."
-              />
-              {drill.bottom.length > 0 && (
+              {!auditoriaAbierta && (
                 <>
-                  <Separator />
                   <ClientesList
-                    title={`Bottom ${drill.bottom.length} clientes`}
-                    rows={drill.bottom}
-                    empty=""
+                    title={`Top ${drill.top.length} clientes`}
+                    rows={drill.top}
+                    empty="Sin clientes con compra en el período."
                   />
+                  {drill.bottom.length > 0 && (
+                    <>
+                      <Separator />
+                      <ClientesList
+                        title={`Bottom ${drill.bottom.length} clientes`}
+                        rows={drill.bottom}
+                        empty=""
+                      />
+                    </>
+                  )}
                 </>
               )}
+
+              {/* Auditoría 100%: lista completa paginada */}
+              {auditoriaAbierta ? (
+                <>
+                  <ClientesList
+                    title={
+                      total != null
+                        ? `Todos los clientes (${fmtEntero(acumulados.length)} de ${fmtEntero(total)})`
+                        : "Todos los clientes"
+                    }
+                    rows={acumulados}
+                    empty="Sin clientes con compra en el período."
+                  />
+                  {totalBultos != null && (
+                    <p className="text-[10px] text-muted-foreground tabular-nums -mt-2">
+                      Suma de la lista: {fmtBultos(totalBultos)} bultos
+                      {sku ? ` · ranking: ${fmtBultos(sku.bultos)} bultos` : ""}
+                    </p>
+                  )}
+                  {hayMas && (
+                    <button
+                      type="button"
+                      disabled={lazyQuery.isFetching}
+                      onClick={() => setOffset(acumulados.length)}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {lazyQuery.isFetching ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : null}
+                      Cargar más clientes
+                    </button>
+                  )}
+                </>
+              ) : (
+                (sku?.clientes ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAuditoriaAbierta(true)}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50/60 dark:bg-violet-950/30 dark:border-violet-900 px-3 py-2 text-xs font-semibold text-violet-700 dark:text-violet-300 hover:bg-violet-100/70 dark:hover:bg-violet-950/50 transition-colors"
+                  >
+                    <ClipboardCheck size={13} />
+                    Auditoría completa ({fmtEntero(sku?.clientes ?? 0)} clientes)
+                  </button>
+                )
+              )}
+
               {exportRows.length > 0 && (
                 <button
                   type="button"

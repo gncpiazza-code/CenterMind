@@ -3,8 +3,10 @@
 import { useEffect, useRef } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  fetchAvanceVentasClienteSkus,
   fetchAvanceVentasSkuClientes,
   fetchAvanceVentasSupervision,
+  type AvanceClienteSkusResponse,
   type AvanceSkuClientesResponse,
   type AvanceVentasModo,
   type AvanceVentasResponse,
@@ -73,6 +75,9 @@ export function useAvanceVentasQuery({
       void queryClient.invalidateQueries({
         queryKey: ["supervision-panel", "avance-ventas-sku", distId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["supervision-panel", "avance-ventas-cliente", distId],
+      });
     }
   }, [ventasLastUpdated, distId, queryClient]);
 
@@ -91,6 +96,7 @@ export function useAvanceVentasSkuClientes(
   sucursal?: string | null,
   vendedor?: string | null,
   enabled = true,
+  offset = 0,
 ) {
   return useQuery<AvanceSkuClientesResponse>({
     queryKey: supervisionPanelKeys.avanceVentasSku(
@@ -100,6 +106,7 @@ export function useAvanceVentasSkuClientes(
       fecha,
       sucursal,
       vendedor,
+      offset,
     ),
     queryFn: () =>
       fetchAvanceVentasSkuClientes(
@@ -109,8 +116,45 @@ export function useAvanceVentasSkuClientes(
         fecha,
         sucursal ?? undefined,
         vendedor ?? undefined,
+        200,
+        offset,
       ),
     enabled: enabled && distId > 0 && !!codArticulo && !!fecha,
+    staleTime: AVANCE_VENTAS_STALE,
+    gcTime: AVANCE_VENTAS_GC_MS,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Drill inverso de auditoría: SKUs comprados por un cliente en el período. */
+export function useAvanceVentasClienteSkus(
+  distId: number,
+  idClienteErp: string | null,
+  modo: AvanceVentasModo,
+  fecha: string,
+  sucursal?: string | null,
+  vendedor?: string | null,
+  enabled = true,
+) {
+  return useQuery<AvanceClienteSkusResponse>({
+    queryKey: supervisionPanelKeys.avanceVentasCliente(
+      distId,
+      idClienteErp ?? "",
+      modo,
+      fecha,
+      sucursal,
+      vendedor,
+    ),
+    queryFn: () =>
+      fetchAvanceVentasClienteSkus(
+        distId,
+        idClienteErp ?? "",
+        modo,
+        fecha,
+        sucursal ?? undefined,
+        vendedor ?? undefined,
+      ),
+    enabled: enabled && distId > 0 && !!idClienteErp && !!fecha,
     staleTime: AVANCE_VENTAS_STALE,
     gcTime: AVANCE_VENTAS_GC_MS,
   });

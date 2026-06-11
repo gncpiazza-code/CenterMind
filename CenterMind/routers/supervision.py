@@ -4945,8 +4945,9 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             )
             if run_ventas.data:
                 row = run_ventas.data[0]
-                ventas_data["last_updated"] = row.get("finalizado_en") or row.get("iniciado_en")
-                ventas_data["last_run_ok_at"] = ventas_data["last_updated"]
+                ok_ts = row.get("finalizado_en") or row.get("iniciado_en")
+                ventas_data["last_updated"] = ok_ts
+                ventas_data["last_run_ok_at"] = ok_ts
                 try:
                     reg = row.get("registros") or {}
                     if isinstance(reg, dict):
@@ -4979,6 +4980,12 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
                     if estado == "ok" and isinstance(regs, dict) and regs.get("sin_cambios"):
                         estado = "sin_cambios"
                     ventas_data["last_run_estado"] = estado
+                    attempt_ts = row.get("finalizado_en") or row.get("iniciado_en")
+                    if row.get("estado") == "ok" and attempt_ts:
+                        prev_ok = ventas_data.get("last_run_ok_at")
+                        if not prev_ok or str(attempt_ts) > str(prev_ok):
+                            ventas_data["last_run_ok_at"] = attempt_ts
+                            ventas_data["last_updated"] = attempt_ts
 
                 from datetime import timezone
                 two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()

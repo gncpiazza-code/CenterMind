@@ -309,6 +309,42 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
         return False
 
 
+async def registrar_ventas_sin_cambios(
+    id_distribuidor: int,
+    source: str = "rpa_hash_guard",
+) -> bool:
+    """
+    Registra en motor_runs una verificación RPA sin cambios (Hash Guard / sin movimientos).
+    Mantiene el badge de sync-status al día aunque no haya re-ingesta.
+    """
+    url = f"{_url()}/api/v1/sync/erp-ventas/sin-cambios"
+    try:
+        timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                url,
+                headers=_headers(),
+                params={
+                    "id_distribuidor": str(id_distribuidor),
+                    "source": source,
+                },
+            )
+        if resp.status_code in (200, 201):
+            logger.info(
+                f"  ✅ Informe ventas sin cambios registrado (dist={id_distribuidor})"
+            )
+            return True
+        logger.warning(
+            f"  ⚠️ API ventas sin-cambios HTTP {resp.status_code}: {(resp.text or '')[:200]}"
+        )
+        return False
+    except Exception as e:
+        logger.warning(
+            f"  ⚠️ No se pudo registrar ventas sin cambios dist={id_distribuidor}: {e}"
+        )
+        return False
+
+
 async def registrar_padron_sin_cambios(id_distribuidor: int) -> bool:
     """
     Registra en motor_runs una verificación RPA sin cambios (Hash Guard).

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Resúmenes operativos de motores (padrón, cuentas corrientes) al admin vía Telegram.
+Resúmenes operativos de motores (padrón, cuentas corrientes, informe ventas) al admin vía Telegram.
 
 - Digest consolidado tras corridas RPA (scheduler → POST /api/v1/ops/motor-digest)
 - Alerta inmediata solo en errores de ingesta
@@ -43,6 +43,12 @@ _CC_DELTA_KEYS = (
     ("clientes", "clientes"),
     ("alertas_credito", "alertas"),
     ("deuda_total", "deuda"),
+)
+
+_VENTAS_DELTA_KEYS = (
+    ("upserted", "filas"),
+    ("rows", "líneas"),
+    ("actualizados", "FUC"),
 )
 
 
@@ -233,8 +239,21 @@ def _delta_line(prev: dict[str, Any], curr: dict[str, Any], *, motor: str = "") 
 
     parts: list[str] = []
     is_cc = motor == "cuentas_corrientes" or "registros_cc" in curr or "registros_cc" in prev
+    is_ventas = motor == "ventas_enriched" or "upserted" in curr or "rows" in curr
 
-    if is_cc:
+    if is_ventas:
+        for key, label in _VENTAS_DELTA_KEYS:
+            p = _num(prev.get(key))
+            c = _num(curr.get(key))
+            if c is None:
+                continue
+            if p is None:
+                if c:
+                    parts.append(f"{label} {c}")
+            elif c != p:
+                sign = "+" if c > p else ""
+                parts.append(f"{label} {sign}{c - p}")
+    elif is_cc:
         for key, label in _CC_DELTA_KEYS:
             if key == "deuda_total":
                 p_raw = prev.get(key)
@@ -539,8 +558,15 @@ def build_motor_digest_text(
     """Arma mensaje HTML con corridas recientes en DB + resumen RPA opcional."""
     now_ar = datetime.now(AR_TZ)
     since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
-    is_padron = motor_label.lower().startswith("pad")
-    motors_db = ["padron", "padron_global"] if is_padron else ["cuentas_corrientes"]
+    motor_lower = motor_label.lower()
+    is_padron = motor_lower.startswith("pad")
+    is_ventas = "venta" in motor_lower
+    if is_padron:
+        motors_db = ["padron", "padron_global"]
+    elif is_ventas:
+        motors_db = ["ventas_enriched"]
+    else:
+        motors_db = ["cuentas_corrientes"]
     runs = _load_runs_since(motors_db, since)
 
     ok = err = sc = 0
@@ -549,7 +575,7 @@ def build_motor_digest_text(
     cc_fallback_note = ""
 
     counters = [ok, sc, err]
-    if is_padron:
+    if is_padron or is_ventas:
         _append_run_lines(runs, lines, seen_dist, counters=counters)
     else:
         # CC: una línea por dist = última corrida (sin depender solo de la ventana)
@@ -558,7 +584,7 @@ def build_motor_digest_text(
     ok, sc, err = counters
 
     # CC: fallback cc_detalle solo para dist sin motor_run
-    if not is_padron:
+    if not is_padron and not is_ventas:
         snapshots = _load_cc_detalle_snapshots(since_hours)
         fresh = [s for s in snapshots if not s.get("stale")]
         stale_n = len(snapshots) - len(fresh)

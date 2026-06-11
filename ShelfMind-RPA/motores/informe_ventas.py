@@ -477,6 +477,17 @@ async def run(
                             )
                             resumen["sin_cambios"] += 1
                             item["sin_cambios"] = 1
+                            dist = int(
+                                tenant.get("id_dist")
+                                or tenant.get("id_distribuidor")
+                                or 0
+                            )
+                            if dist:
+                                from lib.api_client import registrar_ventas_sin_cambios
+
+                                await registrar_ventas_sin_cambios(
+                                    dist, source="sin_movimientos"
+                                )
                             logger.info(
                                 "  🏁 Tenant %s terminado — sin movimientos (OK)",
                                 tid,
@@ -496,6 +507,15 @@ async def run(
                             logger.info("  ⏭️  Sin cambios (hash igual al anterior)")
                             resumen["sin_cambios"] += 1
                             item["sin_cambios"] = 1
+                            dist = int(
+                                tenant.get("id_dist")
+                                or tenant.get("id_distribuidor")
+                                or 0
+                            )
+                            if dist:
+                                from lib.api_client import registrar_ventas_sin_cambios
+
+                                await registrar_ventas_sin_cambios(dist)
                         else:
                             if _use_ingest_local():
                                 logger.info(

@@ -43,8 +43,8 @@ logger = logging.getLogger("ShelfyAPI")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Ingestas Informe de Ventas Consolido (hora AR) — ver CLAUDE.md §7 RPA.
-VENTAS_RUN_SLOTS_AR = ((9, 30), (13, 0), (17, 0), (21, 0))
+# Ingestas Informe de Ventas Consolido (hora AR) — alineado con ShelfMind-RPA/scheduler.py.
+VENTAS_RUN_SLOTS_AR = ((9, 45), (13, 0), (17, 0), (21, 0))
 
 SIN_VENDEDOR_LABEL = "Sin vendedor"
 
@@ -510,6 +510,43 @@ def _sku_volumen_fields(
     return out
 
 
+_CIG_KPI_KINDS = frozenset({"cig_default", "cig_mix_exhib"})
+
+
+def _totales_volumen_cigarrillos(agg: dict) -> dict:
+    """
+    KPI card «Volumen Cigarrillos»: solo líneas convertidas de cigarrillos
+    (agrupación CIGARRILLOS / mix exhibidores). Excluye papelillos y encendedores.
+    """
+    from core.ventas_bultos_rules import bultos_desglose_from_unidades
+
+    bultos = 0.0
+    unidades_by_kind: dict[str, float] = {"cig_default": 0.0, "cig_mix_exhib": 0.0}
+    for s in (agg.get("por_sku") or {}).values():
+        kind = classify_volumen(s.get("agrupacion") or "", s.get("articulo") or "", "")
+        if kind not in _CIG_KPI_KINDS:
+            continue
+        bultos += float(s.get("bultos") or 0)
+        unidades_by_kind[kind] += float(s.get("unidades") or 0)
+
+    enteros = 0
+    resto = 0
+    for kind, u in unidades_by_kind.items():
+        if abs(u) < 0.005:
+            continue
+        desg = bultos_desglose_from_unidades(u, kind)  # type: ignore[arg-type]
+        if desg:
+            e, r = desg
+            enteros += int(e)
+            resto += int(r)
+
+    return {
+        "bultos": round(bultos, 2),
+        "bultos_enteros": enteros,
+        "unidades_resto": resto,
+    }
+
+
 def _cartera_scope_count(
     dist_id: int,
     sucursal: str | None,
@@ -655,7 +692,7 @@ def _ventas_sync_info(dist_id: int) -> dict:
 
         run_any = (
             sb.table("motor_runs")
-            .select("iniciado_en,finalizado_en,estado")
+            .select("iniciado_en,finalizado_en,estado,registros")
             .eq("motor", "ventas_enriched")
             .eq("dist_id", dist_id)
             .order("iniciado_en", desc=True)
@@ -665,7 +702,23 @@ def _ventas_sync_info(dist_id: int) -> dict:
         if run_any.data:
             row = run_any.data[0]
             info["last_attempt_at"] = row.get("iniciado_en") or row.get("finalizado_en")
-            info["last_run_estado"] = row.get("estado")
+            estado = row.get("estado")
+            regs = row.get("registros")
+            if isinstance(regs, str):
+                try:
+                    import json
+
+                    regs = json.loads(regs)
+                except Exception:
+                    regs = None
+            if estado == "ok" and isinstance(regs, dict) and regs.get("sin_cambios"):
+                estado = "sin_cambios"
+            info["last_run_estado"] = estado
+            attempt_ts = row.get("finalizado_en") or row.get("iniciado_en")
+            if row.get("estado") == "ok" and attempt_ts:
+                if not info["last_run_ok_at"] or str(attempt_ts) > str(info["last_run_ok_at"]):
+                    info["last_run_ok_at"] = attempt_ts
+                    info["last_updated"] = attempt_ts
 
         from datetime import timezone
 
@@ -687,6 +740,70 @@ def _ventas_sync_info(dist_id: int) -> dict:
 
 # ─── Builders de respuesta ────────────────────────────────────────────────────
 
+def _bultos_por_canon_en_agg(
+    agg: dict,
+    *,
+    hints: dict[str, str] | None = None,
+) -> dict[str, float]:
+    """Bultos del período indexados por clave canónica (deltas entre semanas/meses)."""
+    resolver: SkuKeyResolver | None = agg.get("_sku_resolver")
+    hints = hints or agg.get("_cod_articulo_hints") or {}
+    if resolver is None:
+        resolver = SkuKeyResolver()
+        seed_sku_resolver(resolver, list(agg.get("por_sku") or {}).values(), hints=hints)
+    out: dict[str, float] = {}
+    for sku_key, s in (agg.get("por_sku") or {}).items():
+        canon = resolver.canonical(str(sku_key))
+        out[canon] = round(out.get(canon, 0.0) + float(s.get("bultos") or 0), 4)
+    return out
+
+
+def _row_canon_key(
+    row: dict,
+    resolver: SkuKeyResolver,
+    hints: dict[str, str],
+) -> str:
+    raw = row.get("sku_key")
+    if raw:
+        return resolver.canonical(str(raw))
+    cod, art = enrich_sku_identity(
+        row.get("cod_articulo") or "",
+        row.get("articulo") or "",
+        hints=hints,
+    )
+    return resolver.canonical(
+        resolver.resolve(cod, art, row.get("agrupacion") or "")
+    )
+
+
+def _catalog_tiene_venta_en_periodo(
+    resolver: SkuKeyResolver,
+    por_sku: dict,
+    *,
+    cod_e: str,
+    art_e: str,
+    agr_c: str,
+    hints: dict[str, str],
+) -> bool:
+    """True si el SKU de catálogo ya tiene volumen en el período (misma unificación)."""
+    cat_canon = resolver.canonical(resolver.resolve(cod_e, art_e, agr_c))
+    bultos = 0.0
+    for sku_key, s in por_sku.items():
+        if resolver.canonical(str(sku_key)) == cat_canon:
+            bultos += abs(float(s.get("bultos") or 0))
+            continue
+        cod_s, art_s = enrich_sku_identity(
+            s.get("cod_articulo") or "",
+            s.get("articulo") or "",
+            hints=hints,
+        )
+        if resolver.is_same_product(
+            cod_e, art_e, agr_c, cod_s, art_s, s.get("agrupacion") or ""
+        ):
+            bultos += abs(float(s.get("bultos") or 0))
+    return bultos > 0.005
+
+
 def _sku_rows_from_agg(
     agg: dict,
     cartera_count: int | None,
@@ -700,25 +817,14 @@ def _sku_rows_from_agg(
     """
     resolver: SkuKeyResolver | None = agg.get("_sku_resolver")
     hints: dict[str, str] = agg.get("_cod_articulo_hints") or {}
+    por_sku = agg.get("por_sku") or {}
 
     rows = []
-    period_canons: set[str] = set()
-    for sku_key, s in agg["por_sku"].items():
+    for sku_key, s in por_sku.items():
         n_cli = len(s["clientes"])
         bultos = round(s["bultos"], 2)
         unidades = round(s["unidades"], 2)
         has_venta = abs(bultos) > 0.005 or abs(unidades) > 0.005
-        if resolver:
-            period_canons.add(resolver.canonical(sku_key))
-            period_canons.add(
-                resolver.canonical(
-                    resolver.resolve(
-                        s.get("cod_articulo") or "",
-                        s.get("articulo") or "",
-                        s.get("agrupacion") or "",
-                    )
-                )
-            )
         row = {
             "sku_key": sku_key,
             "cod_articulo": s["cod_articulo"] or sku_key,
@@ -741,7 +847,7 @@ def _sku_rows_from_agg(
     if catalogo:
         if not resolver:
             resolver = SkuKeyResolver()
-        seed_sku_resolver(resolver, list(agg["por_sku"].values()), hints=hints)
+        seed_sku_resolver(resolver, list(por_sku.values()), hints=hints)
         seed_sku_resolver(resolver, catalogo, hints=hints)
         for c in catalogo:
             cod_c = (c.get("cod_articulo") or "").strip()
@@ -749,24 +855,18 @@ def _sku_rows_from_agg(
             agr_c = c.get("agrupacion") or ""
             cod_e, art_e = enrich_sku_identity(cod_c, art_c, hints=hints)
             cat_canon = resolver.canonical(resolver.resolve(cod_e, art_e, agr_c))
-            if cat_canon in period_canons:
-                continue
-            # Mismo producto unificado aunque el fingerprint del catálogo difiera levemente
-            dup = False
-            for s in agg["por_sku"].values():
-                cod_s, art_s = enrich_sku_identity(
-                    s.get("cod_articulo") or "",
-                    s.get("articulo") or "",
-                    hints=hints,
-                )
-                if resolver.is_same_product(cod_e, art_e, agr_c, cod_s, art_s, s.get("agrupacion") or ""):
-                    dup = True
-                    break
-            if dup:
+            if _catalog_tiene_venta_en_periodo(
+                resolver,
+                por_sku,
+                cod_e=cod_e,
+                art_e=art_e,
+                agr_c=agr_c,
+                hints=hints,
+            ):
                 continue
             rows.append(
                 {
-                    "sku_key": c["cod_articulo"],
+                    "sku_key": c.get("sku_key") or cat_canon,
                     "cod_articulo": c["cod_articulo"],
                     "articulo": c["articulo"],
                     "agrupacion": c["agrupacion"],
@@ -1006,10 +1106,6 @@ def build_avance_ventas(
         )
         fut_catalogo = pool.submit(_fetch_catalogo_skus, dist_id, periodo["hasta"])
         fut_sync = pool.submit(_ventas_sync_info, dist_id)
-        fut_refs = {
-            ref_key: pool.submit(_agg_rango, rango["desde"], rango["hasta"])
-            for ref_key, rango in refs.items()
-        }
         lines_actual = fut_lines.result()
         try:
             catalogo = fut_catalogo.result()
@@ -1019,6 +1115,15 @@ def build_avance_ventas(
         sku_hints = build_cod_articulo_hints(lines_actual, catalogo)
         if catalogo:
             catalogo = unify_catalog_entries(catalogo, hints=sku_hints)
+        fut_refs = {
+            ref_key: pool.submit(
+                _agg_rango,
+                rango["desde"],
+                rango["hasta"],
+                cod_hints=sku_hints,
+            )
+            for ref_key, rango in refs.items()
+        }
         agg = aggregate_avance_lines(
             lines_actual,
             erp_name_map=erp_name_map,
@@ -1125,13 +1230,32 @@ def build_avance_ventas(
         else None
     )
 
+    cig_actual = _totales_volumen_cigarrillos(agg)
+
+    def _cig_bultos_delta(ref_key: str | None) -> dict | None:
+        if not ref_key:
+            return None
+        ref_agg = agg_refs.get(ref_key)
+        if not ref_agg:
+            return build_delta_kpi(cig_actual["bultos"], None, disponible=False)
+        ref_cig = _totales_volumen_cigarrillos(ref_agg)
+        return build_delta_kpi(
+            cig_actual["bultos"],
+            ref_cig["bultos"],
+            disponible=True,
+        )
+
     kpis_cards = [
         {
             "id": "volumen",
-            "valor": metadatos["total_bultos"],
-            "extra": {"unidades": metadatos["total_unidades"]},
-            "wow": _delta_for("bultos", delta_primary_key[0]),
-            "mom": _delta_for("bultos", delta_primary_key[1]),
+            "valor": cig_actual["bultos"],
+            "extra": {
+                "bultos_enteros": cig_actual["bultos_enteros"],
+                "unidades_resto": cig_actual["unidades_resto"],
+                "scope": "cigarrillos",
+            },
+            "wow": _cig_bultos_delta(delta_primary_key[0]),
+            "mom": _cig_bultos_delta(delta_primary_key[1]),
         },
         {
             "id": "cobertura_pdvs",
@@ -1176,26 +1300,39 @@ def build_avance_ventas(
             reverse=True,
         )
 
-    # ── Deltas por SKU ──────────────────────────────────────────────────────
-    def _ref_sku_bultos(ref_key: str | None) -> dict[str, float] | None:
+    # ── Deltas por SKU (clave canónica — mismo producto entre períodos) ─────
+    def _ref_sku_bultos_canon(ref_key: str | None) -> dict[str, float] | None:
         if not ref_key:
             return None
         ref_agg = agg_refs.get(ref_key)
         if not ref_agg:
             return None
-        return {k: s["bultos"] for k, s in ref_agg["por_sku"].items()}
+        return _bultos_por_canon_en_agg(ref_agg, hints=sku_hints)
 
-    wow_sku = _ref_sku_bultos(delta_primary_key[0])
-    mom_sku = _ref_sku_bultos(delta_primary_key[1])
+    wow_sku = _ref_sku_bultos_canon(delta_primary_key[0])
+    mom_sku = _ref_sku_bultos_canon(delta_primary_key[1])
+    main_resolver: SkuKeyResolver = agg.get("_sku_resolver") or SkuKeyResolver()
+    seed_sku_resolver(main_resolver, list(agg["por_sku"].values()), hints=sku_hints)
+    if catalogo:
+        seed_sku_resolver(main_resolver, catalogo, hints=sku_hints)
 
     # Tabla completa, sin cap (R1) — el cap defensivo queda solo en series gráficas.
     ranking_skus = []
     for r in sku_rows:
         item = {k: v for k, v in r.items() if k != "sku_key"}
+        canon = _row_canon_key(r, main_resolver, sku_hints)
         if wow_sku is not None:
-            item["wow_bultos"] = build_delta_kpi(r["bultos"], wow_sku.get(r["sku_key"], 0.0))
+            item["wow_bultos"] = build_delta_kpi(
+                r["bultos"],
+                wow_sku.get(canon, 0.0),
+                disponible=True,
+            )
         if mom_sku is not None:
-            item["mom_bultos"] = build_delta_kpi(r["bultos"], mom_sku.get(r["sku_key"], 0.0))
+            item["mom_bultos"] = build_delta_kpi(
+                r["bultos"],
+                mom_sku.get(canon, 0.0),
+                disponible=True,
+            )
         ranking_skus.append(item)
 
     # ── Series para gráficos (carrusel FE — sin por_agrupacion, reemplazado por cobertura) ──
@@ -1210,17 +1347,20 @@ def build_avance_ventas(
         for r in sku_rows[:RANKING_MAX_SKUS]
         if r["bultos"] > 0
     ]
-    heatmap = [
-        {
-            "sku": r["articulo"],
-            "cod_articulo": r["cod_articulo"],
-            "actual": r["bultos"],
-            "ref_wow": round(wow_sku.get(r["sku_key"], 0.0), 2) if wow_sku is not None else None,
-            "ref_mom": round(mom_sku.get(r["sku_key"], 0.0), 2) if mom_sku is not None else None,
-        }
-        for r in sku_rows[:HEATMAP_TOP_SKUS]
-        if not r["sin_venta"]
-    ]
+    heatmap = []
+    for r in sku_rows[:HEATMAP_TOP_SKUS]:
+        if r["sin_venta"]:
+            continue
+        canon = _row_canon_key(r, main_resolver, sku_hints)
+        heatmap.append(
+            {
+                "sku": r["articulo"],
+                "cod_articulo": r["cod_articulo"],
+                "actual": r["bultos"],
+                "ref_wow": round(wow_sku.get(canon, 0.0), 2) if wow_sku is not None else None,
+                "ref_mom": round(mom_sku.get(canon, 0.0), 2) if mom_sku is not None else None,
+            }
+        )
 
     # ── Convivencia SKU: % del catálogo 12m con al menos 1 venta en el período ──
     n_con_venta = len(sku_rows_full) - n_sin_venta

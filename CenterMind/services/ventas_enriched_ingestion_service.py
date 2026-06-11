@@ -106,6 +106,27 @@ def ingest_enriched_rpa_background(tenant_id: str, file_bytes: bytes, run_id: in
         )
 
 
+def record_sin_cambios_run(dist_id: int, source: str = "rpa_hash_guard") -> int:
+    """
+    Registra verificación RPA sin re-ingesta (Hash Guard / sin movimientos).
+    Mantiene motor_runs y el badge de sync al día aunque no haya upsert.
+    """
+    run_id = _start_run(dist_id)
+    _finish_run(
+        run_id,
+        "ok",
+        dist_id=dist_id,
+        registros={
+            "sin_cambios": True,
+            "skipped": True,
+            "reason": source,
+            "rows": 0,
+            "upserted": 0,
+        },
+    )
+    return run_id
+
+
 def accept_enriched_upload(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
     """
     Valida tenant, crea motor_run en_curso y devuelve payload para 202 Accepted.

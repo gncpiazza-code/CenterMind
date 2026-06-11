@@ -231,6 +231,8 @@ async def _run_padron():
 
 async def _run_ventas(*, usar_fecha_hoy: bool = False):
     from motores.informe_ventas import run
+    from lib.api_client import enviar_digest_motor
+
     resumen = await run(usar_fecha_hoy=usar_fecha_hoy)
     logger.info(
         f"INFORME_VENTAS completo — fecha={'hoy' if usar_fecha_hoy else 'ayer'}, "
@@ -238,6 +240,34 @@ async def _run_ventas(*, usar_fecha_hoy: bool = False):
         f"errores={resumen.get('errores', '?')}, "
         f"sin_cambios={resumen.get('sin_cambios', '?')}"
     )
+    detalle = []
+    for r in resumen.get("detalle") or []:
+        if r.get("errores"):
+            estado = "error"
+        elif r.get("ok"):
+            estado = "subida_ok"
+        elif r.get("sin_cambios"):
+            estado = "sin_cambios"
+        else:
+            estado = "?"
+        detalle.append({
+            "tenant": r.get("tenant"),
+            "estado": estado,
+            "error": r.get("error_msg"),
+        })
+    try:
+        await enviar_digest_motor(
+            "ventas_enriched",
+            resumen={
+                "ok": resumen.get("ok"),
+                "errores": resumen.get("errores"),
+                "sin_cambios": resumen.get("sin_cambios"),
+            },
+            detalle=detalle,
+            since_hours=10,
+        )
+    except Exception as e:
+        logger.warning(f"Digest Telegram informe ventas omitido: {e}")
 
 
 def job_informe_ventas(usar_fecha_hoy: bool = False):

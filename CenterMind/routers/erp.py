@@ -198,6 +198,35 @@ async def erp_sync_padron(
 
 
 @router.post(
+    "/api/v1/sync/erp-ventas/sin-cambios",
+    tags=["ERP Push"],
+    summary="Registrar verificación RPA sin cambios en el Informe de Ventas",
+)
+async def erp_sync_ventas_sin_cambios(
+    id_distribuidor: int = Query(...),
+    source: str = Query("rpa_hash_guard"),
+    _=Depends(verify_key),
+):
+    """
+    ShelfMind-RPA llama esto cuando Hash Guard detecta el mismo Excel o sin movimientos.
+    No re-ingesta, pero actualiza motor_runs para el badge de sync-status.
+    """
+    try:
+        from services.ventas_enriched_ingestion_service import record_sin_cambios_run
+
+        run_id = record_sin_cambios_run(id_distribuidor, source=source)
+        return {
+            "status": "ok",
+            "run_id": run_id,
+            "message": f"Informe ventas sin cambios registrado para dist {id_distribuidor}.",
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Error registrando ventas sin cambios dist={id_distribuidor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
     "/api/v1/sync/erp-padrón/sin-cambios",
     tags=["ERP Push"],
     summary="Registrar verificación RPA sin cambios en el Excel de padrón",
@@ -920,7 +949,13 @@ async def ops_motor_digest(request: Request, _=Depends(verify_key)):
     since_hours = float(body.get("since_hours") or 8)
     rpa_resumen = body.get("resumen") if isinstance(body.get("resumen"), dict) else None
     detalle = body.get("detalle") if isinstance(body.get("detalle"), list) else None
-    label = "PADRÓN" if motor.lower().startswith("pad") else "CUENTAS CORRIENTES"
+    m = motor.lower()
+    if m.startswith("pad"):
+        label = "PADRÓN"
+    elif "venta" in m:
+        label = "INFORME VENTAS"
+    else:
+        label = "CUENTAS CORRIENTES"
     sent = send_motor_digest(
         label,
         since_hours=since_hours,

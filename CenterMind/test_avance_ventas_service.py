@@ -4,11 +4,16 @@ import pytest
 from core.sku_unify import build_cod_articulo_hints, unify_catalog_entries
 from services.avance_ventas_service import (
     SIN_VENDEDOR_LABEL,
+    _bultos_por_canon_en_agg,
+    _row_canon_key,
+    _sku_rows_from_agg,
+    _totales_volumen_cigarrillos,
     aggregate_avance_lines,
     build_delta_kpi,
     resolve_periodo,
     resolve_referencias,
 )
+from core.sku_unify import SkuKeyResolver, seed_sku_resolver
 
 
 def _linea(**overrides) -> dict:
@@ -362,6 +367,109 @@ def test_liverpool_pop_cod_sin_desc_no_duplica_sin_venta():
     assert row["bultos"] == pytest.approx(4.0)
     assert "liverpool" in row["articulo"].lower()
     assert not any(r["sin_venta"] and "liverpool" in r["articulo"].lower() for r in rows)
+
+
+def test_totales_volumen_cigarrillos_excluye_papelillo_y_encendedor():
+    lines = [
+        _linea(
+            cod_articulo="CIG1",
+            descripcion_articulo="MARLBORO BOX",
+            agrupacion_art_2="CIGARRILLOS",
+            bultos_total=2.0,
+            unidades_total=500.0,
+        ),
+        _linea(
+            cod_articulo="PAP1",
+            descripcion_articulo="PIER AND ROLL NATURAL",
+            agrupacion_art_2="PAPELILLO",
+            bultos_total=3.0,
+            unidades_total=300.0,
+        ),
+        _linea(
+            cod_articulo="ENC1",
+            descripcion_articulo="ENCENDEDOR MK",
+            agrupacion_art_2="ENCENDEDORES",
+            bultos_total=10.0,
+            unidades_total=10.0,
+        ),
+    ]
+    agg = aggregate_avance_lines(lines)
+    t = _totales_volumen_cigarrillos(agg)
+    assert t["bultos"] == pytest.approx(2.0)
+    assert t["bultos_enteros"] == 2
+    assert t["unidades_resto"] == 0
+
+
+def test_delta_sku_misma_clave_canon_entre_periodos():
+    """Semana anterior con cod sin desc; actual con nombre — delta no compara vs 0."""
+    catalogo = [
+        {"cod_articulo": "LIV01", "articulo": "LIVERPOOL POP", "agrupacion": "CIGARRILLOS"},
+    ]
+    lines_prev = [
+        _linea(
+            cod_articulo="LIV99",
+            descripcion_articulo="",
+            bultos_total=20.0,
+            unidades_total=5000.0,
+            fecha_factura="2026-06-02",
+        ),
+    ]
+    lines_curr = [
+        _linea(
+            cod_articulo="LIV99",
+            descripcion_articulo="",
+            bultos_total=66.56,
+            unidades_total=16000.0,
+            fecha_factura="2026-06-10",
+        ),
+    ]
+    hints = build_cod_articulo_hints(lines_prev + lines_curr, catalogo)
+    agg_prev = aggregate_avance_lines(lines_prev, cod_articulo_hints=hints)
+    agg_curr = aggregate_avance_lines(lines_curr, cod_articulo_hints=hints)
+    ref_map = _bultos_por_canon_en_agg(agg_prev, hints=hints)
+    resolver = SkuKeyResolver()
+    seed_sku_resolver(resolver, list(agg_curr["por_sku"].values()), hints=hints)
+    rows = _sku_rows_from_agg(agg_curr, cartera_count=10, catalogo=catalogo)
+    row = next(r for r in rows if not r["sin_venta"])
+    canon = _row_canon_key(row, resolver, hints)
+    anterior = ref_map.get(canon, 0.0)
+    delta = build_delta_kpi(row["bultos"], anterior, disponible=True)
+    assert anterior == pytest.approx(20.0)
+    assert delta["diff"] == pytest.approx(46.56, abs=0.01)
+    assert delta["anterior"] == pytest.approx(20.0)
+
+
+def test_catalogo_cod_distinto_sin_fila_sin_venta_si_hay_venta():
+    """Ventas solo con código ERP; catálogo con otro código mismo nombre → sin badge."""
+    lines = [
+        _linea(
+            cod_articulo="ERP888",
+            descripcion_articulo="",
+            bultos_total=5.0,
+            unidades_total=1200.0,
+        ),
+    ]
+    catalogo = [
+        {
+            "cod_articulo": "CAT777",
+            "articulo": "CIGARRILLO DOLCHESTER SILVER 20S BOX",
+            "agrupacion": "CIGARRILLOS",
+        },
+        {
+            "cod_articulo": "ERP888",
+            "articulo": "DOLCHESTER SILVER",
+            "agrupacion": "CIGARRILLOS",
+        },
+    ]
+    hints = build_cod_articulo_hints(lines, catalogo)
+    catalogo = unify_catalog_entries(catalogo, hints=hints)
+    agg = aggregate_avance_lines(lines, cod_articulo_hints=hints)
+    rows = _sku_rows_from_agg(agg, cartera_count=5, catalogo=catalogo)
+    sin_venta_dolchester = [
+        r for r in rows if r["sin_venta"] and "dolchester" in (r["articulo"] or "").lower()
+    ]
+    assert sin_venta_dolchester == []
+    assert any(not r["sin_venta"] and r["bultos"] == pytest.approx(5.0) for r in rows)
 
 
 def test_liverpool_pop_distinto_cod_catalogo_unifica_por_nombre():

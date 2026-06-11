@@ -2282,6 +2282,10 @@ export interface AvanceComparativaBloque {
 
 export interface AvanceKpiCardExtra {
   unidades?: number;
+  bultos_enteros?: number;
+  unidades_resto?: number;
+  /** KPI volumen: solo cigarrillos (sin papelillos ni encendedores). */
+  scope?: "cigarrillos";
   disponible?: boolean;
   cartera?: number;
   con_compra?: number;

@@ -38,7 +38,7 @@ Resumen: dedup `(vendedor_erp, cliente_key, calendar_day_AR)` solo vía `core/ex
 
 ## 7) RPA (AR)
 
-- Padrón 07:00 · CC 07:00/14:30/20:00 · Ventas Consolido 09:30/13/17/21
+- Padrón 08:30/11:30/15:30/18:30 · CC 07:00/14:30/20:00 · Ventas Consolido 09:45/13/17/21
 - `real`: split CC por sucursal
 
 ## 8) Seguridad

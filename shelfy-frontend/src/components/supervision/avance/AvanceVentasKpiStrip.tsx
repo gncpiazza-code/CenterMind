@@ -32,11 +32,11 @@ const CARD_META: Record<
   }
 > = {
   volumen: {
-    label: "Volumen",
+    label: "Volumen Cigarrillos",
     icon: Package,
     color: "text-emerald-600 dark:text-emerald-400",
     bg: "bg-emerald-500/8 dark:bg-emerald-500/15",
-    help: AVANCE_KPI_HELP.volumen,
+    help: AVANCE_KPI_HELP.volumenCigarrillos,
   },
   cobertura_pdvs: {
     label: "Cobertura PDV",
@@ -141,16 +141,24 @@ function DeltaRow({
 
 function KpiValue({ id, card }: { id: StripId; card: AvanceKpiCard }) {
   if (id === "volumen") {
-    const unidades = card.extra?.unidades ?? 0;
+    const enteros =
+      card.extra?.bultos_enteros ??
+      (Number.isFinite(card.valor) ? Math.trunc(card.valor) : 0);
+    const resto = card.extra?.unidades_resto ?? 0;
     return (
       <div className="flex flex-col gap-0.5 min-w-0">
         <p className="text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
           {fmtBultos(card.valor)}
-          <span className="text-sm font-bold text-muted-foreground ml-1">bultos</span>
         </p>
         <p className="text-sm font-semibold text-muted-foreground tabular-nums leading-tight">
-          {fmtUnidades(unidades)}{" "}
-          <span className="text-[11px] font-medium">unidades</span>
+          {fmtEntero(enteros)} bultos
+          {resto > 0 ? (
+            <>
+              {" "}
+              + {fmtUnidades(resto)}{" "}
+              <span className="text-[11px] font-medium">unidades</span>
+            </>
+          ) : null}
         </p>
       </div>
     );

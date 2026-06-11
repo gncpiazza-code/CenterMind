@@ -11,7 +11,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface VentasSyncStatusBadgeProps {
   entry?: SyncStatusEntry;
-  /** next_run_hint del payload avance-ventas (ingestas Consolido 09:30/13/17/21 AR). */
+  /** next_run_hint del payload avance-ventas (ingestas Consolido 09:45/13/17/21 AR). */
   nextRunHint?: string | null;
   className?: string;
 }

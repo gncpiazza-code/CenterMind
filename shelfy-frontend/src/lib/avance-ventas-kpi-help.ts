@@ -25,6 +25,11 @@ export const AVANCE_KPI_HELP = {
     "Volumen del período: bultos netos (ventas menos devoluciones) y unidades " +
     "de líneas convertidas (cigarrillos, papelillos, mix) y encendedores. Los " +
     "deltas comparan solo bultos.",
+  volumenCigarrillos:
+    "Solo cigarrillos (agrupación CIGARRILLOS y mix exhibidores). No incluye " +
+    "papelillos ni encendedores. El número grande es bultos equivalentes con " +
+    "decimales (unidades ÷ 250). Debajo: bultos enteros + unidades sueltas del " +
+    "mismo volumen. El delta compara esos bultos vs la semana o mes anterior.",
   bultos:
     "Bultos netos del período: ventas menos devoluciones. Cigarrillos y " +
     "convertidos se expresan en bultos equivalentes según las reglas de volumen.",

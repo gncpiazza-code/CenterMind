@@ -2342,7 +2342,10 @@ export interface AvanceClienteVolumen {
 /** Fila de auditoría cliente×SKU (R8): mix de compra del período. */
 export interface AvanceClienteMixRow {
   id_cliente_erp: string | null;
+  /** Nombre display (fantasía del padrón o fallback ventas). */
   cliente: string;
+  nombre_fantasia?: string | null;
+  razon_social?: string | null;
   bultos: number;
   unidades: number;
   skus_distintos: number;

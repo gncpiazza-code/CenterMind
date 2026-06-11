@@ -74,6 +74,8 @@ export function AvanceVentasClienteAuditoriaPanel({
     return base.filter(
       (r) =>
         r.cliente.toLowerCase().includes(q) ||
+        (r.nombre_fantasia ?? "").toLowerCase().includes(q) ||
+        (r.razon_social ?? "").toLowerCase().includes(q) ||
         (r.id_cliente_erp ?? "").toLowerCase().includes(q),
     );
   }, [auditoria, tab, busqueda]);
@@ -167,7 +169,7 @@ export function AvanceVentasClienteAuditoriaPanel({
                   <Input
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar por nombre o N° ERP…"
+                    placeholder="Buscar por fantasía, razón social o N° ERP…"
                     className="h-8 pl-8 text-xs"
                   />
                 </div>
@@ -232,6 +234,12 @@ export function AvanceVentasClienteAuditoriaPanel({
                             ) : null}
                             {r.cliente}
                           </p>
+                          {r.razon_social &&
+                          r.razon_social.trim().toUpperCase() !== r.cliente.trim().toUpperCase() ? (
+                            <p className="mt-0.5 text-[10px] text-muted-foreground whitespace-normal break-words leading-snug">
+                              {r.razon_social}
+                            </p>
+                          ) : null}
                         </TableCell>
                         <TableCell
                           className={cn(

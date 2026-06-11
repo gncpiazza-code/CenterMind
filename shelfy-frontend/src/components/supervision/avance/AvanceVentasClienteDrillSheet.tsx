@@ -67,6 +67,12 @@ export function AvanceVentasClienteDrillSheet({
               {cliente?.cliente ?? "Cliente"}
             </span>
           </SheetTitle>
+          {cliente?.razon_social &&
+          cliente.razon_social.trim().toUpperCase() !== (cliente.cliente ?? "").trim().toUpperCase() ? (
+            <p className="text-[11px] text-muted-foreground whitespace-normal break-words leading-snug -mt-1">
+              {cliente.razon_social}
+            </p>
+          ) : null}
           <SheetDescription className="text-xs">
             {periodoLabel ? `${periodoLabel} · ` : ""}
             {cliente

@@ -786,12 +786,55 @@ def _sku_rows_from_agg(
     return rows
 
 
-def _build_auditoria_clientes(agg: dict, cartera_count: int | None) -> dict:
+def _fetch_padron_cliente_nombres(dist_id: int, erp_ids: list[str]) -> dict[str, dict[str, str]]:
+    """Padrón PDV: nombre fantasía + razón social por id_cliente_erp (auditoría R8)."""
+    if dist_id <= 0:
+        return {}
+    unique = sorted({(e or "").strip() for e in erp_ids if (e or "").strip()})
+    if not unique:
+        return {}
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    out: dict[str, dict[str, str]] = {}
+    for i in range(0, len(unique), 200):
+        chunk = unique[i : i + 200]
+        rows = (
+            sb.table(t_clientes)
+            .select("id_cliente_erp,nombre_fantasia,nombre_razon_social")
+            .eq("id_distribuidor", dist_id)
+            .in_("id_cliente_erp", chunk)
+            .or_(_PADRON_VISIBLE_OR)
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            erp = (row.get("id_cliente_erp") or "").strip()
+            if not erp:
+                continue
+            out[erp] = {
+                "nombre_fantasia": (row.get("nombre_fantasia") or "").strip(),
+                "razon_social": (row.get("nombre_razon_social") or "").strip(),
+            }
+    return out
+
+
+def _build_auditoria_clientes(
+    agg: dict,
+    cartera_count: int | None,
+    dist_id: int | None = None,
+) -> dict:
     """
     Bloque auditoría cliente×SKU (R8): monoproducto fuerte, mix bajo y resumen
     por cliente, calculado desde las mismas líneas deduplicadas del período.
     """
     sku_meta = agg["por_sku"]
+    erp_ids = [
+        str(pc.get("id_cliente_erp")).strip()
+        for pc in (agg.get("por_cliente") or {}).values()
+        if pc.get("id_cliente_erp")
+    ]
+    padron = _fetch_padron_cliente_nombres(dist_id, erp_ids) if dist_id else {}
 
     def _mix_row(cliente_key: str, pc: dict) -> dict:
         skus = pc.get("skus") or {}
@@ -801,9 +844,17 @@ def _build_auditoria_clientes(agg: dict, cartera_count: int | None) -> dict:
                 principal_key, principal_bultos = k, b
         meta = sku_meta.get(principal_key) or {}
         bultos = round(pc["bultos"], 2)
+        erp = (pc.get("id_cliente_erp") or "").strip() or None
+        ventas_nombre = (pc.get("cliente") or cliente_key or "").strip()
+        pdv = padron.get(erp or "", {})
+        nombre_fantasia = pdv.get("nombre_fantasia") or ""
+        razon_social = pdv.get("razon_social") or ""
+        cliente_display = nombre_fantasia or ventas_nombre or razon_social or cliente_key
         return {
-            "id_cliente_erp": pc.get("id_cliente_erp"),
-            "cliente": pc.get("cliente") or cliente_key,
+            "id_cliente_erp": erp,
+            "cliente": cliente_display,
+            "nombre_fantasia": nombre_fantasia or None,
+            "razon_social": razon_social or None,
             "bultos": bultos,
             "unidades": round(pc["unidades"], 2),
             "skus_distintos": len(skus),
@@ -1226,7 +1277,7 @@ def build_avance_ventas(
             "convivencia_skus": convivencia_skus,
             "cobertura_pdvs": cobertura_pdvs,
         },
-        "auditoria_clientes": _build_auditoria_clientes(agg, cartera_count),
+        "auditoria_clientes": _build_auditoria_clientes(agg, cartera_count, dist_id),
         "drill_clientes_por_sku": drill,
     }
 

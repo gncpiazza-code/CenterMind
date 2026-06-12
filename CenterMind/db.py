@@ -66,29 +66,50 @@ if not SUPABASE_URL:
 if not SUPABASE_KEY:
     raise RuntimeError("Falta la variable de entorno SUPABASE_KEY. Si estás en Railway, agregala en la pestaña Variables del SERVICIO.")
 
-# Cliente Supabase singleton con parche para HTTP/2
-# Forzamos HTTP/1.1 para evitar errores <ConnectionTerminated error_code:9>
-# Balance: meses históricos necesitan >30s, pero 120s bloqueaba la UI ~1 min en timeout.
-opts = ClientOptions(postgrest_client_timeout=45)
+def _shield_timeouts() -> tuple[int, httpx.Timeout]:
+    """Timeouts dinámicos según estado del escudo (fail-fast bajo estrés)."""
+    try:
+        from core.supabase_shield import shield
 
-sb: Client = create_client(
-    SUPABASE_URL, 
-    SUPABASE_KEY,
-    options=opts
-)
-
-_SUPABASE_HTTP_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
+        total = shield.httpx_timeout_seconds()
+        postgrest = shield.postgrest_timeout_seconds()
+    except Exception:
+        total, postgrest = 60.0, 45
+    return postgrest, httpx.Timeout(total, connect=min(15.0, total / 3))
 
 
 def _patch_httpx_session(client: httpx.Client) -> httpx.Client:
-    """HTTP/1.1 + timeout largo: evita ConnectionTerminated (HTTP/2) y cortes en fotos."""
+    """HTTP/1.1 + timeout acorde al escudo: evita workers colgados."""
+    _, timeout = _shield_timeouts()
     return httpx.Client(
         http2=False,
         base_url=client.base_url,
         headers=client.headers,
-        timeout=_SUPABASE_HTTP_TIMEOUT,
+        timeout=timeout,
     )
 
+
+def refresh_supabase_client_timeouts() -> None:
+    """Reaplica timeouts tras probe del escudo (llamar desde job periódico)."""
+    postgrest_s, _ = _shield_timeouts()
+    if hasattr(sb, "postgrest"):
+        sb.postgrest.session = _patch_httpx_session(sb.postgrest.session)
+        if hasattr(sb.postgrest, "timeout"):
+            sb.postgrest.timeout = postgrest_s
+    if hasattr(sb, "storage") and hasattr(sb.storage, "session"):
+        sb.storage.session = _patch_httpx_session(sb.storage.session)
+
+
+# Cliente Supabase singleton con parche para HTTP/2
+# Forzamos HTTP/1.1 para evitar errores <ConnectionTerminated error_code:9>
+_postgrest_timeout, _http_timeout = _shield_timeouts()
+opts = ClientOptions(postgrest_client_timeout=_postgrest_timeout)
+
+sb: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    options=opts,
+)
 
 # Parcheamos postgrest y storage: el parche original solo cubría RPC/REST, no Storage.
 if hasattr(sb, "postgrest"):

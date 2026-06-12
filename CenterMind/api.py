@@ -21,6 +21,7 @@ from telegram import Update
 
 from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
 from core.espectador_guard import espectador_read_only_middleware
+from core.supabase_shield_middleware import supabase_shield_middleware
 from core.lifespan import bots, manager, lifespan, SUPERADMIN_WS_DIST_ID
 from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos, bot_settings, vendedor_app, app_settings
 
@@ -46,6 +47,8 @@ app.add_middleware(
 
 # Espectador: bloquea POST/PUT/PATCH/DELETE antes de routers (demos sin mutar DB).
 app.middleware("http")(espectador_read_only_middleware)
+# Escudo Supabase: shedding de carga pesada cuando Postgres/PostgREST se degrada.
+app.middleware("http")(supabase_shield_middleware)
 
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
@@ -73,15 +76,25 @@ app.include_router(app_settings.router)
 @app.get("/health")
 async def health_check():
     from core.config import WEBHOOK_URL
-    from core.bot_registry import fetch_active_distribuidores, is_transient_supabase_error
+    from core.bot_registry import fetch_active_distribuidores
+    from core.supabase_errors import is_transient_supabase_error
+    from core.supabase_shield import ShieldState, shield
+
+    shield_status = shield.status()
+    shield_state = shield_status.get("state", ShieldState.HEALTHY.value)
 
     bots_expected: int | None = None
-    supabase_ok = True
-    try:
-        rows = await asyncio.to_thread(fetch_active_distribuidores, max_retries=2)
-        bots_expected = len(rows)
-    except Exception as e:
-        supabase_ok = not is_transient_supabase_error(e)
+    supabase_ok = shield_state == ShieldState.HEALTHY.value
+    if shield_state != ShieldState.OPEN.value:
+        try:
+            rows = await asyncio.to_thread(fetch_active_distribuidores, max_retries=1)
+            bots_expected = len(rows)
+            supabase_ok = True
+        except Exception as e:
+            supabase_ok = not is_transient_supabase_error(e)
+            shield.record_failure(e)
+            bots_expected = None
+    else:
         bots_expected = None
 
     bots_active = list(bots.keys())
@@ -90,11 +103,12 @@ async def health_check():
         and bots_expected > 0
         and len(bots_active) >= bots_expected
     )
+    portal_ok = supabase_ok and shield_state != ShieldState.OPEN.value
     return {
-        "status": "online" if (supabase_ok and (bots_expected == 0 or bots_healthy)) else "degraded",
-        "version": "2.1.4-bot-recovery",
+        "status": "online" if (portal_ok and (bots_expected == 0 or bots_healthy)) else "degraded",
+        "version": "2.1.5-supabase-shield",
         # Railway / CI inyectan SHA para verificar deploy sin CLI (fixit / ops).
-        "build_tag": "cc-vendor-pk-fix-2026-06-09",
+        "build_tag": "supabase-shield-2026-06-12",
         "deploy_git_sha": (
             os.getenv("RAILWAY_GIT_COMMIT_SHA")
             or os.getenv("RAILWAY_GIT_COMMIT")
@@ -106,6 +120,7 @@ async def health_check():
         "bots_healthy": bots_healthy,
         "webhook_url": WEBHOOK_URL,
         "supabase_ok": supabase_ok,
+        "shield": shield_status,
     }
 
 

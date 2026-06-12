@@ -32,6 +32,7 @@ import { PortalCacheProvider } from "@/components/providers/PortalCacheProvider"
 import { Toaster } from "@/components/ui/sonner";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/react";
+import { SystemShieldBanner } from "@/components/SystemShieldBanner";
 
 export default function RootLayout({
   children,
@@ -45,6 +46,7 @@ export default function RootLayout({
           <AuthProvider>
             <PortalCacheProvider>
               <UIProvider>
+                <SystemShieldBanner />
                 {children}
                 <Toaster richColors position="top-right" />
                 <SpeedInsights />

@@ -300,7 +300,7 @@ def retry_supabase(max_retries: int = 3, initial_delay: float = 1.0):
     Decorador para reintentar operaciones de Supabase en caso de errores de red
     o RemoteProtocolError (HTTP2/1.1 protocol issues).
     """
-    from core.bot_registry import is_transient_supabase_error
+    from core.supabase_errors import is_transient_supabase_error
 
     def decorator(func):
         import functools
@@ -517,7 +517,7 @@ class Database:
         """Registra una exhibición vía RPC con soporte de revisión (PASO 5/6).
         Retorna: {'id_exhibicion': <id>, 'estado_final': <str>, 'error': <str|None>}
         """
-        from core.bot_registry import is_transient_supabase_error
+        from core.supabase_errors import is_transient_supabase_error
 
         rpc_params = {
             "p_distribuidor_id": distribuidor_id,
@@ -1143,7 +1143,7 @@ class SupabaseUploader:
         safe_dist = "".join(c if c.isalnum() or c in "-_ " else "" for c in distribuidor_nombre).strip().replace(" ", "_")
         storage_path = f"{safe_dist}/{date_folder}/{filename}"
 
-        from core.bot_registry import is_transient_supabase_error
+        from core.supabase_errors import is_transient_supabase_error
 
         for attempt in range(1, 5):
             try:

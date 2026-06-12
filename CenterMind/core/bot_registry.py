@@ -17,19 +17,7 @@ from db import sb
 
 logger = logging.getLogger("bot_registry")
 
-_TRANSIENT_MARKERS = (
-    "connectionterminated",
-    "remoteprotocolerror",
-    "connection closed",
-    "timed out",
-    "timeout",
-    "schema cache",
-    "pgrst002",
-    "retrying",
-    "could not query the database",
-    "server disconnected",
-    "connection reset",
-)
+from core.supabase_errors import is_transient_supabase_error
 
 
 async def configure_bot_webhook(bot: Any, dist_id: int) -> None:
@@ -41,16 +29,6 @@ async def configure_bot_webhook(bot: Any, dist_id: int) -> None:
         url=webhook_path,
         allowed_updates=TELEGRAM_WEBHOOK_ALLOWED_UPDATES,
     )
-
-
-def is_transient_supabase_error(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    if isinstance(exc, dict):
-        msg = str(exc.get("message") or exc).lower()
-        code = str(exc.get("code") or "").lower()
-        if code == "pgrst002":
-            return True
-    return any(m in msg for m in _TRANSIENT_MARKERS)
 
 
 def fetch_active_distribuidores(

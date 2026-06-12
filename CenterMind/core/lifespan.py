@@ -100,6 +100,10 @@ def erp_automatic_sync():
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 def _push_objetivos_job():
+    from core.supabase_shield import shield
+
+    if not shield.allow_background_job("push_objetivos_daily"):
+        return
     try:
         from services.vendedor_push_service import dispatch_scheduled_pushes
         result = dispatch_scheduled_pushes()
@@ -131,8 +135,34 @@ async def lifespan(app: FastAPI):
                 bot_boot.get("expected"),
             )
 
+    def _shield_probe_job():
+        try:
+            from core.supabase_shield import shield
+            from db import refresh_supabase_client_timeouts
+
+            result = shield.probe()
+            refresh_supabase_client_timeouts()
+            st = shield.status()
+            if st["state"] != "healthy":
+                logger.warning(
+                    "[shield] estado=%s probe_ms=%s fallos=%s",
+                    st["state"],
+                    st.get("last_probe_ms"),
+                    st.get("failures_in_window"),
+                )
+            elif result.get("latency_ms", 0) > 3000:
+                logger.info("[shield] probe lento: %.0fms", result["latency_ms"])
+        except Exception as e:
+            logger.warning("[shield] probe job error: %s", e)
+
+    scheduler.add_job(_shield_probe_job, "interval", seconds=30, id="supabase_shield_probe")
+
     if not skip_bots:
         def _ensure_bots_job():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("ensure_telegram_bots"):
+                return
             loop = _main_loop
             if loop is None or not loop.is_running():
                 return
@@ -146,9 +176,21 @@ async def lifespan(app: FastAPI):
                 logger.warning("[bot_registry] ensure_bots job: %s", e)
 
         scheduler.add_job(_ensure_bots_job, "interval", minutes=2, id="ensure_telegram_bots")
-        scheduler.add_job(erp_automatic_sync, "cron", hour=4, minute=0)
+
+        def _erp_automatic_sync_guarded():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("erp_automatic_sync"):
+                return
+            erp_automatic_sync()
+
+        scheduler.add_job(_erp_automatic_sync_guarded, "cron", hour=4, minute=0)
 
         def _digest_padron():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("digest_padron"):
+                return
             try:
                 from services.motor_ops_notification_service import send_motor_digest
                 send_motor_digest("PADRÓN", since_hours=10)
@@ -156,6 +198,10 @@ async def lifespan(app: FastAPI):
                 logger.warning("Digest padrón programado omitido: %s", e)
 
         def _digest_cc():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("digest_cc"):
+                return
             try:
                 from services.motor_ops_notification_service import send_motor_digest
                 send_motor_digest("CUENTAS CORRIENTES", since_hours=12)
@@ -168,6 +214,10 @@ async def lifespan(app: FastAPI):
             scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
 
         def _lanzar_objetivos_programados():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("lanzar_objetivos_0800"):
+                return
             try:
                 from services.objetivos_launch_service import lanzar_programados_fecha
                 result = lanzar_programados_fecha()
@@ -190,6 +240,10 @@ async def lifespan(app: FastAPI):
         )
 
         def _binding_watcher_scan():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("binding_watcher_daily"):
+                return
             try:
                 from services.telegram_binding_watcher_service import scan_all_distributors
                 results = scan_all_distributors()
@@ -206,6 +260,10 @@ async def lifespan(app: FastAPI):
         )
 
         def _archivar_terminados_compania():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("archivar_terminados_compania_7d"):
+                return
             try:
                 from services.objetivos_liquidacion_service import archivar_terminados_compania_7d
                 result = archivar_terminados_compania_7d()
@@ -228,6 +286,10 @@ async def lifespan(app: FastAPI):
         )
 
         def _snapshot_prewarm_morning():
+            from core.supabase_shield import shield
+
+            if not shield.allow_background_job("snapshot_prewarm_0645_ar"):
+                return
             try:
                 from services.snapshot_refresh_service import prewarm_all_active_distributors
                 prewarm_all_active_distributors(["dashboard", "estadisticas", "supervision"])

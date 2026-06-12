@@ -21,6 +21,7 @@ from telegram import Update
 
 from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
 from core.espectador_guard import espectador_read_only_middleware
+from core.maintenance_middleware import maintenance_middleware
 from core.supabase_shield_middleware import supabase_shield_middleware
 from core.lifespan import bots, manager, lifespan, SUPERADMIN_WS_DIST_ID
 from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback, compania_revision, estadisticas, bundle, recap, compania_objetivos, bot_settings, vendedor_app, app_settings
@@ -45,6 +46,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mantenimiento: bloquea portal/API mientras se opera la DB (SHELFY_MAINTENANCE_MODE=1).
+app.middleware("http")(maintenance_middleware)
 # Espectador: bloquea POST/PUT/PATCH/DELETE antes de routers (demos sin mutar DB).
 app.middleware("http")(espectador_read_only_middleware)
 # Escudo Supabase: shedding de carga pesada cuando Postgres/PostgREST se degrada.
@@ -103,9 +106,13 @@ async def health_check():
         and bots_expected > 0
         and len(bots_active) >= bots_expected
     )
-    portal_ok = supabase_ok and shield_state != ShieldState.OPEN.value
+    from core.maintenance_middleware import is_maintenance_mode
+
+    maintenance = is_maintenance_mode()
+    portal_ok = supabase_ok and shield_state != ShieldState.OPEN.value and not maintenance
     return {
-        "status": "online" if (portal_ok and (bots_expected == 0 or bots_healthy)) else "degraded",
+        "status": "maintenance" if maintenance else ("online" if (portal_ok and (bots_expected == 0 or bots_healthy)) else "degraded"),
+        "maintenance": maintenance,
         "version": "2.1.5-supabase-shield",
         # Railway / CI inyectan SHA para verificar deploy sin CLI (fixit / ops).
         "build_tag": "supabase-shield-2026-06-12",

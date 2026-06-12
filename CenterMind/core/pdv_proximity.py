@@ -106,6 +106,8 @@ def pdvs_cercanos_cartera(
     lat: float,
     lng: float,
     radio_m: float = 100.0,
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Retorna PDVs de la cartera del vendedor dentro de radio_m metros.
@@ -154,6 +156,19 @@ def pdvs_cercanos_cartera(
 
     # Ordenar por distancia
     cercanos.sort(key=lambda x: x["distancia_m"])
+    if pdv_erp_filter is not None:
+        filt = {str(e).strip() for e in pdv_erp_filter if e}
+        lookup: dict[str, str] = {}
+        for erp in filt:
+            lookup[erp] = erp
+            if erp.isdigit():
+                lookup[erp.lstrip("0") or "0"] = erp
+        cercanos = [
+            c
+            for c in cercanos
+            if c.get("id_cliente_erp") in filt
+            or lookup.get(str(c.get("id_cliente_erp") or "").lstrip("0"))
+        ]
     return cercanos
 
 
@@ -163,6 +178,8 @@ def pdv_buscar_texto(
     id_vendedor: int,
     query: str,
     limit: int = 8,
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Busca PDVs de la cartera del vendedor por prefijo de NRO o nombre (ilike).
@@ -219,6 +236,19 @@ def pdv_buscar_texto(
                 "nombre_display": _pdv_display_name(row),
                 "en_cartera": True,
             })
+        if pdv_erp_filter is not None:
+            filt = {str(e).strip() for e in pdv_erp_filter if e}
+            lookup: dict[str, str] = {}
+            for erp in filt:
+                lookup[erp] = erp
+                if erp.isdigit():
+                    lookup[erp.lstrip("0") or "0"] = erp
+            results = [
+                r
+                for r in results
+                if r.get("id_cliente_erp") in filt
+                or lookup.get(str(r.get("id_cliente_erp") or "").lstrip("0"))
+            ]
         return results[:limit]
 
     except Exception as e:

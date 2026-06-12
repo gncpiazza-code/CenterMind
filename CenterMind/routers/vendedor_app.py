@@ -33,6 +33,7 @@ from services.vendedor_upload_service import (
     process_exhibicion_upload,
     upload_mobile_photos_to_storage,
     validate_nro_cliente_en_cartera,
+    resolve_upload_telegram_user_id,
 )
 from services.vendedor_stats_service import get_stats_vendedor_app
 from services.vendedor_objetivos_service import list_objetivos_vendedor
@@ -250,16 +251,20 @@ def get_pdvs_cercanos(
     lat: float = Query(..., description="Latitud GPS del vendedor"),
     lng: float = Query(..., description="Longitud GPS del vendedor"),
     radio: float = Query(100.0, description="Radio en metros (máx 5000)", le=5000.0, ge=1.0),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
     """
     Retorna PDVs de la cartera del vendedor dentro del radio especificado,
     ordenados por distancia ascendente.
     """
+    session = scope["session"]
     id_distribuidor: int = int(session["dist"])
     id_vendedor: int = int(session["vendor"])
 
     try:
+        erp_filter, _ = resolve_patron_cartera_filter(
+            sb, id_distribuidor, id_vendedor, scope
+        )
         results = pdvs_cercanos_cartera(
             sb,
             dist_id=id_distribuidor,
@@ -267,6 +272,7 @@ def get_pdvs_cercanos(
             lat=lat,
             lng=lng,
             radio_m=radio,
+            pdv_erp_filter=erp_filter,
         )
     except Exception as e:
         logger.error(f"get_pdvs_cercanos vendor={id_vendedor} dist={id_distribuidor}: {e}")
@@ -282,19 +288,24 @@ def get_pdvs_cercanos(
 def get_pdv_buscar(
     q: str = Query(..., min_length=1, max_length=100, description="Prefijo NRO o texto nombre"),
     limit: int = Query(8, ge=1, le=20, description="Máximo de resultados"),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
     """Busca PDVs de la cartera del vendedor por prefijo de id_cliente_erp o nombre (ilike)."""
+    session = scope["session"]
     id_distribuidor: int = int(session["dist"])
     id_vendedor: int = int(session["vendor"])
 
     try:
+        erp_filter, _ = resolve_patron_cartera_filter(
+            sb, id_distribuidor, id_vendedor, scope
+        )
         results = pdv_buscar_texto(
             sb,
             dist_id=id_distribuidor,
             id_vendedor=id_vendedor,
             query=q,
             limit=limit,
+            pdv_erp_filter=erp_filter,
         )
     except Exception as e:
         logger.error(f"get_pdv_buscar vendor={id_vendedor} dist={id_distribuidor} q={q!r}: {e}")
@@ -387,8 +398,9 @@ def get_pdv_pendientes(
 )
 def post_exhibicion_batch(
     body: BatchUploadIn,
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id: int = int(session["dist"])
     id_vendedor_v2: int = int(session["vendor"])
     device_id: str = str(session.get("device") or "unknown")
@@ -396,10 +408,10 @@ def post_exhibicion_batch(
     if not body.photo_urls:
         raise HTTPException(status_code=400, detail="Se requiere al menos una URL de foto")
 
-    # Validar que el PDV esté en la cartera del vendedor
     try:
+        erp_filter, _ = resolve_patron_cartera_filter(sb, dist_id, id_vendedor_v2, scope)
         en_cartera = validate_nro_cliente_en_cartera(
-            sb, dist_id, id_vendedor_v2, body.nro_cliente
+            sb, dist_id, id_vendedor_v2, body.nro_cliente, pdv_erp_filter=erp_filter
         )
     except Exception as e:
         logger.error(f"post_exhibicion_batch validate_cartera dist={dist_id} vendor={id_vendedor_v2}: {e}")
@@ -412,6 +424,9 @@ def post_exhibicion_batch(
         )
 
     try:
+        upload_tg = resolve_upload_telegram_user_id(
+            sb, dist_id, id_vendedor_v2, device_id, scope, nro_cliente=body.nro_cliente
+        )
         result = process_exhibicion_upload(
             sb=sb,
             dist_id=dist_id,
@@ -423,6 +438,7 @@ def post_exhibicion_batch(
             client_upload_id=body.client_upload_id,
             capture_lat=body.capture_lat,
             capture_lng=body.capture_lng,
+            upload_telegram_user_id=upload_tg,
         )
     except Exception as e:
         logger.error(f"post_exhibicion_batch dist={dist_id} vendor={id_vendedor_v2}: {e}")
@@ -448,8 +464,9 @@ async def post_exhibicion_batch_multipart(
     capture_lng: Optional[float] = Form(None),
     capture_metadata: Optional[str] = Form(None),
     photos: list[UploadFile] = File(...),
-    session: dict = Depends(vendedor_session_dep),
+    scope: dict = Depends(patron_scope_dep),
 ):
+    session = scope["session"]
     dist_id: int = int(session["dist"])
     id_vendedor_v2: int = int(session["vendor"])
     device_id: str = str(session.get("device") or "unknown")
@@ -458,8 +475,9 @@ async def post_exhibicion_batch_multipart(
         raise HTTPException(status_code=400, detail="Se requiere al menos una foto")
 
     try:
+        erp_filter, _ = resolve_patron_cartera_filter(sb, dist_id, id_vendedor_v2, scope)
         en_cartera = validate_nro_cliente_en_cartera(
-            sb, dist_id, id_vendedor_v2, nro_cliente
+            sb, dist_id, id_vendedor_v2, nro_cliente, pdv_erp_filter=erp_filter
         )
     except Exception as e:
         logger.error(
@@ -485,6 +503,9 @@ async def post_exhibicion_batch_multipart(
 
     try:
         photo_urls = upload_mobile_photos_to_storage(sb, dist_id, file_payloads)
+        upload_tg = resolve_upload_telegram_user_id(
+            sb, dist_id, id_vendedor_v2, device_id, scope, nro_cliente=nro_cliente
+        )
         result = process_exhibicion_upload(
             sb=sb,
             dist_id=dist_id,
@@ -497,6 +518,7 @@ async def post_exhibicion_batch_multipart(
             capture_lat=capture_lat,
             capture_lng=capture_lng,
             capture_metadata=capture_metadata,
+            upload_telegram_user_id=upload_tg,
         )
     except HTTPException:
         raise

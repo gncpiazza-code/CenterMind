@@ -141,6 +141,35 @@ def test_cartera_validation_rejects_unknown_pdv():
     assert result is False
 
 
+def test_cartera_validation_rejects_outside_erp_filter():
+    """PDV en cartera global pero fuera de partición Monchi/Jorge → False."""
+    from services.vendedor_upload_service import validate_nro_cliente_en_cartera
+
+    sb = MagicMock()
+    rutas_result = MagicMock()
+    rutas_result.data = [{"id_ruta": 99}]
+    pdv_result = MagicMock()
+    pdv_result.data = [{"id_cliente_erp": "12345"}]
+    sb.table.return_value.select.return_value.eq.return_value.execute.return_value = rutas_result
+    sb.table.return_value.select.return_value.eq.return_value.eq.return_value.in_.return_value.limit.return_value.execute.return_value = pdv_result
+
+    result = validate_nro_cliente_en_cartera(
+        sb=sb,
+        dist_id=3,
+        id_vendedor=30,
+        nro_cliente="12345",
+        pdv_erp_filter={"99999"},
+    )
+    assert result is False
+
+
+def test_nro_en_erp_filter_strips_leading_zeros():
+    from services.vendedor_upload_service import _nro_en_erp_filter
+
+    assert _nro_en_erp_filter("03434", {"3434"})
+    assert not _nro_en_erp_filter("99999", {"3434", "1010"})
+
+
 def test_cartera_validation_accepts_known_pdv():
     """
     PDV en cartera del vendedor → validate_nro_cliente_en_cartera retorna True.

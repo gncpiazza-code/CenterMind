@@ -24,6 +24,11 @@ from core.exhibicion_aggregate import (
     EXHIBICION_ROW_COLS,
 )
 from core.vendedor_app_auth import ensure_mobile_integrante, _mobile_telegram_user_id
+from services.vendedor_patron_cartera_service import (
+    build_erp_canonical_lookup,
+    normalize_cliente_erp_key,
+    resolve_canonical_erp,
+)
 
 logger = logging.getLogger("ShelfyAPI")
 
@@ -118,16 +123,115 @@ def upload_mobile_photos_to_storage(
 # ─── Validación de cartera ────────────────────────────────────────────────────
 
 
+def _nro_en_erp_filter(nro_cliente: str, erp_filter: set[str]) -> bool:
+    if not erp_filter:
+        return False
+    lookup = build_erp_canonical_lookup(erp_filter)
+    canonical = resolve_canonical_erp(nro_cliente, lookup)
+    if canonical in erp_filter:
+        return True
+    stripped = nro_cliente.lstrip("0")
+    if stripped and stripped != nro_cliente:
+        return resolve_canonical_erp(stripped, lookup) in erp_filter
+    return False
+
+
+def _tg_user_id_for_integrante(sb: Client, id_integrante: int) -> int | None:
+    res = (
+        sb.table("integrantes_grupo")
+        .select("telegram_user_id")
+        .eq("id_integrante", id_integrante)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None
+    try:
+        return int(res.data[0]["telegram_user_id"])
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _cuenta_for_pdv_nro(sb: Client, dist_id: int, nro_cliente: str) -> str | None:
+    from core.estadisticas_tabaco_rollup import TABACO_DIST_ID
+    from core.ivan_soto_zona_geografica import (
+        normalize_localidad_zona,
+        resolve_ivan_soto_localidad_cuenta,
+    )
+
+    if int(dist_id) != TABACO_DIST_ID:
+        return None
+
+    pdv_table = tenant_table_name("clientes_pdv_v2", dist_id)
+    for erp in (nro_cliente, nro_cliente.lstrip("0") or nro_cliente):
+        if not erp:
+            continue
+        res = (
+            sb.table(pdv_table)
+            .select("localidad")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_cliente_erp", erp)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            loc = normalize_localidad_zona(res.data[0].get("localidad"))
+            return resolve_ivan_soto_localidad_cuenta(loc)
+    return None
+
+
+def resolve_upload_telegram_user_id(
+    sb: Client,
+    dist_id: int,
+    id_vendedor_v2: int,
+    device_id: str,
+    scope: dict | None,
+    *,
+    nro_cliente: str | None = None,
+) -> int:
+    """
+    telegram_user_id para fn_bot_registrar_exhibicion.
+    Patrón Monchi/Jorge: integrante real de la cuenta activa (o zona del PDV en Equipo).
+    """
+    from core.vendedor_app_patron_scope import PATRON_CUENTA_EQUIPO, list_patron_cuentas
+
+    integrante_ids = (scope or {}).get("integrante_ids")
+    if integrante_ids:
+        tg = _tg_user_id_for_integrante(sb, int(integrante_ids[0]))
+        if tg is not None:
+            return tg
+
+    cuenta_id = (scope or {}).get("cuenta_id")
+    if nro_cliente and (scope or {}).get("patron_mode"):
+        cuenta = _cuenta_for_pdv_nro(sb, dist_id, nro_cliente)
+        if cuenta and cuenta_id in (None, PATRON_CUENTA_EQUIPO):
+            cuentas = list_patron_cuentas(sb, dist_id, id_vendedor_v2)
+            match = next((c for c in cuentas if c["id"] == cuenta), None)
+            if match and match.get("integrante_ids"):
+                tg = _tg_user_id_for_integrante(sb, int(match["integrante_ids"][0]))
+                if tg is not None:
+                    return tg
+
+    ensure_mobile_integrante(sb, dist_id, id_vendedor_v2, device_id)
+    return _mobile_telegram_user_id(device_id, id_vendedor_v2)
+
+
 def validate_nro_cliente_en_cartera(
     sb: Client,
     dist_id: int,
     id_vendedor: int,
     nro_cliente: str,
+    *,
+    pdv_erp_filter: set[str] | None = None,
 ) -> bool:
     """
     Retorna True si el PDV (nro_cliente = id_cliente_erp) está en la cartera
     del vendedor (alguna ruta asignada al vendedor en rutas_v2).
+    Con pdv_erp_filter (patrón Monchi/Jorge) exige además pertenencia a esa partición.
     """
+    if pdv_erp_filter is not None and not _nro_en_erp_filter(nro_cliente, pdv_erp_filter):
+        return False
+
     rutas_table = tenant_table_name("rutas_v2", dist_id)
     rutas_res = (
         sb.table(rutas_table)
@@ -227,6 +331,7 @@ def process_exhibicion_upload(
     capture_lat: float | None,
     capture_lng: float | None,
     capture_metadata: str | None = None,
+    upload_telegram_user_id: int | None = None,
 ) -> dict:
     """
     Procesa subida de exhibiciones desde la app móvil con idempotencia.
@@ -292,15 +397,15 @@ def process_exhibicion_upload(
         # No bloquear el flujo si la tabla no existe aún (pendiente migración)
         logger.warning(f"process_exhibicion_upload insert queue failed (ignorando): {e}")
 
-    # ── 3. Asegurar integrante sintético ANTES del RPC ───────────────────────
-    # fn_bot_registrar_exhibicion espera p_vendedor_id = telegram_user_id
-    # (lookup por integrantes_grupo). El integrante debe existir ANTES de llamar al RPC.
-    try:
-        ensure_mobile_integrante(sb, dist_id, id_vendedor_v2, device_id)
-    except Exception as e:
-        logger.warning(f"process_exhibicion_upload ensure_mobile_integrante pre-RPC: {e}")
-
-    tg_user_id = _mobile_telegram_user_id(device_id, id_vendedor_v2)
+    # ── 3. Integrante para RPC (Monchi/Jorge real o sintético mobile) ─────────
+    if upload_telegram_user_id is not None:
+        tg_user_id = int(upload_telegram_user_id)
+    else:
+        try:
+            ensure_mobile_integrante(sb, dist_id, id_vendedor_v2, device_id)
+        except Exception as e:
+            logger.warning(f"process_exhibicion_upload ensure_mobile_integrante pre-RPC: {e}")
+        tg_user_id = _mobile_telegram_user_id(device_id, id_vendedor_v2)
 
     # ── 4. Llamar RPC por cada foto ───────────────────────────────────────────
     exhibicion_ids: list[int] = []

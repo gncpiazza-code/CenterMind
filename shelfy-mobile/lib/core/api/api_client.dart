@@ -179,7 +179,7 @@ class ApiClient {
   /// GET a un path que retorna una lista JSON.
   Future<List<dynamic>> getList(String path) async {
     final response = await _send(
-      () => http.get(_uri(path), headers: _headers()),
+      () => http.get(_uri(scopedPath(path)), headers: _headers()),
     );
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (response.body.isEmpty) return [];
@@ -212,7 +212,7 @@ class ApiClient {
   ) async {
     final response = await _send(
       () => http.post(
-        _uri(path),
+        _uri(scopedPath(path)),
         headers: _headers(),
         body: jsonEncode(body),
       ),
@@ -223,7 +223,7 @@ class ApiClient {
   /// GET a un path que retorna bytes crudos (ej. PDF).
   Future<List<int>> getBytes(String path) async {
     final response = await _send(
-      () => http.get(_uri(path), headers: _headers()),
+      () => http.get(_uri(scopedPath(path)), headers: _headers()),
     );
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return response.bodyBytes;
@@ -247,7 +247,7 @@ class ApiClient {
     required List<File> files,
     String fileField = 'photos',
   }) async {
-    final request = http.MultipartRequest('POST', _uri(path));
+    final request = http.MultipartRequest('POST', _uri(scopedPath(path)));
     request.headers.addAll(_headers(multipart: true));
     request.fields.addAll(fields);
     for (final file in files) {

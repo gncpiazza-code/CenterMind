@@ -68,6 +68,8 @@ if not SUPABASE_KEY:
 
 def _shield_timeouts() -> tuple[int, httpx.Timeout]:
     """Timeouts dinámicos según estado del escudo (fail-fast bajo estrés)."""
+    if os.environ.get("SHELFY_DB_CLEANUP", "0").strip().lower() in ("1", "true", "yes"):
+        return 5, httpx.Timeout(8.0, connect=3.0)
     try:
         from core.supabase_shield import shield
 

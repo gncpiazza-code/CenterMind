@@ -137,7 +137,8 @@ async def lifespan(app: FastAPI):
             )
 
     def _shield_probe_job():
-        if os.getenv("SHELFY_SHIELD_PROBE", "1").strip() in ("0", "false", "no"):
+        # OFF por defecto: el probe puede colgar workers si Postgres está saturado.
+        if os.getenv("SHELFY_SHIELD_PROBE", "0").strip() in ("0", "false", "no"):
             return
         if os.getenv("SHELFY_DB_CLEANUP", "0").strip() in ("1", "true", "yes"):
             return

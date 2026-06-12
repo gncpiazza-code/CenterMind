@@ -3968,6 +3968,10 @@ class BotWorker:
         Cada 30s busca exhibiciones evaluadas que no
         tienen el mensaje de Telegram actualizado y lo edita.
         """
+        import os
+        if os.getenv("SHELFY_DB_CLEANUP", "0").strip().lower() in ("1", "true", "yes"):
+            return
+
         # Heartbeat al monitor de uptime
         if self.monitor:
             self.monitor.heartbeat(self.distribuidor_id, status="running")

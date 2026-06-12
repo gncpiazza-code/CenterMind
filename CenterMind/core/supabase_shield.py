@@ -177,14 +177,24 @@ class SupabaseShield:
 
     def probe(self) -> dict[str, Any]:
         """Ping liviano a Supabase; actualiza estado del escudo."""
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
         from db import sb
 
         started = time.monotonic()
         ok = False
         err: str | None = None
-        try:
+
+        def _ping() -> None:
             sb.table("distribuidores").select("id_distribuidor").limit(1).execute()
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_ping)
+                fut.result(timeout=_PROBE_TIMEOUT_SECONDS)
             ok = True
+        except FuturesTimeout:
+            err = f"probe timeout {_PROBE_TIMEOUT_SECONDS}s"
+            self.record_failure(TimeoutError(err))
         except Exception as e:
             err = str(e)
             ok = not is_transient_supabase_error(e)

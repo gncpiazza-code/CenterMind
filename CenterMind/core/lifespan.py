@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
             )
 
     def _shield_probe_job():
-        if os.getenv("SHELFY_SHIELD_PROBE", "1").strip() in ("0", "false", "no"):
+        if os.getenv("SHELFY_SHIELD_PROBE", "0").strip() in ("0", "false", "no"):
             return
         try:
             from core.supabase_shield import shield
@@ -158,7 +158,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("[shield] probe job error: %s", e)
 
-    scheduler.add_job(_shield_probe_job, "interval", seconds=30, id="supabase_shield_probe")
+    scheduler.add_job(
+        _shield_probe_job,
+        "interval",
+        seconds=60,
+        id="supabase_shield_probe",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=15,
+    )
 
     if not skip_bots:
         def _ensure_bots_job():

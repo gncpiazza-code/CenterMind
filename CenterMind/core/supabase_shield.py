@@ -187,10 +187,10 @@ class SupabaseShield:
         def _ping() -> None:
             sb.table("distribuidores").select("id_distribuidor").limit(1).execute()
 
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="shield-probe")
         try:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                fut = pool.submit(_ping)
-                fut.result(timeout=_PROBE_TIMEOUT_SECONDS)
+            fut = pool.submit(_ping)
+            fut.result(timeout=_PROBE_TIMEOUT_SECONDS)
             ok = True
         except FuturesTimeout:
             err = f"probe timeout {_PROBE_TIMEOUT_SECONDS}s"
@@ -200,6 +200,9 @@ class SupabaseShield:
             ok = not is_transient_supabase_error(e)
             if not ok:
                 self.record_failure(e)
+        finally:
+            # No wait=True: un ping colgado no debe bloquear el scheduler 30s+.
+            pool.shutdown(wait=False, cancel_futures=True)
 
         latency_ms = (time.monotonic() - started) * 1000
         if ok:

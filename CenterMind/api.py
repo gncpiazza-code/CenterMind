@@ -116,16 +116,27 @@ async def health_check():
 
 
 # ── Telegram Webhook ───────────────────────────────────────────────────────────
+_webhook_sem: asyncio.Semaphore | None = None
+
+
+def _webhook_concurrency_sem() -> asyncio.Semaphore:
+    global _webhook_sem
+    if _webhook_sem is None:
+        _webhook_sem = asyncio.Semaphore(int(os.getenv("SHELFY_WEBHOOK_CONCURRENCY", "80")))
+    return _webhook_sem
+
+
 async def _process_telegram_update(dist_id: int, data: dict) -> None:
     """Procesa update en background para responder 200 a Telegram de inmediato."""
-    ptb_app = bots.get(dist_id)
-    if not ptb_app:
-        return
-    try:
-        update = Update.de_json(data, ptb_app.bot)
-        await ptb_app.process_update(update)
-    except Exception as e:
-        logger.error(f"❌ Error procesando update bot {dist_id}: {e}")
+    async with _webhook_concurrency_sem():
+        ptb_app = bots.get(dist_id)
+        if not ptb_app:
+            return
+        try:
+            update = Update.de_json(data, ptb_app.bot)
+            await ptb_app.process_update(update)
+        except Exception as e:
+            logger.error(f"❌ Error procesando update bot {dist_id}: {e}")
 
 
 @app.post("/api/telegram/webhook/{id_distribuidor}", tags=["Telegram Webhook"])

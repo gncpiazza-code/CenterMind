@@ -1312,15 +1312,15 @@ def supervision_ventas(
         t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
         from core.ventas_enriched_tenant import (
             apply_ventas_tenant_filters,
-            build_ventas_read_context,
             filter_ventas_rows_for_tenant,
+            resolve_ventas_read_context,
         )
         from services.estadisticas_service import (
             _dedupe_ventas_enriched_lines,
             _ventas_enriched_query_order,
         )
 
-        ventas_ctx = build_ventas_read_context(dist_id)
+        ventas_ctx = resolve_ventas_read_context(dist_id)
         t_ventas = ventas_ctx["table_name"]
 
         PAGE = 1000

@@ -567,15 +567,15 @@ def _fetch_avance_lines(dist_id: int, desde: str, hasta: str) -> list[dict]:
     """Líneas enriched del rango con aislamiento tenant + dedupe (paginado 1000)."""
     from core.ventas_enriched_tenant import (
         apply_ventas_tenant_filters,
-        build_ventas_read_context,
         filter_ventas_rows_for_tenant,
+        resolve_ventas_read_context,
     )
     from services.estadisticas_service import (
         _dedupe_ventas_enriched_lines,
         _ventas_enriched_query_order,
     )
 
-    ventas_ctx = build_ventas_read_context(dist_id)
+    ventas_ctx = resolve_ventas_read_context(dist_id)
     t_ventas = ventas_ctx["table_name"]
     select_cols = _VENTAS_SELECT_COLS + ",ruta"
 
@@ -640,8 +640,8 @@ def _fetch_catalogo_skus(dist_id: int, hasta: str) -> list[dict]:
     """
     from core.ventas_enriched_tenant import (
         apply_ventas_tenant_filters,
-        build_ventas_read_context,
         filter_ventas_rows_for_tenant,
+        resolve_ventas_read_context,
     )
 
     desde_cat, hasta_cat = _catalogo_window(hasta)
@@ -650,7 +650,7 @@ def _fetch_catalogo_skus(dist_id: int, hasta: str) -> list[dict]:
     if cached and monotonic() - cached[0] < CATALOGO_CACHE_TTL_S:
         return cached[1]
 
-    ventas_ctx = build_ventas_read_context(dist_id)
+    ventas_ctx = resolve_ventas_read_context(dist_id)
     t_ventas = ventas_ctx["table_name"]
 
     catalogo: list[dict] = []

@@ -234,6 +234,17 @@ def resolve_estadisticas_ventas_fetch(
     }
 
 
+def resolve_ventas_read_context(
+    dist_id: int,
+    vend_rows: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Contexto de lectura; franquicias (Bolívar/Caramele/LAG) cargan códigos ERP automáticamente."""
+    req = int(dist_id)
+    if FRANCHISE_VENTAS_SOURCE_DIST.get(req) is not None and not vend_rows:
+        vend_rows = load_vendedores_ventas_scope_rows(req)
+    return build_ventas_read_context(dist_id, vend_rows)
+
+
 def ventas_enriched_base_query(
     sb_client,
     dist_id: int,
@@ -241,10 +252,7 @@ def ventas_enriched_base_query(
     vend_rows: list[dict] | None = None,
 ):
     """Query PostgREST con filtros estrictos de tenant ya aplicados."""
-    req = int(dist_id)
-    if FRANCHISE_VENTAS_SOURCE_DIST.get(req) is not None and not vend_rows:
-        vend_rows = load_vendedores_ventas_scope_rows(req)
-    ctx = build_ventas_read_context(dist_id, vend_rows)
+    ctx = resolve_ventas_read_context(dist_id, vend_rows)
     q = sb_client.table(ctx["table_name"]).select(select)
     q = apply_ventas_tenant_filters(q, ctx)
     return ctx, q

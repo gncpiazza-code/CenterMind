@@ -139,6 +139,14 @@ export function deltaRefLabel(modo: AvanceVentasModo, kind: "wow" | "mom"): stri
 }
 
 /** Etiqueta corta para delta de proyección al cierre. */
+/** Campo `proy_*` en fila heatmap / ranking según clave de referencia. */
+export function heatmapProyField(refKey: AvanceProyeccionRefKey): keyof import("@/lib/api").AvanceHeatmapSkuRow {
+  if (refKey === "wow") return "proy_wow";
+  if (refKey === "mom") return "proy_mom";
+  if (refKey === "semana_anterior") return "proy_semana_anterior";
+  return "proy_mes_anterior";
+}
+
 export function proyeccionRefLabel(
   modo: AvanceVentasModo,
   refKey: AvanceProyeccionRefKey,

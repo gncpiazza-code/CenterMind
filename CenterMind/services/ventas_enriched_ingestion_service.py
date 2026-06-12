@@ -129,14 +129,36 @@ def record_sin_cambios_run(dist_id: int, source: str = "rpa_hash_guard") -> int:
 
 def accept_enriched_upload(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
     """
-    Valida tenant, crea motor_run en_curso y devuelve payload para 202 Accepted.
+    Valida tenant + IdEmpresa, crea motor_run en_curso y devuelve payload para 202 Accepted.
     La ingesta corre en thread (ver ingest_enriched_rpa_background).
     """
+    from core.ventas_empresa_isolation import (
+        contamination_summary_message,
+        filter_parsed_rows_for_tenant,
+    )
+
     tid = (tenant_id or "").strip().lower()
     dist_id = _resolve_dist_id(tid)
     if not file_bytes:
         raise ValueError("Archivo vacío")
+
+    parsed = parse_informe_ventas_enriched(file_bytes)
+    kept, stats = filter_parsed_rows_for_tenant(parsed, tid)
+    if stats.get("total", 0) > 0 and stats.get("kept", 0) == 0:
+        raise ValueError(
+            "Informe sin filas del tenant: "
+            + contamination_summary_message(stats)
+            + ". Verificar checkbox Empresa en Consolido."
+        )
+
     run_id = _start_run(dist_id)
+    if stats.get("dropped", 0) > 0:
+        logger.warning(
+            "[ventas_enriched] dist=%s pre-check %s",
+            dist_id,
+            contamination_summary_message(stats),
+        )
+
     threading.Thread(
         target=ingest_enriched_rpa_background,
         args=(tid, file_bytes, run_id),
@@ -149,9 +171,13 @@ def accept_enriched_upload(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         "run_id": run_id,
         "tenant_id": tid,
         "bytes": len(file_bytes),
+        "parse_total": stats.get("total", 0),
+        "parse_kept": stats.get("kept", 0),
+        "parse_dropped_id_empresa": stats.get("dropped", 0),
         "message": (
             f"Informe ventas recibido para {tid} (dist {dist_id}, "
-            f"{len(file_bytes):,} bytes). Procesando en segundo plano."
+            f"{len(file_bytes):,} bytes, {stats.get('kept', 0)}/{stats.get('total', 0)} filas tenant). "
+            "Procesando en segundo plano."
         ),
     }
 
@@ -178,6 +204,7 @@ def ingest_enriched(
                 "rows": result["rows"],
                 "upserted": result["upserted"],
                 "actualizados": result["actualizados"],
+                "dropped_id_empresa": result.get("dropped_id_empresa", 0),
             },
         )
         return result
@@ -191,29 +218,21 @@ def _ingest_enriched_core(
     dist_id: int,
     file_bytes: bytes,
 ) -> dict[str, Any]:
-    from core.rpa_tenant_registry import expected_id_empresa_for_tenant
+    from core.ventas_empresa_isolation import (
+        contamination_summary_message,
+        filter_parsed_rows_for_tenant,
+    )
 
-    rows = parse_informe_ventas_enriched(file_bytes)
-    expected_ie = expected_id_empresa_for_tenant(tenant_id)
-    dropped_empresa = 0
-    if expected_ie and rows:
-        kept: list[dict] = []
-        for r in rows:
-            row_ie = str(r.get("id_empresa") or "").strip()
-            if row_ie == expected_ie:
-                kept.append(r)
-            else:
-                dropped_empresa += 1
-        if dropped_empresa:
-            logger.warning(
-                "[ventas_enriched] dist=%s tenant=%s descartadas %s filas IdEmpresa != %s "
-                "(Informe Consolido multi-empresa — no se persisten)",
-                dist_id,
-                tenant_id,
-                dropped_empresa,
-                expected_ie,
-            )
-        rows = kept
+    parsed = parse_informe_ventas_enriched(file_bytes)
+    rows, stats = filter_parsed_rows_for_tenant(parsed, tenant_id)
+    dropped_empresa = int(stats.get("dropped") or 0)
+    if dropped_empresa:
+        logger.warning(
+            "[ventas_enriched] dist=%s tenant=%s %s (no se persisten)",
+            dist_id,
+            tenant_id,
+            contamination_summary_message(stats),
+        )
     if not rows:
         return {
             "ok": True,

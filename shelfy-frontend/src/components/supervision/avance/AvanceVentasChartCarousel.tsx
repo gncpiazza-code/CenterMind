@@ -190,7 +190,12 @@ export function AvanceVentasChartCarousel({
               <AvanceVentasScatter data={data.series?.scatter_penetracion_intensidad} embedded />
             )}
             {effectiveActive === "heatmap" && (
-              <AvanceVentasHeatmap data={data.series?.heatmap_top_skus} modo={modo} embedded />
+              <AvanceVentasHeatmap
+                data={data.series?.heatmap_top_skus}
+                modo={modo}
+                proyeccionContext={data.proyeccion_context}
+                embedded
+              />
             )}
             {effectiveActive === "alcance" && (
               <AvanceVentasAlcanceCharts convivencia={convivencia} cobertura={coberturaPdvs} />

@@ -195,6 +195,7 @@ export function SupervisionAvanceVentasPanel({
             ranking={data?.ranking_skus}
             modo={modo}
             periodoLabel={data?.periodo?.label ?? fecha}
+            proyeccionContext={isFilterTransition ? undefined : data?.proyeccion_context}
             onSelectSku={handleSelectSku}
             soloConVenta={soloConVenta}
             className="max-h-[560px]"

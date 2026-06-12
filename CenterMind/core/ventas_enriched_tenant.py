@@ -207,12 +207,15 @@ def filter_ventas_rows_for_tenant(
                 continue
 
         if expected_ie:
-            raw = row.get("raw_json") if isinstance(row.get("raw_json"), dict) else None
-            if raw is not None:
-                row_ie = str(raw.get("id_empresa") or "").strip()
-                if row_ie and row_ie != expected_ie:
-                    dropped += 1
-                    continue
+            from core.ventas_empresa_isolation import is_contaminated_ventas_row
+
+            if is_contaminated_ventas_row(
+                row,
+                dist_id=int(ctx["filter_dist"]),
+                expected_id_empresa=expected_ie,
+            ):
+                dropped += 1
+                continue
 
         kept.append(row)
 

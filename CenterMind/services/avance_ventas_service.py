@@ -1794,6 +1794,9 @@ def build_avance_ventas(
 
     wow_sku = _ref_sku_bultos_canon(delta_primary_key[0])
     mom_sku = _ref_sku_bultos_canon(delta_primary_key[1])
+    ref_sku_by_key = {
+        ref_key: _ref_sku_bultos_canon(ref_key) for ref_key in refs if ref_key
+    }
 
     # Tabla completa, sin cap (R1) — el cap defensivo queda solo en series gráficas.
     ranking_skus = []
@@ -1812,6 +1815,24 @@ def build_avance_ventas(
                 mom_sku.get(canon, 0.0),
                 disponible=True,
             )
+        if run_rate:
+            proys_sku: dict[str, dict] = {}
+            factor, transcurridos, totales, _ = run_rate
+            for ref_key in proyeccion_ref_keys:
+                ref_map = ref_sku_by_key.get(ref_key)
+                if ref_map is None:
+                    continue
+                bloque = comparativas.get(ref_key) or {}
+                proys_sku[ref_key] = build_proyeccion_kpi(
+                    r["bultos"],
+                    ref_map.get(canon, 0.0),
+                    factor=factor,
+                    transcurridos=transcurridos,
+                    totales=totales,
+                    ref_disponible=bool(bloque.get("disponible")),
+                )
+            if proys_sku:
+                item["proyecciones_bultos"] = proys_sku
         ranking_skus.append(item)
 
     # ── Series para gráficos (carrusel FE — sin por_agrupacion, reemplazado por cobertura) ──
@@ -1831,15 +1852,29 @@ def build_avance_ventas(
         if r["sin_venta"]:
             continue
         canon = _row_canon_key(r, delta_resolver, sku_hints)
-        heatmap.append(
-            {
-                "sku": r["articulo"],
-                "cod_articulo": r["cod_articulo"],
-                "actual": r["bultos"],
-                "ref_wow": round(wow_sku.get(canon, 0.0), 2) if wow_sku is not None else None,
-                "ref_mom": round(mom_sku.get(canon, 0.0), 2) if mom_sku is not None else None,
-            }
-        )
+        hm_row: dict = {
+            "sku": r["articulo"],
+            "cod_articulo": r["cod_articulo"],
+            "actual": r["bultos"],
+            "ref_wow": round(wow_sku.get(canon, 0.0), 2) if wow_sku is not None else None,
+            "ref_mom": round(mom_sku.get(canon, 0.0), 2) if mom_sku is not None else None,
+        }
+        if run_rate:
+            factor, transcurridos, totales, _ = run_rate
+            for ref_key in proyeccion_ref_keys:
+                ref_map = ref_sku_by_key.get(ref_key)
+                if ref_map is None:
+                    continue
+                bloque = comparativas.get(ref_key) or {}
+                hm_row[f"proy_{ref_key}"] = build_proyeccion_kpi(
+                    r["bultos"],
+                    ref_map.get(canon, 0.0),
+                    factor=factor,
+                    transcurridos=transcurridos,
+                    totales=totales,
+                    ref_disponible=bool(bloque.get("disponible")),
+                )
+        heatmap.append(hm_row)
 
     # ── Convivencia SKU: % del catálogo 12m con al menos 1 venta en el período ──
     n_con_venta = len(sku_rows_full) - n_sin_venta

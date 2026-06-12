@@ -12,14 +12,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { AvanceDeltaKpi, AvanceSkuRankingRow, AvanceVentasModo } from "@/lib/api";
+import type {
+  AvanceDeltaKpi,
+  AvanceProyeccionContext,
+  AvanceProyeccionRefKey,
+  AvanceSkuRankingRow,
+  AvanceVentasModo,
+} from "@/lib/api";
 import {
   deltaDir,
   deltaRefLabel,
   fmtBultos,
   fmtDelta,
   fmtEntero,
+  fmtProyeccionHint,
   fmtVolumenCell,
+  proyeccionRefLabel,
 } from "@/lib/avance-ventas-format";
 import { skuRowTieneVenta } from "@/lib/avance-ventas-alcance";
 import { AVANCE_KPI_HELP, deltaHelpText } from "@/lib/avance-ventas-kpi-help";
@@ -34,12 +42,21 @@ interface AvanceVentasSkuRankingProps {
   ranking: AvanceSkuRankingRow[] | undefined;
   modo: AvanceVentasModo;
   periodoLabel: string;
+  proyeccionContext?: AvanceProyeccionContext | null;
   onSelectSku: (row: AvanceSkuRankingRow) => void;
   soloConVenta?: boolean;
   className?: string;
 }
 
-function DeltaMini({ delta }: { delta: AvanceDeltaKpi | undefined }) {
+function DeltaMini({
+  delta,
+  dashed = false,
+  titleExtra,
+}: {
+  delta: AvanceDeltaKpi | undefined;
+  dashed?: boolean;
+  titleExtra?: string;
+}) {
   if (!delta) return null;
   if (!delta.disponible) {
     return <span className="text-[9px] text-muted-foreground">Sin dato</span>;
@@ -49,12 +66,14 @@ function DeltaMini({ delta }: { delta: AvanceDeltaKpi | undefined }) {
     <span
       className={cn(
         "inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums",
+        dashed && "opacity-90",
         dir === "up"
           ? "text-emerald-600 dark:text-emerald-400"
           : dir === "down"
             ? "text-rose-600 dark:text-rose-400"
             : "text-slate-500 dark:text-slate-400",
       )}
+      title={titleExtra}
     >
       {dir === "up" ? (
         <TrendingUp size={10} strokeWidth={2.5} />
@@ -119,6 +138,7 @@ export function AvanceVentasSkuRanking({
   ranking,
   modo,
   periodoLabel,
+  proyeccionContext,
   onSelectSku,
   soloConVenta = false,
   className,
@@ -153,6 +173,9 @@ export function AvanceVentasSkuRanking({
   const hasWow = rows.some((r) => r.wow_bultos);
   const hasMom = rows.some((r) => r.mom_bultos);
   const hasPenetracion = rows.some((r) => r.penetracion_pct != null);
+  const showProy = !!proyeccionContext?.disponible;
+  const proyRefs = (proyeccionContext?.referencias ?? []) as AvanceProyeccionRefKey[];
+  const hasProy = showProy && rows.some((r) => proyRefs.some((k) => r.proyecciones_bultos?.[k]?.disponible));
   const conVenta = rows.filter((r) => skuRowTieneVenta(r)).length;
 
   return (
@@ -206,13 +229,28 @@ export function AvanceVentasSkuRanking({
                   </TableHead>
                 )}
                 {hasMom && (
-                  <TableHead className="text-right hidden lg:table-cell pr-4 whitespace-nowrap">
+                  <TableHead className="text-right hidden lg:table-cell whitespace-nowrap">
                     <span className="inline-flex items-center gap-1">
                       Δ {deltaRefLabel(modo, "mom")}
                       {!hasWow ? <KpiHelpTip text={deltaHelpText(modo)} size={11} side="top" /> : null}
                     </span>
                   </TableHead>
                 )}
+                {hasProy &&
+                  proyRefs.map((refKey, idx) => (
+                    <TableHead
+                      key={refKey}
+                      className={cn(
+                        "text-right hidden lg:table-cell whitespace-nowrap border-l border-dashed border-border/60",
+                        idx === proyRefs.length - 1 && "pr-4",
+                      )}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {proyeccionRefLabel(modo, refKey)}
+                        {idx === 0 ? <KpiHelpTip text={AVANCE_KPI_HELP.proyeccion} size={11} side="top" /> : null}
+                      </span>
+                    </TableHead>
+                  ))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -292,10 +330,29 @@ export function AvanceVentasSkuRanking({
                       </TableCell>
                     )}
                     {hasMom && (
-                      <TableCell className="text-right hidden lg:table-cell pr-4">
+                      <TableCell className="text-right hidden lg:table-cell">
                         <DeltaMini delta={r.mom_bultos} />
                       </TableCell>
                     )}
+                    {hasProy &&
+                      proyRefs.map((refKey, idx) => {
+                        const proy = r.proyecciones_bultos?.[refKey];
+                        return (
+                          <TableCell
+                            key={refKey}
+                            className={cn(
+                              "text-right hidden lg:table-cell border-l border-dashed border-border/60",
+                              idx === proyRefs.length - 1 && "pr-4",
+                            )}
+                          >
+                            <DeltaMini
+                              delta={proy?.vs_referencia}
+                              dashed
+                              titleExtra={proy ? fmtProyeccionHint(proy, proyeccionContext) : undefined}
+                            />
+                          </TableCell>
+                        );
+                      })}
                   </TableRow>
                 );
               })}

@@ -2350,6 +2350,20 @@ export interface AvanceSkuRankingRow {
   unidades_resto?: number;
   wow_bultos?: AvanceDeltaKpi;
   mom_bultos?: AvanceDeltaKpi;
+  /** Run-rate al cierre vs referencia (solo período parcial). */
+  proyecciones_bultos?: Partial<Record<AvanceProyeccionRefKey, AvanceProyeccionKpi>>;
+}
+
+export interface AvanceHeatmapSkuRow {
+  sku: string;
+  cod_articulo: string;
+  actual: number;
+  ref_wow: number | null;
+  ref_mom: number | null;
+  proy_wow?: AvanceProyeccionKpi;
+  proy_mom?: AvanceProyeccionKpi;
+  proy_semana_anterior?: AvanceProyeccionKpi;
+  proy_mes_anterior?: AvanceProyeccionKpi;
 }
 
 export interface AvanceSkuInsight {
@@ -2489,13 +2503,7 @@ export interface AvanceVentasResponse {
       bultos: number;
       intensidad: number;
     }>;
-    heatmap_top_skus: Array<{
-      sku: string;
-      cod_articulo: string;
-      actual: number;
-      ref_wow: number | null;
-      ref_mom: number | null;
-    }>;
+    heatmap_top_skus: AvanceHeatmapSkuRow[];
     convivencia_skus?: AvanceConvivenciaSkus;
     cobertura_pdvs?: AvanceCoberturaPdvs;
     /** @deprecated API anterior — usar convivencia_skus */

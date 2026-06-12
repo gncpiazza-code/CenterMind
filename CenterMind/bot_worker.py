@@ -1227,8 +1227,13 @@ class BotWorker:
         Si está bloqueado, responde al usuario y retorna False.
         """
         try:
-            # Consultar estado fresco de la DB
-            res = self.db.sb.table("distribuidores").select("estado_operativo, motivo_bloqueo").eq("id_distribuidor", self.distribuidor_id).execute()
+            # Consultar estado fresco de la DB (to_thread: no bloquear event loop)
+            res = await asyncio.to_thread(
+                lambda: self.db.sb.table("distribuidores")
+                .select("estado_operativo, motivo_bloqueo")
+                .eq("id_distribuidor", self.distribuidor_id)
+                .execute()
+            )
             if res.data:
                 d = res.data[0]
                 self.estado_operativo = d.get("estado_operativo", "Activo")
@@ -3968,10 +3973,6 @@ class BotWorker:
         Cada 30s busca exhibiciones evaluadas que no
         tienen el mensaje de Telegram actualizado y lo edita.
         """
-        import os
-        if os.getenv("SHELFY_DB_CLEANUP", "0").strip().lower() in ("1", "true", "yes"):
-            return
-
         # Heartbeat al monitor de uptime
         if self.monitor:
             self.monitor.heartbeat(self.distribuidor_id, status="running")

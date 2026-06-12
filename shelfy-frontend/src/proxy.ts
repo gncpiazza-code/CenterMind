@@ -9,7 +9,7 @@ const PUBLIC_PATHS = ["/login", "/", "/estadisticas/preview-fusion", "/visor/dem
 const MAINTENANCE_BYPASS_COOKIE = "shelfy_maintenance_bypass";
 
 function isMaintenanceMode(): boolean {
-  // Activo por defecto durante limpieza DB. Desactivar: MAINTENANCE_MODE=0 en Vercel.
+  // Solo portal web. Bot/API siguen activos. Desactivar: MAINTENANCE_MODE=0 en Vercel.
   const mode = (
     process.env.MAINTENANCE_MODE ??
     process.env.NEXT_PUBLIC_MAINTENANCE_MODE ??

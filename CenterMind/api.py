@@ -108,11 +108,12 @@ async def health_check():
     )
     from core.maintenance_middleware import is_maintenance_mode
 
-    maintenance = is_maintenance_mode()
-    portal_ok = supabase_ok and shield_state != ShieldState.OPEN.value and not maintenance
+    api_maintenance = is_maintenance_mode()
+    portal_ok = supabase_ok and shield_state != ShieldState.OPEN.value and not api_maintenance
     return {
-        "status": "maintenance" if maintenance else ("online" if (portal_ok and (bots_expected == 0 or bots_healthy)) else "degraded"),
-        "maintenance": maintenance,
+        "status": "maintenance" if api_maintenance else ("online" if (portal_ok and (bots_expected == 0 or bots_healthy)) else "degraded"),
+        "maintenance": api_maintenance,
+        "portal_maintenance_note": "Portal web puede estar en mantenimiento vía Vercel MAINTENANCE_MODE; bot/API activos salvo SHELFY_MAINTENANCE_MODE=1",
         "version": "2.1.5-supabase-shield",
         # Railway / CI inyectan SHA para verificar deploy sin CLI (fixit / ops).
         "build_tag": "supabase-shield-2026-06-12",

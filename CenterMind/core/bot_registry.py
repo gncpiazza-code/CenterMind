@@ -20,15 +20,26 @@ logger = logging.getLogger("bot_registry")
 from core.supabase_errors import is_transient_supabase_error
 
 
-async def configure_bot_webhook(bot: Any, dist_id: int) -> None:
+async def configure_bot_webhook(bot: Any, dist_id: int, *, drop_pending: bool | None = None) -> None:
     """Registra webhook con allowed_updates completos (chat_member + mensajes)."""
+    import os
+
     if not WEBHOOK_URL:
         return
     webhook_path = f"{WEBHOOK_URL.rstrip('/')}/api/telegram/webhook/{dist_id}"
+    if drop_pending is None:
+        drop_pending = os.getenv("SHELFY_DROP_PENDING_ON_BOOT", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
     await bot.set_webhook(
         url=webhook_path,
         allowed_updates=TELEGRAM_WEBHOOK_ALLOWED_UPDATES,
+        drop_pending_updates=drop_pending or None,
     )
+    if drop_pending:
+        logger.info("[bot_registry] webhook dist=%s — cola Telegram descartada al arranque", dist_id)
 
 
 def fetch_active_distribuidores(

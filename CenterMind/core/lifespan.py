@@ -24,6 +24,7 @@ logger = logging.getLogger("ShelfyAPI")
 bots: dict = {}
 scheduler = BackgroundScheduler()
 _main_loop: asyncio.AbstractEventLoop | None = None
+API_STARTED_AT: float = 0.0
 
 
 # ── WebSocket Connection Manager ───────────────────────────────────────────────
@@ -115,8 +116,11 @@ def _push_objetivos_job():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _main_loop
+    global _main_loop, API_STARTED_AT
+    import time
+
     _main_loop = asyncio.get_running_loop()
+    API_STARTED_AT = time.time()
     import os
     from concurrent.futures import ThreadPoolExecutor
 

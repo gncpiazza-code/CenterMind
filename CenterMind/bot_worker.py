@@ -3980,6 +3980,10 @@ class BotWorker:
         Cada 30s busca exhibiciones evaluadas que no
         tienen el mensaje de Telegram actualizado y lo edita.
         """
+        boot_quiet = int(os.getenv("SHELFY_BOT_BOOT_QUIET_SEC", "180"))
+        if time.time() - self.start_time < boot_quiet:
+            return
+
         # Heartbeat al monitor de uptime
         if self.monitor:
             self.monitor.heartbeat(self.distribuidor_id, status="running")
@@ -4318,9 +4322,9 @@ class BotWorker:
         # Error handler
         app.add_error_handler(self.error_handler)
 
-        # Jobs periódicos — escalonados para no golpear Supabase los 12 bots a la vez
-        sync_first = 15 + (self.distribuidor_id % 12) * 5
-        app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=60, first=sync_first)
+        # Jobs periódicos — arrancan tarde para no competir con mensajes en vivo
+        sync_first = 200 + (self.distribuidor_id % 12) * 15
+        app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=120, first=sync_first)
         app.job_queue.run_repeating(self.cleanup_sessions_job,  interval=300, first=60)
         from services.objetivos_notification_service import objetivos_telegram_seguimiento_enabled
         if objetivos_telegram_seguimiento_enabled():

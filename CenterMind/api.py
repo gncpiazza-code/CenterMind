@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -122,13 +123,62 @@ _webhook_sem: asyncio.Semaphore | None = None
 def _webhook_concurrency_sem() -> asyncio.Semaphore:
     global _webhook_sem
     if _webhook_sem is None:
-        _webhook_sem = asyncio.Semaphore(int(os.getenv("SHELFY_WEBHOOK_CONCURRENCY", "80")))
+        _webhook_sem = asyncio.Semaphore(int(os.getenv("SHELFY_WEBHOOK_CONCURRENCY", "30")))
     return _webhook_sem
+
+
+def _telegram_update_age_sec(data: dict) -> float | None:
+    """Edad del update en segundos (None si no hay timestamp de mensaje)."""
+    ts: int | None = None
+    for branch in (
+        ("message",),
+        ("edited_message",),
+        ("channel_post",),
+        ("callback_query", "message"),
+    ):
+        obj: object = data
+        for key in branch:
+            if not isinstance(obj, dict):
+                obj = {}
+                break
+            obj = obj.get(key) or {}
+        if isinstance(obj, dict) and obj.get("date"):
+            ts = int(obj["date"])
+            break
+    if ts is None:
+        return None
+    return max(0.0, time.time() - ts)
+
+
+def _should_shed_telegram_update(data: dict) -> bool:
+    """Ignora backlog viejo o saturación post-arranque."""
+    from core.lifespan import API_STARTED_AT
+
+    age = _telegram_update_age_sec(data)
+    if age is None:
+        return False
+    boot_grace = int(os.getenv("SHELFY_BOOT_GRACE_SEC", "120"))
+    boot_max_age = int(os.getenv("SHELFY_BOOT_MAX_UPDATE_AGE", "20"))
+    normal_max_age = int(os.getenv("SHELFY_WEBHOOK_MAX_AGE_SEC", "600"))
+    since_boot = time.time() - (API_STARTED_AT or 0.0)
+    max_age = boot_max_age if since_boot < boot_grace else normal_max_age
+    return age > max_age
 
 
 async def _process_telegram_update(dist_id: int, data: dict) -> None:
     """Procesa update en background para responder 200 a Telegram de inmediato."""
-    async with _webhook_concurrency_sem():
+    if _should_shed_telegram_update(data):
+        logger.debug("[webhook] update viejo descartado dist=%s", dist_id)
+        return
+
+    sem = _webhook_concurrency_sem()
+    shed_wait = float(os.getenv("SHELFY_WEBHOOK_ACQUIRE_SEC", "0.15"))
+    try:
+        await asyncio.wait_for(sem.acquire(), timeout=shed_wait)
+    except asyncio.TimeoutError:
+        logger.warning("[webhook] carga alta — update descartado dist=%s", dist_id)
+        return
+    try:
         ptb_app = bots.get(dist_id)
         if not ptb_app:
             return
@@ -137,6 +187,8 @@ async def _process_telegram_update(dist_id: int, data: dict) -> None:
             await ptb_app.process_update(update)
         except Exception as e:
             logger.error(f"❌ Error procesando update bot {dist_id}: {e}")
+    finally:
+        sem.release()
 
 
 @app.post("/api/telegram/webhook/{id_distribuidor}", tags=["Telegram Webhook"])

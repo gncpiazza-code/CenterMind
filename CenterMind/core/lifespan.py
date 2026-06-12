@@ -8,6 +8,7 @@ Estado global compartido del servidor:
 """
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -136,6 +137,10 @@ async def lifespan(app: FastAPI):
             )
 
     def _shield_probe_job():
+        if os.getenv("SHELFY_SHIELD_PROBE", "1").strip() in ("0", "false", "no"):
+            return
+        if os.getenv("SHELFY_DB_CLEANUP", "0").strip() in ("1", "true", "yes"):
+            return
         try:
             from core.supabase_shield import shield
             from db import refresh_supabase_client_timeouts

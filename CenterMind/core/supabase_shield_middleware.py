@@ -16,6 +16,8 @@ async def supabase_shield_middleware(request: Request, call_next):
 
     if path in ("/health", "/") and method == "GET":
         return await call_next(request)
+    if path.startswith("/api/telegram/webhook/"):
+        return await call_next(request)
 
     if shield.shed_http_path(path, method):
         return JSONResponse(

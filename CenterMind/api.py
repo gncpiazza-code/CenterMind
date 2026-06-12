@@ -79,34 +79,17 @@ app.include_router(app_settings.router)
 @app.get("/health")
 async def health_check():
     from core.config import WEBHOOK_URL
-    from core.bot_registry import fetch_active_distribuidores
-    from core.supabase_errors import is_transient_supabase_error
     from core.supabase_shield import ShieldState, shield
+    from core.maintenance_middleware import is_maintenance_mode
 
     shield_status = shield.status()
     shield_state = shield_status.get("state", ShieldState.HEALTHY.value)
 
-    bots_expected: int | None = None
-    supabase_ok = shield_state == ShieldState.HEALTHY.value
-    if shield_state != ShieldState.OPEN.value:
-        try:
-            rows = await asyncio.to_thread(fetch_active_distribuidores, max_retries=1)
-            bots_expected = len(rows)
-            supabase_ok = True
-        except Exception as e:
-            supabase_ok = not is_transient_supabase_error(e)
-            shield.record_failure(e)
-            bots_expected = None
-    else:
-        bots_expected = None
-
+    # Health liviano: no consulta Supabase (evita colgar Railway durante limpieza DB).
     bots_active = list(bots.keys())
-    bots_healthy = (
-        bots_expected is not None
-        and bots_expected > 0
-        and len(bots_active) >= bots_expected
-    )
-    from core.maintenance_middleware import is_maintenance_mode
+    bots_expected = len(bots_active) if bots_active else None
+    bots_healthy = len(bots_active) >= 12 if bots_active else False
+    supabase_ok = shield_state != ShieldState.OPEN.value
 
     api_maintenance = is_maintenance_mode()
     portal_ok = supabase_ok and shield_state != ShieldState.OPEN.value and not api_maintenance
@@ -133,21 +116,31 @@ async def health_check():
 
 
 # ── Telegram Webhook ───────────────────────────────────────────────────────────
+async def _process_telegram_update(dist_id: int, data: dict) -> None:
+    """Procesa update en background para responder 200 a Telegram de inmediato."""
+    ptb_app = bots.get(dist_id)
+    if not ptb_app:
+        return
+    try:
+        update = Update.de_json(data, ptb_app.bot)
+        await ptb_app.process_update(update)
+    except Exception as e:
+        logger.error(f"❌ Error procesando update bot {dist_id}: {e}")
+
+
 @app.post("/api/telegram/webhook/{id_distribuidor}", tags=["Telegram Webhook"])
 async def telegram_webhook(id_distribuidor: int, request: Request):
     if id_distribuidor not in bots:
         logger.warning(f"⚠️ Webhook recibido para bot inactivo: {id_distribuidor}")
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Bot inactivo o no encontrado")
-    ptb_app = bots[id_distribuidor]
     try:
-        data   = await request.json()
-        update = Update.de_json(data, ptb_app.bot)
-        await ptb_app.process_update(update)
-        return {"ok": True}
+        data = await request.json()
     except Exception as e:
-        logger.error(f"❌ Error procesando webhook para bot {id_distribuidor}: {e}")
-        return {"ok": False, "error": str(e)}
+        logger.error(f"❌ Webhook JSON inválido bot {id_distribuidor}: {e}")
+        return {"ok": False, "error": "invalid json"}
+    asyncio.create_task(_process_telegram_update(id_distribuidor, data))
+    return {"ok": True}
 
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────

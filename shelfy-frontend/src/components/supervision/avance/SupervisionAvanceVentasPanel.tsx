@@ -106,7 +106,11 @@ export function SupervisionAvanceVentasPanel({
           </p>
         ) : (
           <p className="text-xs text-muted-foreground max-w-sm">
-            {query.error instanceof Error ? query.error.message : "Error desconocido"}
+            {query.error instanceof Error
+              ? query.error.name === "TimeoutError"
+                ? "La consulta tardó demasiado. Probá de nuevo o elegí un período más corto (Día)."
+                : query.error.message
+              : "Error desconocido"}
           </p>
         )}
       </div>

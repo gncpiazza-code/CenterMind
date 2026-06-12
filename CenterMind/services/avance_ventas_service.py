@@ -1444,25 +1444,6 @@ def build_avance_ventas(
 
         vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal_clean) or set()
 
-    def _agg_rango(
-        desde: str,
-        hasta: str,
-        *,
-        cod_hints: dict[str, str] | None = None,
-    ) -> dict:
-        lines = _fetch_avance_lines(dist_id, desde, hasta)
-        return aggregate_avance_lines(
-            lines,
-            dist_id=dist_id,
-            erp_name_map=erp_name_map,
-            match_indexes=match_indexes,
-            sucursal_norm=sucursal_norm,
-            vend_branch=vend_branch,
-            vendedor_norm=vendedor_norm,
-            cod_articulo_hints=cod_hints,
-            pdv_erp_filter=pdv_erp_filter,
-        )
-
     # Actual + referencias + cartera + catálogo + sync en paralelo
     # (fetches PostgREST independientes).
     from concurrent.futures import ThreadPoolExecutor
@@ -1491,11 +1472,15 @@ def build_avance_ventas(
         }
         lines_actual = fut_lines.result()
         lines_for_hints = list(lines_actual)
-        for fut in fut_ref_lines.values():
+        ref_lines_by_key: dict[str, list[dict]] = {}
+        for ref_key, fut in fut_ref_lines.items():
             try:
-                lines_for_hints.extend(fut.result())
+                ref_lines_by_key[ref_key] = fut.result()
+                lines_for_hints.extend(ref_lines_by_key[ref_key])
             except Exception as e:
-                logger.warning("[avance-ventas] líneas referencia hints dist=%s: %s", dist_id, e)
+                logger.warning(
+                    "[avance-ventas] líneas referencia %s dist=%s: %s", ref_key, dist_id, e
+                )
         try:
             catalogo = fut_catalogo.result()
         except Exception as e:
@@ -1504,29 +1489,28 @@ def build_avance_ventas(
         sku_hints = build_cod_articulo_hints(lines_for_hints, catalogo)
         if catalogo:
             catalogo = unify_catalog_entries(catalogo, hints=sku_hints)
-        fut_refs = {
-            ref_key: pool.submit(
-                _agg_rango,
-                rango["desde"],
-                rango["hasta"],
-                cod_hints=sku_hints,
+
+        def _agg_lines(lines: list[dict], *, cod_hints: dict[str, str] | None = None) -> dict:
+            return aggregate_avance_lines(
+                lines,
+                dist_id=dist_id,
+                erp_name_map=erp_name_map,
+                match_indexes=match_indexes,
+                sucursal_norm=sucursal_norm,
+                vend_branch=vend_branch,
+                vendedor_norm=vendedor_norm,
+                cod_articulo_hints=cod_hints or sku_hints,
+                pdv_erp_filter=pdv_erp_filter,
             )
-            for ref_key, rango in refs.items()
-        }
-        agg = aggregate_avance_lines(
-            lines_actual,
-            dist_id=dist_id,
-            erp_name_map=erp_name_map,
-            match_indexes=match_indexes,
-            sucursal_norm=sucursal_norm,
-            vend_branch=vend_branch,
-            vendedor_norm=vendedor_norm,
-            cod_articulo_hints=sku_hints,
-            pdv_erp_filter=pdv_erp_filter,
-        )
-        for ref_key, fut in fut_refs.items():
+
+        agg = _agg_lines(lines_actual)
+        for ref_key in refs:
+            ref_lines = ref_lines_by_key.get(ref_key)
+            if ref_lines is None:
+                agg_refs[ref_key] = None
+                continue
             try:
-                ref_agg = fut.result()
+                ref_agg = _agg_lines(ref_lines)
                 agg_refs[ref_key] = ref_agg if ref_agg["comprobantes"] > 0 else None
             except Exception as e:
                 logger.warning(

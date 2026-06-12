@@ -608,6 +608,8 @@ export function coerceDashboardRankingRows(raw: unknown): Record<string, unknown
 const BUNDLE_FETCH_TIMEOUT_MS = 8_000;
 /** Estadísticas: cold compute síncrono en cache miss (hasta ~10s). */
 const ESTADISTICAS_BUNDLE_FETCH_TIMEOUT_MS = 12_000;
+/** Avance ventas: compute pesado en Railway (T&H semana ~30s). */
+const AVANCE_VENTAS_FETCH_TIMEOUT_MS = 90_000;
 /** Normaliza listas de bundle que pudieron persistirse como dict indexado. */
 export function coerceBundleList<T>(raw: unknown): T[] {
   if (Array.isArray(raw)) return raw as T[];
@@ -2544,6 +2546,7 @@ export async function fetchAvanceVentasSupervision(
   if (cuenta && cuenta !== "equipo") qp.set("cuenta", cuenta);
   return apiFetch<AvanceVentasResponse>(
     `/api/supervision/avance-ventas/${distId}?${qp.toString()}`,
+    { signal: AbortSignal.timeout(AVANCE_VENTAS_FETCH_TIMEOUT_MS) },
   );
 }
 

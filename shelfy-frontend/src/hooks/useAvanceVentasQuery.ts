@@ -24,8 +24,11 @@ import {
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import { PATRON_CUENTA_EQUIPO } from "@/components/estadisticas/PatronCuentaSelector";
 
+import { AVANCE_VENTAS_WARM_DELAY_MS } from "@/lib/query-cache-constants";
+
 export const AVANCE_VENTAS_STALE = 5 * 60_000;
 export const AVANCE_VENTAS_GC_MS = 15 * 60_000;
+export { AVANCE_VENTAS_FETCH_TIMEOUT_MS } from "@/lib/query-cache-constants";
 
 function avanceVentasKey(
   distId: number,
@@ -143,17 +146,19 @@ export function prefetchAvanceVentasPortalEntry(queryClient: QueryClient, distId
       primary.sucursal,
       primary.vendedor,
       primary.patronCuenta,
+      { modo: primary.modo, fecha: primary.fecha },
     );
   }
 }
 
-/** Precarga día + semana + mes en curso al activar modo avance. */
+/** Precarga día + semana + mes en curso (secuencial, diferido; no compite con panel visible). */
 export function prefetchAvanceVentasWarm(
   queryClient: QueryClient,
   distId: number,
   sucursal?: string | null,
   vendedor?: string | null,
   cuenta?: string | null,
+  skip?: { modo: AvanceVentasModo; fecha: string },
 ) {
   if (distId <= 0) return;
   const hoy = todayIsoAr();
@@ -161,12 +166,29 @@ export function prefetchAvanceVentasWarm(
     ["dia", hoy],
     ["semana", mondayOfWeek(hoy)],
     ["mes", `${hoy.slice(0, 7)}-01`],
-  ];
-  void Promise.all(
-    targets.map(([modo, fecha]) =>
-      prefetchAvanceVentas(queryClient, distId, modo, fecha, sucursal, vendedor, cuenta),
-    ),
+  ].filter(
+    ([modo, fecha]) => !(skip && skip.modo === modo && skip.fecha === fecha),
   );
+  if (targets.length === 0) return;
+  window.setTimeout(() => {
+    void (async () => {
+      for (const [modo, fecha] of targets) {
+        try {
+          await prefetchAvanceVentas(
+            queryClient,
+            distId,
+            modo,
+            fecha,
+            sucursal,
+            vendedor,
+            cuenta,
+          );
+        } catch {
+          /* warm best-effort */
+        }
+      }
+    })();
+  }, AVANCE_VENTAS_WARM_DELAY_MS);
 }
 
 export function avanceVentasQueryOptions(
@@ -234,6 +256,7 @@ export function useAvanceVentasQuery({
     ...avanceVentasQueryOptions(distId, modo, fecha, sucursal, vendedor, cuenta),
     enabled: enabled && distId > 0 && !!fecha,
     placeholderData: keepPreviousData,
+    retry: 1,
   });
 }
 

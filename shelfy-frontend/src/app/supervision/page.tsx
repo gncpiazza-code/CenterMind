@@ -282,6 +282,7 @@ export default function SupervisionPage() {
       sucursalParam ?? null,
       selectedVendedorNombre,
       patronCuentaAvance,
+      { modo: avanceModo, fecha: avanceFecha },
     );
     // sucursal/vendedor omitidos a propósito: warm corre con filtros vigentes al cambiar modo/fecha.
     // eslint-disable-next-line react-hooks/exhaustive-deps

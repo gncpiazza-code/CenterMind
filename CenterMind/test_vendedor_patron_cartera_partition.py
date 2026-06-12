@@ -1,18 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Tests partición cartera patrón (Monchi + Jorge = Equipo)."""
+"""Tests partición cartera patrón (Monchi + Jorge = Equipo, agrupado por ciudad)."""
 import os
 import sys
-from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from core.ivan_soto_zona_geografica import build_ivan_soto_city_owner
 from services.vendedor_patron_cartera_service import (
-    RUTA_TAKEOVER_MIN_PDVS,
-    _build_ruta_owner_by_ex,
-    _build_ruta_takeover,
-    _pdvs_con_exhibicion_por_ruta,
+    _assign_pdv_owner,
+    _build_city_owner_by_ex,
     _score_cuenta,
+    build_erp_canonical_lookup,
     build_patron_cartera_partition,
+    normalize_cliente_erp_key,
+    normalize_localidad,
+    resolve_canonical_erp,
 )
 
 
@@ -40,7 +42,7 @@ class _ChainStub:
 
 
 class _SbPartitionStub:
-    """Stub mínimo: 4 PDVs, 2 rutas, ex Monchi domina ruta 1."""
+    """4 PDVs en 2 ciudades — reparto por localidad."""
 
     def table(self, name):
         if name == "integrantes_grupo":
@@ -50,33 +52,31 @@ class _SbPartitionStub:
                     {"id_integrante": 352},
                 ]
             )
-        if name.endswith("rutas_v2_d3") or "rutas_v2" in name:
+        if "rutas_v2" in name:
             return _ChainStub([{"id_ruta": 1}, {"id_ruta": 2}])
-        if name.endswith("clientes_pdv_v2_d3") or "clientes_pdv_v2" in name:
+        if "clientes_pdv_v2" in name:
             return _ChainStub(
                 [
-                    {"id_cliente_erp": "A", "id_ruta": 1},
-                    {"id_cliente_erp": "B", "id_ruta": 1},
-                    {"id_cliente_erp": "C", "id_ruta": 2},
-                    {"id_cliente_erp": "D", "id_ruta": 2},
-                ]
-            )
-        if name.endswith("exhibiciones_d3") or "exhibiciones" in name:
-            return _ChainStub(
-                [
-                    {
-                        "id_integrante": 300,
-                        "cliente_sombra_codigo": "A",
-                        "timestamp_subida": "2026-01-01T10:00:00-03:00",
-                    },
-                    {
-                        "id_integrante": 352,
-                        "cliente_sombra_codigo": "C",
-                        "timestamp_subida": "2026-01-02T10:00:00-03:00",
-                    },
+                    {"id_cliente_erp": "A", "id_ruta": 1, "localidad": "LAS TOSCAS"},
+                    {"id_cliente_erp": "B", "id_ruta": 1, "localidad": "LAS TOSCAS"},
+                    {"id_cliente_erp": "C", "id_ruta": 2, "localidad": "VILLA OCAMPO"},
+                    {"id_cliente_erp": "D", "id_ruta": 2, "localidad": "VILLA OCAMPO"},
                 ]
             )
         return _ChainStub([])
+
+
+def test_normalize_cliente_erp_key():
+    assert normalize_cliente_erp_key("03434") == "3434"
+    assert normalize_cliente_erp_key("3434") == "3434"
+    lookup = build_erp_canonical_lookup({"3434", "1010"})
+    assert resolve_canonical_erp("03434", lookup) == "3434"
+    assert resolve_canonical_erp("01010", lookup) == "1010"
+
+
+def test_normalize_localidad():
+    assert normalize_localidad("  villa ocampo ") == "VILLA OCAMPO"
+    assert normalize_localidad(None) == "SIN_CIUDAD"
 
 
 def test_score_cuenta():
@@ -85,32 +85,79 @@ def test_score_cuenta():
     assert _score_cuenta("A", {352}, ex) == 1
 
 
-def test_ruta_owner_by_ex():
-    ex = {(300, "A"): 5, (300, "B"): 2, (352, "C"): 4}
-    erp_to_ruta = {"A": 1, "B": 1, "C": 2}
-    owners = _build_ruta_owner_by_ex(ex, {300}, {352}, erp_to_ruta)
-    assert owners[1] == "monchi"
-    assert owners[2] == "jorge_coronel"
+def test_city_owner_by_ex():
+    ex = {
+        (300, "A"): 5,
+        (300, "B"): 2,
+        (352, "C"): 4,
+        (352, "D"): 1,
+    }
+    erp_localidad = {
+        "A": "LAS TOSCAS",
+        "B": "LAS TOSCAS",
+        "C": "VILLA OCAMPO",
+        "D": "VILLA OCAMPO",
+    }
+    owners = _build_city_owner_by_ex(ex, erp_localidad, {300}, {352})
+    assert owners["LAS TOSCAS"] == "monchi"
+    assert owners["VILLA OCAMPO"] == "jorge_coronel"
 
 
-def test_ruta_takeover_when_five_plus_pdvs():
-    erp_to_ruta = {f"M{i}": 1 for i in range(5)} | {"M5": 1, "SIN_EX": 1, "J1": 2}
-    ex = {(300, f"M{i}"): 1 for i in range(5)} | {(352, "J1"): 1}
-    monchi_by, jorge_by = _pdvs_con_exhibicion_por_ruta(ex, {300}, {352}, erp_to_ruta)
-    takeover = _build_ruta_takeover(monchi_by, jorge_by, min_pdvs=RUTA_TAKEOVER_MIN_PDVS)
-    assert takeover[1] == "monchi"
-    assert 2 not in takeover
+def test_assign_pdv_owner_pdv_signal_overrides_city():
+    ex = {(300, "A"): 2, (352, "B"): 3}
+    erp_localidad = {"A": "LAS TOSCAS", "B": "LAS TOSCAS"}
+    city_owner = {"LAS TOSCAS": "monchi"}
+    owner_a, reason_a = _assign_pdv_owner(
+        "A", {300}, {352}, ex, erp_localidad, city_owner
+    )
+    owner_b, reason_b = _assign_pdv_owner(
+        "B", {300}, {352}, ex, erp_localidad, city_owner
+    )
+    assert owner_a == "monchi"
+    assert owner_b == "jorge_coronel"
+    assert reason_a == "exhibiciones_pdv"
+    assert reason_b == "exhibiciones_pdv"
 
 
-def test_route_takeover_assigns_pdvs_without_movement(monkeypatch):
-    """5+ ex en ruta → todos los PDVs de la ruta, incluso sin exhibición."""
-    pdvs_ruta1 = [{"id_cliente_erp": f"R1_{i}", "id_ruta": 1} for i in range(7)]
-    sb_data = pdvs_ruta1 + [{"id_cliente_erp": "R2_0", "id_ruta": 2}]
+def test_assign_pdv_owner_geographic():
+    ex = {}
+    erp_localidad = {"X": "VILLA OCAMPO", "Y": "VILLA ANA"}
+    city_owner = build_ivan_soto_city_owner(set(erp_localidad.values()))
+    owner_vo, reason_vo = _assign_pdv_owner(
+        "X", {300}, {352}, ex, erp_localidad, city_owner, geographic=True
+    )
+    owner_va, reason_va = _assign_pdv_owner(
+        "Y", {300}, {352}, ex, erp_localidad, city_owner, geographic=True
+    )
+    assert owner_vo == "jorge_coronel"
+    assert owner_va == "jorge_coronel"
+    assert reason_vo == "geografia"
+    assert reason_va == "geografia"
 
-    class _SbTakeoverStub:
+
+def test_assign_pdv_owner_falls_back_to_city_by_ex():
+    ex = {}
+    erp_localidad = {"X": "VILLA OCAMPO"}
+    city_owner = {"VILLA OCAMPO": "jorge_coronel"}
+    owner, reason = _assign_pdv_owner(
+        "X", {300}, {352}, ex, erp_localidad, city_owner, geographic=False
+    )
+    assert owner == "jorge_coronel"
+    assert reason == "ciudad"
+
+
+def test_city_partition_villa_ocampo_to_jorge(monkeypatch):
+    """Toda una ciudad sin ex directa en PDV va al dueño de la ciudad."""
+    sb_data = [
+        {"id_cliente_erp": f"VO_{i}", "id_ruta": 1, "localidad": "VILLA OCAMPO"}
+        for i in range(5)
+    ] + [
+        {"id_cliente_erp": f"LT_{i}", "id_ruta": 2, "localidad": "LAS TOSCAS"}
+        for i in range(3)
+    ]
+
+    class _SbStub:
         def table(self, name):
-            if name == "integrantes_grupo":
-                return _ChainStub([{"id_integrante": 300}, {"id_integrante": 352}])
             if "rutas_v2" in name:
                 return _ChainStub([{"id_ruta": 1}, {"id_ruta": 2}])
             if "clientes_pdv_v2" in name:
@@ -118,19 +165,25 @@ def test_route_takeover_assigns_pdvs_without_movement(monkeypatch):
             return _ChainStub([])
 
     def _fake_paginate(_sb, _dist, integrante_ids, _fd, _fh):
-        if 300 not in integrante_ids:
-            return []
-        return [
-            {"id_integrante": 300, "cliente_sombra_codigo": f"R1_{i}"}
-            for i in range(RUTA_TAKEOVER_MIN_PDVS)
-        ]
+        rows = []
+        if 300 in integrante_ids:
+            rows.extend(
+                {"id_integrante": 300, "cliente_sombra_codigo": f"LT_{i}"}
+                for i in range(3)
+            )
+        if 352 in integrante_ids:
+            rows.extend(
+                {"id_integrante": 352, "cliente_sombra_codigo": f"VO_{i}"}
+                for i in range(5)
+            )
+        return rows
 
     monkeypatch.setattr(
         "services.vendedor_patron_cartera_service._paginate_exhibiciones",
         _fake_paginate,
     )
     part = build_patron_cartera_partition(
-        _SbTakeoverStub(),
+        _SbStub(),
         3,
         30,
         [
@@ -141,8 +194,14 @@ def test_route_takeover_assigns_pdvs_without_movement(monkeypatch):
         fecha_hasta="2026-06-01",
     )
     monchi = part["by_cuenta"]["monchi"]
-    assert all(f"R1_{i}" in monchi for i in range(7))
-    assert part["asignacion_cartera"]["desde_ruta_takeover"] == 7
+    jorge = part["by_cuenta"]["jorge_coronel"]
+    assert all(erp.startswith("LT_") for erp in monchi)
+    assert all(erp.startswith("VO_") for erp in jorge)
+    assert len(monchi) == 3
+    assert len(jorge) == 5
+    assert "VILLA OCAMPO" in part["asignacion_cartera"]["ciudades_jorge_coronel"]
+    assert "LAS TOSCAS" in part["asignacion_cartera"]["ciudades_monchi"]
+    assert part["asignacion_cartera"].get("modo") == "geografia_ivan_soto"
 
 
 def test_partition_sums_to_equipo(monkeypatch):
@@ -155,9 +214,15 @@ def test_partition_sums_to_equipo(monkeypatch):
     def _fake_paginate(_sb, _dist, integrante_ids, _fd, _fh):
         rows = []
         if 300 in integrante_ids:
-            rows.append({"id_integrante": 300, "cliente_sombra_codigo": "A"})
+            rows.extend(
+                {"id_integrante": 300, "cliente_sombra_codigo": erp}
+                for erp in ("A", "B")
+            )
         if 352 in integrante_ids:
-            rows.append({"id_integrante": 352, "cliente_sombra_codigo": "C"})
+            rows.extend(
+                {"id_integrante": 352, "cliente_sombra_codigo": erp}
+                for erp in ("C", "D")
+            )
         return rows
 
     monkeypatch.setattr(
@@ -181,5 +246,5 @@ def test_partition_sums_to_equipo(monkeypatch):
     assert monchi | jorge == equipo
     assert monchi & jorge == set()
     assert len(monchi) + len(jorge) == len(equipo)
-    assert "A" in monchi
-    assert "C" in jorge
+    assert monchi == {"A", "B"}
+    assert jorge == {"C", "D"}

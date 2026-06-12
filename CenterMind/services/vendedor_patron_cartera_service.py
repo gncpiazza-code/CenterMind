@@ -15,19 +15,116 @@ from supabase import Client
 
 from core.exhibicion_aggregate import EXHIBICION_ROW_COLS
 from core.helpers import tenant_table_name
+from core.ivan_soto_zona_geografica import (
+    build_ivan_soto_city_owner,
+    is_ivan_soto_geographic_partition,
+    normalize_localidad_zona,
+    resolve_ivan_soto_localidad_cuenta,
+)
 
 logger = logging.getLogger("ShelfyAPI")
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 PAGE = 1000
 LOOKBACK_DAYS_DEFAULT = 120
-# PDVs distintos con exhibición en la ruta → toda la ruta de esa cuenta (sin exigir movimiento en cada PDV).
-RUTA_TAKEOVER_MIN_PDVS = 5
 
 
 def _default_fecha_bounds(lookback_days: int = LOOKBACK_DAYS_DEFAULT) -> tuple[str, str]:
     hoy = datetime.now(AR_TZ).date()
     desde = hoy - timedelta(days=max(1, lookback_days))
     return desde.isoformat(), hoy.isoformat()
+
+
+def normalize_cliente_erp_key(erp: str) -> str:
+    """Unifica ERP numérico (ej. 03434 → 3434) para matchear sombra vs padrón."""
+    s = str(erp or "").strip()
+    if not s:
+        return s
+    if s.isdigit():
+        return s.lstrip("0") or "0"
+    return s
+
+
+def build_erp_canonical_lookup(cartera_erps: set[str]) -> dict[str, str]:
+    """Mapea variantes de sombra/padrón al id_cliente_erp canónico de la cartera."""
+    lookup: dict[str, str] = {}
+    for erp in cartera_erps:
+        lookup[erp] = erp
+        lookup.setdefault(normalize_cliente_erp_key(erp), erp)
+        if erp.isdigit():
+            for width in (4, 5, 6):
+                lookup.setdefault(erp.zfill(width), erp)
+    return lookup
+
+
+def resolve_canonical_erp(erp: str, lookup: dict[str, str] | None) -> str:
+    s = str(erp or "").strip()
+    if not s:
+        return s
+    if not lookup:
+        return s
+    return lookup.get(s) or lookup.get(normalize_cliente_erp_key(s)) or s
+
+
+def normalize_localidad(localidad: str | None) -> str:
+    return (localidad or "").strip().upper() or "SIN_CIUDAD"
+
+
+def _load_erp_localidad_map(
+    sb: Client,
+    dist_id: int,
+    erps: set[str],
+) -> dict[str, str]:
+    """id_cliente_erp → localidad normalizada."""
+    if not erps:
+        return {}
+    t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
+    out: dict[str, str] = {}
+    erp_list = list(erps)
+    for i in range(0, len(erp_list), 200):
+        batch = erp_list[i : i + 200]
+        offset = 0
+        while True:
+            chunk = (
+                sb.table(t_pdv)
+                .select("id_cliente_erp,localidad")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_erp", batch)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+            for row in chunk:
+                erp = str(row.get("id_cliente_erp") or "").strip()
+                if erp:
+                    out[erp] = normalize_localidad(row.get("localidad"))
+            if len(chunk) < PAGE:
+                break
+            offset += PAGE
+    return out
+
+
+def _build_city_owner_by_ex(
+    ex_count: dict[tuple[int, str], int],
+    erp_localidad: dict[str, str],
+    monchi_iids: set[int],
+    jorge_iids: set[int],
+) -> dict[str, str]:
+    """Integrante dominante por ciudad según volumen de exhibiciones."""
+    city_monchi: dict[str, int] = defaultdict(int)
+    city_jorge: dict[str, int] = defaultdict(int)
+    for (iid, erp), cnt in ex_count.items():
+        city = erp_localidad.get(erp, "SIN_CIUDAD")
+        if iid in monchi_iids:
+            city_monchi[city] += cnt
+        elif iid in jorge_iids:
+            city_jorge[city] += cnt
+    owners: dict[str, str] = {}
+    for city in set(city_monchi.keys()) | set(city_jorge.keys()):
+        m = city_monchi.get(city, 0)
+        j = city_jorge.get(city, 0)
+        owners[city] = "monchi" if m >= j else "jorge_coronel"
+    return owners
 
 
 def _paginate_exhibiciones(
@@ -227,6 +324,8 @@ def _build_ex_count_by_integrante_erp(
     fecha_desde: str,
     fecha_hasta: str,
     erp_to_ruta: dict[str, int],
+    *,
+    erp_canonical: dict[str, str] | None = None,
 ) -> dict[tuple[int, str], int]:
     """Conteo exhibiciones (integrante, erp) en ventana."""
     if not integrante_ids:
@@ -262,6 +361,7 @@ def _build_ex_count_by_integrante_erp(
             except (TypeError, ValueError):
                 pass
         if erp:
+            erp = resolve_canonical_erp(erp, erp_canonical)
             ex_count[(iid, erp)] += 1
             if erp not in erp_to_ruta:
                 rid = ex.get("id_ruta")
@@ -271,56 +371,6 @@ def _build_ex_count_by_integrante_erp(
                     except (TypeError, ValueError):
                         pass
     return ex_count
-
-
-def _pdvs_con_exhibicion_por_ruta(
-    ex_count: dict[tuple[int, str], int],
-    monchi_iids: set[int],
-    jorge_iids: set[int],
-    erp_to_ruta: dict[str, int],
-) -> tuple[dict[int, set[str]], dict[int, set[str]]]:
-    """PDVs distintos con al menos una exhibición del integrante en esa ruta."""
-    monchi_by_ruta: dict[int, set[str]] = defaultdict(set)
-    jorge_by_ruta: dict[int, set[str]] = defaultdict(set)
-    for (iid, erp), cnt in ex_count.items():
-        if cnt <= 0:
-            continue
-        rid = erp_to_ruta.get(erp)
-        if rid is None:
-            continue
-        if iid in monchi_iids:
-            monchi_by_ruta[rid].add(erp)
-        elif iid in jorge_iids:
-            jorge_by_ruta[rid].add(erp)
-    return monchi_by_ruta, jorge_by_ruta
-
-
-def _build_ruta_takeover(
-    monchi_by_ruta: dict[int, set[str]],
-    jorge_by_ruta: dict[int, set[str]],
-    *,
-    min_pdvs: int = RUTA_TAKEOVER_MIN_PDVS,
-) -> dict[int, str]:
-    """
-    Si Monchi o Jorge tienen >= min_pdvs con exhibición en la misma ruta,
-    toda la ruta queda de esa cuenta (incluye PDVs sin movimiento).
-    """
-    all_rutas = set(monchi_by_ruta.keys()) | set(jorge_by_ruta.keys())
-    takeover: dict[int, str] = {}
-    for rid in all_rutas:
-        m_n = len(monchi_by_ruta.get(rid, set()))
-        j_n = len(jorge_by_ruta.get(rid, set()))
-        if m_n >= min_pdvs and m_n > j_n:
-            takeover[rid] = "monchi"
-        elif j_n >= min_pdvs and j_n > m_n:
-            takeover[rid] = "jorge_coronel"
-        elif m_n >= min_pdvs and j_n >= min_pdvs:
-            takeover[rid] = "monchi" if m_n >= j_n else "jorge_coronel"
-        elif m_n >= min_pdvs:
-            takeover[rid] = "monchi"
-        elif j_n >= min_pdvs:
-            takeover[rid] = "jorge_coronel"
-    return takeover
 
 
 def _build_ruta_owner_by_ex(
@@ -357,6 +407,37 @@ def _score_cuenta(
     return sum(ex_count.get((iid, erp), 0) for iid in integrante_ids)
 
 
+def _assign_pdv_owner(
+    erp: str,
+    monchi_iids: set[int],
+    jorge_iids: set[int],
+    ex_count: dict[tuple[int, str], int],
+    erp_localidad: dict[str, str],
+    city_owner: dict[str, str],
+    *,
+    geographic: bool = False,
+) -> tuple[str, str]:
+    """
+    Dueño del PDV por localidad. Ivan Soto usa zonas fijas (geographic=True).
+    Otros patrones: exhibición en el PDV, si no dueño de la ciudad por ex agregada.
+    """
+    city = normalize_localidad_zona(erp_localidad.get(erp))
+    if geographic:
+        owner = city_owner.get(city)
+        if not owner:
+            owner = resolve_ivan_soto_localidad_cuenta(city) or "monchi"
+        return owner, "geografia"
+
+    m_score = _score_cuenta(erp, monchi_iids, ex_count)
+    j_score = _score_cuenta(erp, jorge_iids, ex_count)
+    if m_score > j_score:
+        return "monchi", "exhibiciones_pdv"
+    if j_score > m_score:
+        return "jorge_coronel", "exhibiciones_pdv"
+    owner = city_owner.get(city, "monchi")
+    return owner, "ciudad"
+
+
 def build_patron_cartera_partition(
     sb: Client,
     dist_id: int,
@@ -371,9 +452,8 @@ def build_patron_cartera_partition(
     Partición exhaustiva y disjunta de la cartera ERP del líder entre cuentas
     operativas (Monchi / Jorge). Monchi + Jorge = Equipo.
 
-    Regla principal: si una cuenta tiene >=5 PDVs con exhibición en la misma ruta,
-    toda esa ruta (todos los PDVs, con o sin movimiento) queda asignada a esa cuenta.
-    El resto se resuelve PDV a PDV por exhibiciones; empates → dueño de ruta por volumen ex.
+    Ivan Soto (Tabaco): partición geográfica por localidad — Monchi Tacuarendí→Basail,
+    Jorge Villa Ocampo sur/oeste. Otros patrones: dueño por exhibiciones en la ciudad.
     """
     if not fecha_desde or not fecha_hasta:
         fecha_desde, fecha_hasta = _default_fecha_bounds(lookback_days)
@@ -402,81 +482,102 @@ def build_patron_cartera_partition(
             jorge_iids = set(spec["integrante_ids"])
 
     all_erps, erp_to_ruta, ruta_ids = _fetch_leader_cartera_erps(sb, dist_id, leader_vid)
-    team_ids: list[int] = []
-    for spec in partition_cuentas:
-        if spec.get("integrante_ids"):
-            team_ids.append(int(spec["integrante_ids"][0]))
-    ivan_spec = next((c for c in cuenta_specs if c.get("id") == "ivan_soto"), None)
-    if ivan_spec and ivan_spec.get("integrante_ids"):
-        team_ids.extend(int(x) for x in ivan_spec["integrante_ids"])
-    team_ids = list(dict.fromkeys(team_ids))
-    ex_count = _build_ex_count_by_integrante_erp(
-        sb, dist_id, team_ids, fecha_desde, fecha_hasta, erp_to_ruta
-    )
-    ruta_to_erps: dict[int, set[str]] = defaultdict(set)
-    for erp in all_erps:
-        rid = erp_to_ruta.get(erp)
-        if rid is not None:
-            ruta_to_erps[rid].add(erp)
+    erp_localidad_raw = _load_erp_localidad_map(sb, dist_id, all_erps)
+    erp_localidad = {
+        erp: normalize_localidad_zona(loc) for erp, loc in erp_localidad_raw.items()
+    }
+    geographic = is_ivan_soto_geographic_partition(dist_id, leader_vid)
+    ex_count: dict[tuple[int, str], int] = {}
 
-    monchi_by_ruta, jorge_by_ruta = _pdvs_con_exhibicion_por_ruta(
-        ex_count, monchi_iids, jorge_iids, erp_to_ruta
-    )
-    ruta_takeover = _build_ruta_takeover(monchi_by_ruta, jorge_by_ruta)
-    ruta_owner = _build_ruta_owner_by_ex(ex_count, monchi_iids, jorge_iids, erp_to_ruta)
+    if geographic:
+        city_owner = build_ivan_soto_city_owner(set(erp_localidad.values()))
+    else:
+        erp_canonical = build_erp_canonical_lookup(all_erps)
+        team_ids: list[int] = []
+        for spec in partition_cuentas:
+            if spec.get("integrante_ids"):
+                team_ids.append(int(spec["integrante_ids"][0]))
+        ivan_spec = next((c for c in cuenta_specs if c.get("id") == "ivan_soto"), None)
+        if ivan_spec and ivan_spec.get("integrante_ids"):
+            team_ids.extend(int(x) for x in ivan_spec["integrante_ids"])
+        team_ids = list(dict.fromkeys(team_ids))
+        ex_count = _build_ex_count_by_integrante_erp(
+            sb,
+            dist_id,
+            team_ids,
+            fecha_desde,
+            fecha_hasta,
+            erp_to_ruta,
+            erp_canonical=erp_canonical,
+        )
+        city_owner = _build_city_owner_by_ex(
+            ex_count, erp_localidad, monchi_iids, jorge_iids
+        )
+        for city in set(erp_localidad.values()):
+            city_owner.setdefault(city, "monchi")
 
     by_cuenta: dict[str, set[str]] = {spec["id"]: set() for spec in partition_cuentas}
-    assigned: set[str] = set()
-    desde_ruta_takeover = 0
-    desde_exhibiciones = 0
-    desde_ruta_fallback = 0
+    desde_exhibiciones_pdv = 0
+    desde_ciudad = 0
+    desde_geografia = 0
+    ciudades_monchi: list[str] = []
+    ciudades_jorge: list[str] = []
+    localidades_sin_catalogar: list[str] = []
 
-    for rid, owner in ruta_takeover.items():
-        for erp in ruta_to_erps.get(rid, set()):
-            if erp in assigned:
-                continue
-            by_cuenta[owner].add(erp)
-            assigned.add(erp)
-            desde_ruta_takeover += 1
+    for city, owner in sorted(city_owner.items()):
+        if owner == "jorge_coronel":
+            ciudades_jorge.append(city)
+        else:
+            ciudades_monchi.append(city)
 
     for erp in all_erps:
-        if erp in assigned:
-            continue
-        m_score = _score_cuenta(erp, monchi_iids, ex_count)
-        j_score = _score_cuenta(erp, jorge_iids, ex_count)
-        if m_score > j_score:
-            owner = "monchi"
-            desde_exhibiciones += 1
-        elif j_score > m_score:
-            owner = "jorge_coronel"
-            desde_exhibiciones += 1
-        else:
-            rid = erp_to_ruta.get(erp)
-            owner = ruta_owner.get(rid, "monchi") if rid is not None else "monchi"
-            desde_ruta_fallback += 1
+        owner, reason = _assign_pdv_owner(
+            erp,
+            monchi_iids,
+            jorge_iids,
+            ex_count,
+            erp_localidad,
+            city_owner,
+            geographic=geographic,
+        )
         by_cuenta[owner].add(erp)
-        assigned.add(erp)
+        if reason == "geografia":
+            desde_geografia += 1
+            city = erp_localidad.get(erp, "SIN_CIUDAD")
+            if city not in city_owner and city not in localidades_sin_catalogar:
+                localidades_sin_catalogar.append(city)
+        elif reason == "exhibiciones_pdv":
+            desde_exhibiciones_pdv += 1
+        else:
+            desde_ciudad += 1
 
     monchi_n = len(by_cuenta.get("monchi", set()))
     jorge_n = len(by_cuenta.get("jorge_coronel", set()))
+    asignacion: dict = {
+        "pdv_count_equipo": len(all_erps),
+        "pdv_count_monchi": monchi_n,
+        "pdv_count_jorge_coronel": jorge_n,
+        "ciudades_monchi": ciudades_monchi,
+        "ciudades_jorge_coronel": ciudades_jorge,
+        "lookback_dias": lookback_days,
+        "periodo_desde": fecha_desde,
+        "periodo_hasta": fecha_hasta,
+        "actualizado_at": datetime.now(AR_TZ).isoformat(),
+    }
+    if geographic:
+        asignacion["modo"] = "geografia_ivan_soto"
+        asignacion["desde_geografia"] = desde_geografia
+        if localidades_sin_catalogar:
+            asignacion["localidades_sin_catalogar"] = localidades_sin_catalogar
+    else:
+        asignacion["desde_exhibiciones_pdv"] = desde_exhibiciones_pdv
+        asignacion["desde_ciudad"] = desde_ciudad
+
     return {
         "equipo_erps": all_erps,
         "by_cuenta": by_cuenta,
         "ruta_ids": ruta_ids,
-        "asignacion_cartera": {
-            "pdv_count_equipo": len(all_erps),
-            "pdv_count_monchi": monchi_n,
-            "pdv_count_jorge_coronel": jorge_n,
-            "desde_exhibiciones": desde_exhibiciones,
-            "desde_ruta_takeover": desde_ruta_takeover,
-            "desde_ruta_fallback": desde_ruta_fallback,
-            "ruta_takeover_min_pdvs": RUTA_TAKEOVER_MIN_PDVS,
-            "rutas_takeover": len(ruta_takeover),
-            "lookback_dias": lookback_days,
-            "periodo_desde": fecha_desde,
-            "periodo_hasta": fecha_hasta,
-            "actualizado_at": datetime.now(AR_TZ).isoformat(),
-        },
+        "asignacion_cartera": asignacion,
     }
 
 

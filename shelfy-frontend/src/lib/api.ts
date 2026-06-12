@@ -4009,6 +4009,13 @@ export interface VendorDetalle {
     pdv_count_monchi?: number;
     pdv_count_jorge_coronel?: number;
     desde_exhibiciones?: number;
+    desde_exhibiciones_pdv?: number;
+    desde_ciudad?: number;
+    desde_geografia?: number;
+    modo?: string;
+    localidades_sin_catalogar?: string[];
+    ciudades_monchi?: string[];
+    ciudades_jorge_coronel?: string[];
     desde_ventas?: number;
     desde_ruta_o_default?: number;
     lookback_dias: number;

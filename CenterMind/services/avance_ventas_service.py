@@ -65,8 +65,11 @@ def _resolve_avance_patron_erp_filter(
     if dist_id != TABACO_DIST_ID or not vendedor_clean or not _is_ivan_soto(vendedor_clean):
         return None, None
     cuenta_clean = (cuenta or "").strip().lower()
+    from services.vendedor_patron_cartera_service import get_patron_cartera_for_cuenta
+
     if cuenta_clean in ("", PATRON_CUENTA_EQUIPO, "__equipo__"):
-        return None, None
+        _, meta = get_patron_cartera_for_cuenta(sb, dist_id, IVAN_SOTO_V2_ID, PATRON_CUENTA_EQUIPO)
+        return None, meta
     scope = resolve_patron_scope(sb, dist_id, IVAN_SOTO_V2_ID, cuenta_clean)
     erp_filter, asignacion = resolve_patron_cartera_filter(
         sb, dist_id, IVAN_SOTO_V2_ID, scope

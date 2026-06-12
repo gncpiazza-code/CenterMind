@@ -16,7 +16,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, File, Form, UploadFile
 from pydantic import BaseModel
 
-from core.security import verify_auth, check_dist_permission
+from core.security import verify_auth, check_dist_permission, normalize_rol
 from core.vendedor_app_auth import decode_session_jwt
 from core.vendedor_app_patron_scope import resolve_patron_scope, resolve_patron_cartera_filter, list_patron_cuentas
 from core.pdv_proximity import pdvs_cercanos_cartera, pdv_buscar_texto
@@ -1080,3 +1080,62 @@ def get_estadisticas_resumen(
             f"get_estadisticas_resumen dist={dist_id} vendor={vendor_id} meses={meses}: {e}"
         )
         raise HTTPException(status_code=500, detail="Error obteniendo KPIs")
+
+
+# ─── Releases APK (distribución interna SHELFYAPP) ───────────────────────────
+
+
+def _require_release_admin(user_payload: dict) -> None:
+    rol = normalize_rol(user_payload.get("rol", ""))
+    if rol not in ("superadmin", "admin") and not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo admin puede publicar releases de la app")
+
+
+@router.get(
+    "/releases/latest",
+    summary="Consultar si hay APK más nuevo para este flavor/build",
+)
+def get_releases_latest(
+    flavor: str = Query("tabaco", description="Flavor Android (tabaco, aloma, …)"),
+    build_number: int = Query(..., description="versionCode instalado en el dispositivo"),
+    session: dict = Depends(vendedor_session_dep),
+):
+    from services.vendedor_app_release_service import get_latest_release
+
+    _ = session  # requiere sesión vendedor_app activa
+    return get_latest_release(sb, flavor=flavor, build_number=build_number)
+
+
+@router.post(
+    "/releases/publish",
+    summary="Publicar APK interno (admin) — sube a Storage y activa release",
+    status_code=201,
+)
+async def post_releases_publish(
+    flavor: str = Form("tabaco"),
+    version_name: str = Form(...),
+    build_number: int = Form(...),
+    changelog: str | None = Form(None),
+    mandatory: bool = Form(False),
+    min_supported_build: int | None = Form(None),
+    apk: UploadFile = File(...),
+    user_payload: dict = Depends(verify_auth),
+):
+    from services.vendedor_app_release_service import publish_release_apk
+
+    _require_release_admin(user_payload)
+    if not apk.filename or not apk.filename.lower().endswith(".apk"):
+        raise HTTPException(status_code=400, detail="Se requiere archivo .apk")
+    body = await apk.read()
+    published_by = user_payload.get("usuario") or user_payload.get("sub") or "portal"
+    return publish_release_apk(
+        sb,
+        flavor=flavor,
+        version_name=version_name,
+        build_number=build_number,
+        apk_bytes=body,
+        changelog=changelog,
+        mandatory=mandatory,
+        min_supported_build=min_supported_build,
+        published_by=published_by,
+    )

@@ -7,6 +7,6 @@ abstract final class BuildInfo {
 
   static const String versionLabel = String.fromEnvironment(
     'APP_VERSION_LABEL',
-    defaultValue: '1.0.2',
+    defaultValue: '1.0.3',
   );
 }

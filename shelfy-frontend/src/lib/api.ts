@@ -4004,9 +4004,13 @@ export interface VendorDetalle {
   cartera?: VendorDetalleCartera;
   asignacion_cartera?: {
     pdv_count: number;
-    ruta_count: number;
-    desde_exhibiciones: number;
-    desde_ventas: number;
+    ruta_count?: number;
+    pdv_count_equipo?: number;
+    pdv_count_monchi?: number;
+    pdv_count_jorge_coronel?: number;
+    desde_exhibiciones?: number;
+    desde_ventas?: number;
+    desde_ruta_o_default?: number;
     lookback_dias: number;
     actualizado_at?: string;
   };

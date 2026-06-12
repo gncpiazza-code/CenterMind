@@ -373,9 +373,22 @@ export function VendorCardExpanded({
                       )}
                       {detalle?.asignacion_cartera && (
                         <p style={{ fontSize: 10, color: "var(--shelfy-muted)", margin: "6px 0 0", lineHeight: 1.35 }}>
-                          Cartera inferida: {detalle.asignacion_cartera.pdv_count} PDVs ·{" "}
-                          {detalle.asignacion_cartera.ruta_count} rutas · ventana{" "}
-                          {detalle.asignacion_cartera.lookback_dias}d
+                          Cartera{" "}
+                          {detalle.asignacion_cartera.pdv_count_monchi != null
+                            ? "equipo"
+                            : "inferida"}
+                          : {detalle.asignacion_cartera.pdv_count} PDVs
+                          {detalle.asignacion_cartera.pdv_count_monchi != null && (
+                            <>
+                              {" "}
+                              (Monchi {detalle.asignacion_cartera.pdv_count_monchi} + Jorge{" "}
+                              {detalle.asignacion_cartera.pdv_count_jorge_coronel})
+                            </>
+                          )}
+                          {detalle.asignacion_cartera.ruta_count != null && (
+                            <> · {detalle.asignacion_cartera.ruta_count} rutas</>
+                          )}{" "}
+                          · ventana {detalle.asignacion_cartera.lookback_dias}d
                         </p>
                       )}
                     </div>

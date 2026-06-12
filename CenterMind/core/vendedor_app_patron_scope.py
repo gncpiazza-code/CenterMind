@@ -160,21 +160,24 @@ def resolve_patron_cartera_filter(
     scope: dict[str, Any],
 ) -> tuple[set[str] | None, dict | None]:
     """Si scope patrón activo, retorna (erp_ids filter, asignacion metadata)."""
-    if not scope.get("patron_mode") or not scope.get("integrante_ids"):
+    if not scope.get("patron_mode"):
         return None, None
-    from services.vendedor_patron_cartera_service import (
-        infer_patron_cartera_scope,
-        list_team_integrante_ids,
-    )
 
-    team_ids = list_team_integrante_ids(sb, dist_id, leader_vid)
-    inferred = infer_patron_cartera_scope(
+    from services.vendedor_patron_cartera_service import get_patron_cartera_for_cuenta
+
+    cuenta_id = scope.get("cuenta_id") or ""
+    if cuenta_id in (PATRON_CUENTA_EQUIPO, "__equipo__"):
+        _, meta = get_patron_cartera_for_cuenta(sb, dist_id, leader_vid, PATRON_CUENTA_EQUIPO)
+        return None, meta
+
+    if not scope.get("integrante_ids"):
+        return None, None
+
+    erp_ids, meta = get_patron_cartera_for_cuenta(
         sb,
         dist_id,
         leader_vid,
-        scope["integrante_ids"],
-        all_team_integrante_ids=team_ids,
+        cuenta_id,
     )
-    erp_ids = inferred.get("erp_ids") or set()
-    return erp_ids, inferred.get("asignacion_cartera")
+    return erp_ids, meta
 

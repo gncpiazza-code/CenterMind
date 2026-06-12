@@ -143,18 +143,14 @@ def accept_enriched_upload(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         raise ValueError("Archivo vacío")
 
     parsed = parse_informe_ventas_enriched(file_bytes)
-    kept, stats = filter_parsed_rows_for_tenant(parsed, tid)
-    if stats.get("total", 0) > 0 and stats.get("kept", 0) == 0:
-        raise ValueError(
-            "Informe sin filas del tenant: "
-            + contamination_summary_message(stats)
-            + ". Verificar checkbox Empresa en Consolido."
-        )
+    if not parsed:
+        raise ValueError("Informe sin filas parseables")
 
+    _, stats = filter_parsed_rows_for_tenant(parsed, tid)
     run_id = _start_run(dist_id)
     if stats.get("dropped", 0) > 0:
         logger.warning(
-            "[ventas_enriched] dist=%s pre-check %s",
+            "[ventas_enriched] dist=%s auditoría IdEmpresa %s — se persisten todas las filas del archivo",
             dist_id,
             contamination_summary_message(stats),
         )
@@ -172,11 +168,10 @@ def accept_enriched_upload(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         "tenant_id": tid,
         "bytes": len(file_bytes),
         "parse_total": stats.get("total", 0),
-        "parse_kept": stats.get("kept", 0),
-        "parse_dropped_id_empresa": stats.get("dropped", 0),
+        "parse_id_empresa_audit_mismatch": stats.get("dropped", 0),
         "message": (
             f"Informe ventas recibido para {tid} (dist {dist_id}, "
-            f"{len(file_bytes):,} bytes, {stats.get('kept', 0)}/{stats.get('total', 0)} filas tenant). "
+            f"{len(file_bytes):,} bytes, {stats.get('total', 0)} filas). "
             "Procesando en segundo plano."
         ),
     }
@@ -224,11 +219,12 @@ def _ingest_enriched_core(
     )
 
     parsed = parse_informe_ventas_enriched(file_bytes)
-    rows, stats = filter_parsed_rows_for_tenant(parsed, tenant_id)
+    rows = parsed
+    _, stats = filter_parsed_rows_for_tenant(parsed, tenant_id)
     dropped_empresa = int(stats.get("dropped") or 0)
     if dropped_empresa:
         logger.warning(
-            "[ventas_enriched] dist=%s tenant=%s %s (no se persisten)",
+            "[ventas_enriched] dist=%s tenant=%s %s — persistiendo igual (id_empresa Excel no bloquea ingesta)",
             dist_id,
             tenant_id,
             contamination_summary_message(stats),

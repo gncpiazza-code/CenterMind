@@ -85,10 +85,11 @@ def test_apply_filters_standard_includes_tenant_id():
     q = apply_ventas_tenant_filters(_FakeQuery(), ctx)
     assert ("eq", "id_distribuidor", 4) in q.filters
     assert ("eq", "tenant_id", "aloma") in q.filters
-    assert ("filter", "raw_json->>id_empresa", "3442") in q.filters
+    assert not any(f[1] == "raw_json->>id_empresa" for f in q.filters)
 
 
-def test_filter_drops_wrong_id_empresa_in_raw_json():
+def test_filter_keeps_rows_with_foreign_id_empresa_for_avance():
+    """IdEmpresa Excel no debe ocultar filas en lectura — roster filtra vendedor en avance."""
     ctx = build_ventas_read_context(11)
     rows = [
         {
@@ -103,5 +104,4 @@ def test_filter_drops_wrong_id_empresa_in_raw_json():
         },
     ]
     out = filter_ventas_rows_for_tenant(rows, ctx)
-    assert len(out) == 1
-    assert out[0]["raw_json"]["id_empresa"] == "3559"
+    assert len(out) == 2

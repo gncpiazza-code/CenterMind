@@ -36,13 +36,15 @@ def test_db_row_contamination_via_raw_json():
     assert is_contaminated_ventas_row(row, dist_id=11) is True
 
 
-def test_accept_would_reject_all_foreign(monkeypatch):
-    """Simula archivo 100% ajeno al tenant."""
+def test_accept_persists_all_rows_and_audits_foreign(monkeypatch):
+    """Ingesta persiste todo el archivo; IdEmpresa solo se audita."""
     from services import ventas_enriched_ingestion_service as svc
 
     rows = [{"id_empresa": "3154", "nombre_empresa": "Tabaco"}] * 5
     monkeypatch.setattr(svc, "parse_informe_ventas_enriched", lambda _b: rows)
     monkeypatch.setattr(svc, "_start_run", lambda _d: 1)
+    monkeypatch.setattr(svc, "ingest_enriched_rpa_background", lambda *a, **k: None)
 
-    with pytest.raises(ValueError, match="Informe sin filas del tenant"):
-        svc.accept_enriched_upload("beltrocco", b"fake-xlsx")
+    out = svc.accept_enriched_upload("beltrocco", b"fake-xlsx")
+    assert out["parse_total"] == 5
+    assert out["parse_id_empresa_audit_mismatch"] == 5

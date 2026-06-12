@@ -155,9 +155,9 @@ def apply_ventas_tenant_filters(
         else:
             q = q.in_("codigo_vendedor", codigos)
 
-    expected_ie = ctx.get("expected_id_empresa")
-    if expected_ie:
-        q = q.filter("raw_json->>id_empresa", "eq", str(expected_ie))
+    # No filtrar por IdEmpresa en lectura: el Excel Consolido a veces trae id_empresa
+    # incorrecto con vendedores válidos del tenant. Aislamiento: tabla _d{N} + tenant_id.
+    # Desglose por vendedor en avance/estadísticas usa roster (match_indexes).
 
     return q
 
@@ -177,8 +177,6 @@ def filter_ventas_rows_for_tenant(
     codigos_norm: set[str] = set()
     for c in codigos_raw:
         codigos_norm |= _codigo_variants(str(c))
-
-    expected_ie = (ctx.get("expected_id_empresa") or "").strip()
 
     kept: list[dict] = []
     dropped = 0
@@ -203,17 +201,6 @@ def filter_ventas_rows_for_tenant(
         if is_franchise and "codigo_vendedor" in row:
             cod = str(row.get("codigo_vendedor") or "").strip()
             if not cod or not (codigos_norm & _codigo_variants(cod)):
-                dropped += 1
-                continue
-
-        if expected_ie:
-            from core.ventas_empresa_isolation import is_contaminated_ventas_row
-
-            if is_contaminated_ventas_row(
-                row,
-                dist_id=int(ctx["filter_dist"]),
-                expected_id_empresa=expected_ie,
-            ):
                 dropped += 1
                 continue
 

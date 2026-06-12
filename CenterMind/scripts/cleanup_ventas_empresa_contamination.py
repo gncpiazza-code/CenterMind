@@ -5,10 +5,12 @@ Elimina filas ventas_enriched contaminadas (IdEmpresa / nombre de otro tenant).
 
 Borra por filtro PostgREST (raw_json->>id_empresa / nombre_empresa) — no escaneo full table.
 
-Uso:
+⚠️  DEPRECADO para uso operativo — borró histórico válido (id_empresa Excel ≠ tenant).
+    Recuperación: re-correr Informe Ventas RPA por tenant o restore Supabase PITR.
+    Avance lee por tabla _d{N}; desglose vendedor usa roster.
+
+Uso (solo auditoría dry-run):
   cd CenterMind && PYTHONPATH=. .venv/bin/python scripts/cleanup_ventas_empresa_contamination.py
-  cd CenterMind && PYTHONPATH=. .venv/bin/python scripts/cleanup_ventas_empresa_contamination.py --apply
-  cd CenterMind && PYTHONPATH=. .venv/bin/python scripts/cleanup_ventas_empresa_contamination.py --apply --dist 11
 """
 from __future__ import annotations
 
@@ -160,9 +162,16 @@ def cleanup_dist(dist_id: int, *, dry_run: bool) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Cleanup ventas_enriched IdEmpresa contaminado")
     ap.add_argument("--dist", type=int, default=None, help="Solo este id_distribuidor")
-    ap.add_argument("--apply", action="store_true", help="Ejecutar DELETE (default: dry-run)")
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="NO USAR en prod — script deprecado (ver docstring)",
+    )
     args = ap.parse_args()
     dry_run = not args.apply
+    if args.apply:
+        print("ERROR: cleanup --apply deshabilitado. Re-ingestar vía RPA o restore Supabase.")
+        sys.exit(2)
 
     dist_ids = sorted(
         int(r["id_distribuidor"])

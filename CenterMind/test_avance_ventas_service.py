@@ -294,6 +294,42 @@ def test_filtro_vendedor_por_nombre():
     assert set(agg["por_vendedor"]) == {"MARIA GOMEZ"}
 
 
+def test_tabaco_excluye_cuentas_stock_vendedor():
+    """Cuentas ERP de mercadería en mano (T&H) no entran a Avance ni a Sin vendedor."""
+    from core.rpa_tenant_registry import TENANT_DIST_MAP
+    from services.estadisticas_service import _build_vendor_match_indexes
+
+    dist = TENANT_DIST_MAP["tabaco"]
+    idx = _build_vendor_match_indexes([], dist_id=dist)
+    idx["vid_to_display"] = {}
+    lines = [
+        _linea(
+            id_cliente_erp="40150",
+            nombre_vendedor="Sin Vendedor",
+            codigo_vendedor="",
+            bultos_total=100.0,
+            numero_documento="STOCK-1",
+        ),
+        _linea(
+            id_cliente_erp="99999",
+            nombre_vendedor="Sin Vendedor",
+            codigo_vendedor="",
+            bultos_total=5.0,
+            numero_documento="PDV-1",
+        ),
+    ]
+    agg = aggregate_avance_lines(lines, dist_id=dist, match_indexes=idx)
+    assert agg["total_bultos"] == pytest.approx(5.0)
+    assert SIN_VENDEDOR_LABEL not in agg["por_vendedor"] or agg["por_vendedor"].get(
+        SIN_VENDEDOR_LABEL, {}
+    ).get("bultos", 0) == pytest.approx(5.0)
+
+    agg_sin = aggregate_avance_lines(
+        lines, dist_id=dist, match_indexes=idx, vendedor_norm="__sin_vendedor__"
+    )
+    assert agg_sin["total_bultos"] == pytest.approx(5.0)
+
+
 def test_roster_scope_no_muestra_vendedor_ajeno():
     """Paridad estadísticas: nombre Consolido ajeno al padrón → Sin vendedor."""
     from services.estadisticas_service import _build_vendor_match_indexes

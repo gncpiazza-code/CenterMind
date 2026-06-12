@@ -264,6 +264,14 @@ def _normalize_vendedor_display(nombre_raw: str, erp_name_map: dict[str, str]) -
     return erp_name_map.get(v.lower(), v)
 
 
+def _canon_vendedor_display_label(name: str) -> str:
+    """Unifica variantes ERP ('SIN VENDEDOR', 'Sin Vendedor') → label único."""
+    v = (name or "").strip()
+    if not v or v.lower().rstrip(".") == "sin vendedor":
+        return SIN_VENDEDOR_LABEL
+    return v
+
+
 def _build_avance_vendor_match_indexes(dist_id: int) -> dict[str, object]:
     """
     Índices Consolido → vendedor del tenant (paridad estadisticas_service).
@@ -304,12 +312,14 @@ def _resolve_vendedor_display(
         if vid is not None:
             display = (match_indexes.get("vid_to_display") or {}).get(vid)
             if display:
-                return display
+                return _canon_vendedor_display_label(display)
             nom = (match_indexes.get("vid_to_nombre") or {}).get(vid, "")
             if nom:
-                return str(nom)
+                return _canon_vendedor_display_label(str(nom))
         return SIN_VENDEDOR_LABEL
-    return _normalize_vendedor_display(row.get("nombre_vendedor") or "", erp_name_map)
+    return _canon_vendedor_display_label(
+        _normalize_vendedor_display(row.get("nombre_vendedor") or "", erp_name_map)
+    )
 
 
 def _unidades_linea(row: dict, bultos: float) -> float:
@@ -335,6 +345,7 @@ def _unidades_linea(row: dict, bultos: float) -> float:
 def aggregate_avance_lines(
     lines: list[dict],
     *,
+    dist_id: int | None = None,
     erp_name_map: dict[str, str] | None = None,
     match_indexes: dict[str, object] | None = None,
     sucursal_norm: str = "",
@@ -348,11 +359,13 @@ def aggregate_avance_lines(
     Filtra recaudaciones (_es_operacion_bultos_neto); devoluciones netas restan.
     `vendedor_norm == "__sin_vendedor__"` filtra solo el bucket sin vendedor.
     """
+    from core.avance_ventas_exclusions import is_avance_line_excluded
     from services.estadisticas_service import _es_operacion_bultos_neto
 
     erp_name_map = erp_name_map or {}
     hints = cod_articulo_hints or build_cod_articulo_hints(lines)
     resolver = SkuKeyResolver()
+    scope_dist = int(dist_id) if dist_id is not None else None
 
     total_bultos = 0.0
     total_unidades = 0.0
@@ -365,6 +378,9 @@ def aggregate_avance_lines(
     por_cliente: dict[str, dict] = {}
 
     for row in lines:
+        if scope_dist is not None and is_avance_line_excluded(scope_dist, row):
+            continue
+
         tipo = (row.get("tipo_documento") or "").strip()
         imp = float(row.get("importe_final") or 0)
         if not _es_operacion_bultos_neto(tipo, imp):
@@ -1437,6 +1453,7 @@ def build_avance_ventas(
         lines = _fetch_avance_lines(dist_id, desde, hasta)
         return aggregate_avance_lines(
             lines,
+            dist_id=dist_id,
             erp_name_map=erp_name_map,
             match_indexes=match_indexes,
             sucursal_norm=sucursal_norm,
@@ -1498,6 +1515,7 @@ def build_avance_ventas(
         }
         agg = aggregate_avance_lines(
             lines_actual,
+            dist_id=dist_id,
             erp_name_map=erp_name_map,
             match_indexes=match_indexes,
             sucursal_norm=sucursal_norm,
@@ -1985,6 +2003,7 @@ def build_avance_ventas_sku_clientes(
     lines = [r for r in lines if row_matches_unify_key(r, unify_key, hints=hints)]
     agg = aggregate_avance_lines(
         lines,
+        dist_id=dist_id,
         erp_name_map=erp_name_map,
         match_indexes=match_indexes,
         sucursal_norm=sucursal_clean.lower(),
@@ -2069,6 +2088,7 @@ def build_avance_ventas_cliente_skus(
     lines = _fetch_avance_lines(dist_id, periodo["desde"], periodo["hasta"])
     agg = aggregate_avance_lines(
         lines,
+        dist_id=dist_id,
         erp_name_map=erp_name_map,
         match_indexes=match_indexes,
         sucursal_norm=sucursal_clean.lower(),

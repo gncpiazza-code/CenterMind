@@ -15,7 +15,7 @@ import logging
 from typing import Any
 
 from db import sb
-from core.rpa_tenant_registry import TENANT_DIST_MAP
+from core.rpa_tenant_registry import DIST_TO_ID_EMPRESA, TENANT_DIST_MAP
 from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ventas_enriched_tenant")
@@ -104,6 +104,8 @@ def build_ventas_read_context(
 
     data_tenant_id = _DIST_TO_TENANT.get(table_dist)
     table_name = tenant_table_name("ventas_enriched_v2", table_dist)
+    # Filas del Informe Consolido: IdEmpresa en raw_json (aislamiento multi-empresa).
+    expected_id_empresa = DIST_TO_ID_EMPRESA.get(int(table_dist))
 
     if not is_franchise and table_dist != req:
         raise ValueError(
@@ -116,6 +118,7 @@ def build_ventas_read_context(
         "filter_dist": filter_dist,
         "table_name": table_name,
         "data_tenant_id": data_tenant_id,
+        "expected_id_empresa": expected_id_empresa,
         "codigos": codigos,
         "is_franchise": is_franchise,
     }
@@ -148,8 +151,13 @@ def apply_ventas_tenant_filters(
             )
             return q.eq("codigo_vendedor", "__NO_CODIGOS_FRANQUICIA__")
         if len(codigos) == 1:
-            return q.eq("codigo_vendedor", codigos[0])
-        return q.in_("codigo_vendedor", codigos)
+            q = q.eq("codigo_vendedor", codigos[0])
+        else:
+            q = q.in_("codigo_vendedor", codigos)
+
+    expected_ie = ctx.get("expected_id_empresa")
+    if expected_ie:
+        q = q.filter("raw_json->>id_empresa", "eq", str(expected_ie))
 
     return q
 
@@ -169,6 +177,8 @@ def filter_ventas_rows_for_tenant(
     codigos_norm: set[str] = set()
     for c in codigos_raw:
         codigos_norm |= _codigo_variants(str(c))
+
+    expected_ie = (ctx.get("expected_id_empresa") or "").strip()
 
     kept: list[dict] = []
     dropped = 0
@@ -196,6 +206,14 @@ def filter_ventas_rows_for_tenant(
                 dropped += 1
                 continue
 
+        if expected_ie:
+            raw = row.get("raw_json") if isinstance(row.get("raw_json"), dict) else None
+            if raw is not None:
+                row_ie = str(raw.get("id_empresa") or "").strip()
+                if row_ie and row_ie != expected_ie:
+                    dropped += 1
+                    continue
+
         kept.append(row)
 
     if dropped:
@@ -220,6 +238,7 @@ def resolve_estadisticas_ventas_fetch(
         "filter_dist": ctx["filter_dist"],
         "table_name": ctx["table_name"],
         "data_tenant_id": ctx["data_tenant_id"],
+        "expected_id_empresa": ctx.get("expected_id_empresa"),
         "codigos": ctx["codigos"],
         "is_franchise": ctx["is_franchise"],
     }

@@ -21,6 +21,11 @@ export const AVANCE_KPI_HELP = {
   deltaMes:
     "Variación de bultos netos respecto al mes anterior completo. Muestra " +
     "«Sin dato» si el mes de referencia no tiene información.",
+  proyeccion:
+    "Estimación lineal al cierre del período en curso (run-rate): extrapola lo " +
+    "acumulado según días u horas transcurridas y compara esa proyección contra " +
+    "el período de referencia completo. Útil mientras la semana o el mes no cerraron; " +
+    "la comparativa directa «vs anterior» puede ser engañosa en períodos parciales.",
   volumen:
     "Volumen del período: bultos netos (ventas menos devoluciones) y unidades " +
     "de líneas convertidas (cigarrillos, papelillos, mix) y encendedores. Los " +

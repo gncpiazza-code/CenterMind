@@ -100,7 +100,7 @@ MIX_BAJO_MAX_SKUS = 3
 AUDITORIA_RESUMEN_MAX = 1000
 
 _VENTAS_SELECT_COLS = (
-    "fecha_factura,nombre_vendedor,nombre_cliente,id_cliente_erp,"
+    "fecha_factura,codigo_vendedor,nombre_vendedor,nombre_cliente,id_cliente_erp,"
     "tipo_documento,numero_documento,cod_articulo,descripcion_articulo,"
     "agrupacion_art_1,agrupacion_art_2,bultos_total,unidades_total,importe_final"
 )
@@ -264,6 +264,54 @@ def _normalize_vendedor_display(nombre_raw: str, erp_name_map: dict[str, str]) -
     return erp_name_map.get(v.lower(), v)
 
 
+def _build_avance_vendor_match_indexes(dist_id: int) -> dict[str, object]:
+    """
+    Índices Consolido → vendedor del tenant (paridad estadisticas_service).
+    Incluye vid_to_display con el nombre_erp original del padrón.
+    """
+    from core.ventas_enriched_tenant import load_vendedores_ventas_scope_rows
+    from services.estadisticas_service import _build_vendor_match_indexes
+
+    vend_rows = load_vendedores_ventas_scope_rows(dist_id)
+    idx = _build_vendor_match_indexes(vend_rows, dist_id)
+    vid_to_display: dict[int, str] = {}
+    for v in vend_rows:
+        try:
+            vid = int(v["id_vendedor"])
+        except (TypeError, ValueError):
+            continue
+        nom = (v.get("nombre_erp") or "").strip()
+        if nom:
+            vid_to_display[vid] = nom
+    idx["vid_to_display"] = vid_to_display
+    return idx
+
+
+def _resolve_vendedor_display(
+    row: dict,
+    erp_name_map: dict[str, str],
+    match_indexes: dict[str, object] | None = None,
+) -> str:
+    """
+    Nombre de vendedor para agregación avance.
+    Con match_indexes: solo vendedores del roster del tenant; huérfanos → Sin vendedor
+    (evita filas Consolido con nombres de otro distribuidor / c_perso compartido).
+    """
+    if match_indexes:
+        from services.estadisticas_service import _resolve_vid_from_venta_row
+
+        vid = _resolve_vid_from_venta_row(row, match_indexes)
+        if vid is not None:
+            display = (match_indexes.get("vid_to_display") or {}).get(vid)
+            if display:
+                return display
+            nom = (match_indexes.get("vid_to_nombre") or {}).get(vid, "")
+            if nom:
+                return str(nom)
+        return SIN_VENDEDOR_LABEL
+    return _normalize_vendedor_display(row.get("nombre_vendedor") or "", erp_name_map)
+
+
 def _unidades_linea(row: dict, bultos: float) -> float:
     """
     Unidades por línea según reglas de volumen:
@@ -288,6 +336,7 @@ def aggregate_avance_lines(
     lines: list[dict],
     *,
     erp_name_map: dict[str, str] | None = None,
+    match_indexes: dict[str, object] | None = None,
     sucursal_norm: str = "",
     vend_branch: Optional[Set[str]] = None,
     vendedor_norm: str = "",
@@ -321,14 +370,13 @@ def aggregate_avance_lines(
         if not _es_operacion_bultos_neto(tipo, imp):
             continue
 
-        v_raw = (row.get("nombre_vendedor") or "").strip()
-        v_disp = _normalize_vendedor_display(v_raw, erp_name_map)
+        v_disp = _resolve_vendedor_display(row, erp_name_map, match_indexes)
 
         if vendedor_norm:
             if vendedor_norm == "__sin_vendedor__":
                 if v_disp != SIN_VENDEDOR_LABEL:
                     continue
-            elif v_raw.lower() != vendedor_norm and v_disp.lower() != vendedor_norm:
+            elif v_disp.lower() != vendedor_norm:
                 continue
 
         if sucursal_norm and vend_branch is not None and v_disp not in vend_branch:
@@ -432,6 +480,85 @@ def build_delta_kpi(actual: float, anterior: float | None, *, disponible: bool =
     diff = round(actual - anterior, 2)
     pct = round((actual - anterior) / anterior * 100, 1) if anterior else None
     return {"diff": diff, "pct": pct, "anterior": round(anterior, 2), "disponible": True}
+
+
+def _run_rate_factor(periodo: dict, modo: str) -> tuple[float, int, int, str] | None:
+    """
+    Factor lineal de proyección al cierre del período parcial.
+    Retorna (factor, transcurridos, totales, unidad) o None si el período ya cerró.
+    """
+    if not periodo.get("parcial"):
+        return None
+    desde = _parse_fecha(periodo["desde"])
+    hasta = _parse_fecha(periodo["hasta"])
+    hoy = _today_ar()
+
+    if modo == "dia":
+        if desde != hoy:
+            return None
+        now = datetime.now(AR_TZ)
+        start = datetime.combine(hoy, time(0, 0), tzinfo=AR_TZ)
+        elapsed_hours = max(1, int((now - start).total_seconds() // 3600) or 1)
+        elapsed_hours = min(elapsed_hours, 24)
+        factor = 24.0 / elapsed_hours
+        return factor, elapsed_hours, 24, "horas"
+
+    end_elapsed = min(hoy, hasta)
+    elapsed_days = (end_elapsed - desde).days + 1
+    total_days = (hasta - desde).days + 1
+    if elapsed_days <= 0 or elapsed_days >= total_days:
+        return None
+    return total_days / elapsed_days, elapsed_days, total_days, "dias"
+
+
+def build_proyeccion_kpi(
+    actual: float,
+    ref_anterior: float | None,
+    *,
+    factor: float,
+    transcurridos: int,
+    totales: int,
+    ref_disponible: bool,
+) -> dict:
+    """Proyección run-rate al cierre vs referencia completa (semana/mes/día anterior)."""
+    proyectado = round(actual * factor, 2)
+    return {
+        "disponible": True,
+        "valor_actual": round(actual, 2),
+        "valor_proyectado": proyectado,
+        "factor": round(factor, 3),
+        "transcurridos": transcurridos,
+        "totales": totales,
+        "vs_referencia": build_delta_kpi(
+            proyectado,
+            ref_anterior if ref_disponible else None,
+            disponible=ref_disponible,
+        ),
+    }
+
+
+def _proyecciones_por_refs(
+    actual: float,
+    ref_keys: list[str],
+    *,
+    ref_values: dict[str, float | None],
+    run_rate: tuple[float, int, int, str],
+    ref_disponible: dict[str, bool],
+) -> dict[str, dict]:
+    factor, transcurridos, totales, _ = run_rate
+    out: dict[str, dict] = {}
+    for ref_key in ref_keys:
+        if not ref_key:
+            continue
+        out[ref_key] = build_proyeccion_kpi(
+            actual,
+            ref_values.get(ref_key),
+            factor=factor,
+            transcurridos=transcurridos,
+            totales=totales,
+            ref_disponible=bool(ref_disponible.get(ref_key)),
+        )
+    return out
 
 
 # ─── Fetch ────────────────────────────────────────────────────────────────────
@@ -1282,6 +1409,7 @@ def build_avance_ventas(
     refs = resolve_referencias(modo, fecha)
 
     erp_name_map = _get_erp_name_map(dist_id)
+    match_indexes = _build_avance_vendor_match_indexes(dist_id)
     sucursal_norm = sucursal_clean.lower()
     vendedor_norm = (
         "__sin_vendedor__"
@@ -1310,6 +1438,7 @@ def build_avance_ventas(
         return aggregate_avance_lines(
             lines,
             erp_name_map=erp_name_map,
+            match_indexes=match_indexes,
             sucursal_norm=sucursal_norm,
             vend_branch=vend_branch,
             vendedor_norm=vendedor_norm,
@@ -1370,6 +1499,7 @@ def build_avance_ventas(
         agg = aggregate_avance_lines(
             lines_actual,
             erp_name_map=erp_name_map,
+            match_indexes=match_indexes,
             sucursal_norm=sucursal_norm,
             vend_branch=vend_branch,
             vendedor_norm=vendedor_norm,
@@ -1455,6 +1585,63 @@ def build_avance_ventas(
         key: _comparativa_bloque(agg_refs.get(key), refs.get(key)) for key in refs
     }
 
+    # ── Proyección run-rate (período parcial → cierre estimado vs ref. completa) ──
+    run_rate = _run_rate_factor(periodo, modo)
+    proyeccion_ref_keys = [k for k in refs if k]
+    proyeccion_context: dict | None = None
+    if run_rate:
+        factor, transcurridos, totales, unidad = run_rate
+        proyeccion_context = {
+            "disponible": True,
+            "metodo": "run_rate_horas" if unidad == "horas" else "run_rate_dias",
+            "transcurridos": transcurridos,
+            "totales": totales,
+            "unidad": unidad,
+            "referencias": proyeccion_ref_keys,
+        }
+        for ref_key in proyeccion_ref_keys:
+            bloque = comparativas.get(ref_key)
+            if not bloque:
+                continue
+            ref_agg = agg_refs.get(ref_key)
+            ref_disp = bool(bloque.get("disponible") and ref_agg)
+            for metric in ("bultos", "unidades", "clientes", "skus", "comprobantes"):
+                actual_m = (
+                    metadatos["total_bultos"]
+                    if metric == "bultos"
+                    else metadatos["total_unidades"]
+                    if metric == "unidades"
+                    else metadatos["clientes_compra"]
+                    if metric == "clientes"
+                    else metadatos["skus_activos"]
+                    if metric == "skus"
+                    else metadatos["comprobantes"]
+                )
+                if metric == "skus" and ref_agg:
+                    ref_val = sum(
+                        1 for s in ref_agg["por_sku"].values() if abs(s["bultos"]) > 0
+                    )
+                elif ref_agg:
+                    ref_val = (
+                        ref_agg["total_bultos"]
+                        if metric == "bultos"
+                        else ref_agg["total_unidades"]
+                        if metric == "unidades"
+                        else len(ref_agg["clientes"])
+                        if metric == "clientes"
+                        else ref_agg["comprobantes"]
+                    )
+                else:
+                    ref_val = None
+                bloque.setdefault("proyeccion", {})[metric] = build_proyeccion_kpi(
+                    float(actual_m),
+                    float(ref_val) if ref_val is not None else None,
+                    factor=factor,
+                    transcurridos=transcurridos,
+                    totales=totales,
+                    ref_disponible=ref_disp,
+                )
+
     # KPI cards: wow/mom en día; semana/mes mapean su única referencia.
     delta_primary_key = {
         "dia": ("wow", "mom"),
@@ -1476,6 +1663,43 @@ def build_avance_ventas(
     cartera_scope_tipo = "dia_visita" if modo == "dia" else "cartera_periodo"
 
     cig_actual = _totales_volumen_cigarrillos(agg)
+
+    def _ref_metric(ref_key: str | None, metric: str) -> float | None:
+        if not ref_key:
+            return None
+        ref_agg = agg_refs.get(ref_key)
+        bloque = comparativas.get(ref_key)
+        if not ref_agg or not bloque or not bloque.get("disponible"):
+            return None
+        if metric == "clientes":
+            return float(len(ref_agg["clientes"]))
+        if metric == "skus":
+            return float(
+                sum(1 for s in ref_agg["por_sku"].values() if abs(s["bultos"]) > 0)
+            )
+        if metric == "cig":
+            return float(_totales_volumen_cigarrillos(ref_agg)["bultos"])
+        return None
+
+    def _ref_disponible(ref_key: str | None) -> bool:
+        if not ref_key:
+            return False
+        bloque = comparativas.get(ref_key)
+        return bool(bloque and bloque.get("disponible") and agg_refs.get(ref_key))
+
+    def _card_proyecciones(actual: float, metric: str) -> dict | None:
+        if not run_rate:
+            return None
+        ref_values = {k: _ref_metric(k, metric) for k in proyeccion_ref_keys}
+        ref_disp = {k: _ref_disponible(k) for k in proyeccion_ref_keys}
+        proys = _proyecciones_por_refs(
+            actual,
+            proyeccion_ref_keys,
+            ref_values=ref_values,
+            run_rate=run_rate,
+            ref_disponible=ref_disp,
+        )
+        return proys or None
 
     def _cig_bultos_delta(ref_key: str | None) -> dict | None:
         if not ref_key:
@@ -1501,6 +1725,7 @@ def build_avance_ventas(
             },
             "wow": _cig_bultos_delta(delta_primary_key[0]),
             "mom": _cig_bultos_delta(delta_primary_key[1]),
+            "proyecciones": _card_proyecciones(cig_actual["bultos"], "cig"),
         },
         {
             "id": "cobertura_pdvs",
@@ -1519,12 +1744,18 @@ def build_avance_ventas(
             "valor": metadatos["clientes_compra"],
             "wow": _delta_for("clientes", delta_primary_key[0]),
             "mom": _delta_for("clientes", delta_primary_key[1]),
+            "proyecciones": _card_proyecciones(
+                float(metadatos["clientes_compra"]), "clientes"
+            ),
         },
         {
             "id": "skus",
             "valor": metadatos["skus_activos"],
             "wow": _delta_for("skus", delta_primary_key[0]),
             "mom": _delta_for("skus", delta_primary_key[1]),
+            "proyecciones": _card_proyecciones(
+                float(metadatos["skus_activos"]), "skus"
+            ),
         },
     ]
 
@@ -1647,6 +1878,7 @@ def build_avance_ventas(
         "modo": modo,
         "fecha_ancla": str(fecha)[:10],
         "periodo": periodo,
+        "proyeccion_context": proyeccion_context,
         "sync": sync_info,
         "filtros": {
             "sucursal": sucursal_clean or None,
@@ -1701,6 +1933,7 @@ def build_avance_ventas_sku_clientes(
 
     periodo = resolve_periodo(modo, fecha)
     erp_name_map = _get_erp_name_map(dist_id)
+    match_indexes = _build_avance_vendor_match_indexes(dist_id)
 
     vend_branch: Optional[Set[str]] = None
     if sucursal_clean:
@@ -1718,6 +1951,7 @@ def build_avance_ventas_sku_clientes(
     agg = aggregate_avance_lines(
         lines,
         erp_name_map=erp_name_map,
+        match_indexes=match_indexes,
         sucursal_norm=sucursal_clean.lower(),
         vend_branch=vend_branch,
         vendedor_norm=(
@@ -1787,6 +2021,7 @@ def build_avance_ventas_cliente_skus(
 
     periodo = resolve_periodo(modo, fecha)
     erp_name_map = _get_erp_name_map(dist_id)
+    match_indexes = _build_avance_vendor_match_indexes(dist_id)
 
     vend_branch: Optional[Set[str]] = None
     if sucursal_clean:
@@ -1800,6 +2035,7 @@ def build_avance_ventas_cliente_skus(
     agg = aggregate_avance_lines(
         lines,
         erp_name_map=erp_name_map,
+        match_indexes=match_indexes,
         sucursal_norm=sucursal_clean.lower(),
         vend_branch=vend_branch,
         vendedor_norm=(

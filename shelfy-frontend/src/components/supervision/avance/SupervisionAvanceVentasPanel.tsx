@@ -158,6 +158,7 @@ export function SupervisionAvanceVentasPanel({
           cards={isFilterTransition ? undefined : data?.kpis_cards}
           modo={modo}
           coberturaPdvs={isFilterTransition ? undefined : coberturaPdvs}
+          proyeccionContext={isFilterTransition ? undefined : data?.proyeccion_context}
           loading={loading}
         />
       </SupervisionRevealItem>

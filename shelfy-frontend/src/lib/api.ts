@@ -2270,6 +2270,28 @@ export interface AvanceDeltaKpi {
   disponible: boolean;
 }
 
+/** Proyección run-rate al cierre del período parcial vs referencia completa. */
+export interface AvanceProyeccionKpi {
+  disponible: boolean;
+  valor_actual: number;
+  valor_proyectado: number;
+  factor: number;
+  transcurridos: number;
+  totales: number;
+  vs_referencia: AvanceDeltaKpi;
+}
+
+export type AvanceProyeccionRefKey = "wow" | "mom" | "semana_anterior" | "mes_anterior";
+
+export interface AvanceProyeccionContext {
+  disponible: boolean;
+  metodo: "run_rate_dias" | "run_rate_horas";
+  transcurridos: number;
+  totales: number;
+  unidad: "dias" | "horas";
+  referencias: AvanceProyeccionRefKey[];
+}
+
 export interface AvanceComparativaBloque {
   disponible: boolean;
   periodo: { desde: string; hasta: string } | null;
@@ -2278,6 +2300,9 @@ export interface AvanceComparativaBloque {
   clientes: AvanceDeltaKpi;
   skus: AvanceDeltaKpi;
   comprobantes: AvanceDeltaKpi;
+  proyeccion?: Partial<
+    Record<"bultos" | "unidades" | "clientes" | "skus" | "comprobantes", AvanceProyeccionKpi>
+  >;
 }
 
 export interface AvanceKpiCardExtra {
@@ -2297,6 +2322,7 @@ export interface AvanceKpiCard {
   extra?: AvanceKpiCardExtra;
   wow?: AvanceDeltaKpi | null;
   mom?: AvanceDeltaKpi | null;
+  proyecciones?: Partial<Record<AvanceProyeccionRefKey, AvanceProyeccionKpi>> | null;
 }
 
 export interface AvanceShareVendedor {
@@ -2421,6 +2447,7 @@ export interface AvanceVentasResponse {
   modo: AvanceVentasModo;
   fecha_ancla: string;
   periodo: { desde: string; hasta: string; label: string; parcial: boolean };
+  proyeccion_context?: AvanceProyeccionContext | null;
   sync: {
     last_updated: string | null;
     next_run_hint?: string;

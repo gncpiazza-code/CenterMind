@@ -23,6 +23,7 @@ from core.sku_unify import SkuKeyResolver, seed_sku_resolver
 def _linea(**overrides) -> dict:
     base = {
         "fecha_factura": "2026-06-09",
+        "codigo_vendedor": "",
         "nombre_vendedor": "JUAN PEREZ",
         "nombre_cliente": "KIOSCO LUNA",
         "id_cliente_erp": "1001",
@@ -114,6 +115,46 @@ def test_delta_kpi_pct():
     d = build_delta_kpi(120.0, 100.0)
     assert d["pct"] == 20.0
     assert d["anterior"] == 100.0
+
+
+def test_run_rate_factor_semana_parcial():
+    # Miércoles 2026-06-10 → semana lun 8 – sáb 13: 3 días transcurridos / 6
+    p = resolve_periodo("semana", "2026-06-10")
+    from services.avance_ventas_service import _run_rate_factor
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("services.avance_ventas_service._today_ar", lambda: __import__("datetime").date(2026, 6, 10))
+        rr = _run_rate_factor(p, "semana")
+    assert rr is not None
+    factor, trans, tot, unidad = rr
+    assert unidad == "dias"
+    assert trans == 3
+    assert tot == 6
+    assert factor == pytest.approx(2.0)
+
+
+def test_run_rate_factor_mes_cerrado_sin_proyeccion():
+    p = resolve_periodo("mes", "2026-02-15")
+    from services.avance_ventas_service import _run_rate_factor
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("services.avance_ventas_service._today_ar", lambda: __import__("datetime").date(2026, 6, 10))
+        assert _run_rate_factor(p, "mes") is None
+
+
+def test_proyeccion_kpi_vs_referencia():
+    from services.avance_ventas_service import build_proyeccion_kpi
+
+    proy = build_proyeccion_kpi(
+        150.0,
+        600.0,
+        factor=2.0,
+        transcurridos=3,
+        totales=6,
+        ref_disponible=True,
+    )
+    assert proy["valor_proyectado"] == 300.0
+    assert proy["vs_referencia"]["pct"] == -50.0
 
 
 # ─── Agregación ───────────────────────────────────────────────────────────────
@@ -251,6 +292,55 @@ def test_filtro_vendedor_por_nombre():
     agg = aggregate_avance_lines(lines, vendedor_norm="maria gomez")
     assert agg["total_bultos"] == pytest.approx(9.0)
     assert set(agg["por_vendedor"]) == {"MARIA GOMEZ"}
+
+
+def test_roster_scope_no_muestra_vendedor_ajeno():
+    """Paridad estadísticas: nombre Consolido ajeno al padrón → Sin vendedor."""
+    from services.estadisticas_service import _build_vendor_match_indexes
+
+    vend_rows = [
+        {"id_vendedor": 1, "id_vendedor_erp": "2001", "nombre_erp": "BELTROCCO SANTIAGO"},
+    ]
+    idx = _build_vendor_match_indexes(vend_rows, dist_id=11)
+    idx["vid_to_display"] = {1: "BELTROCCO SANTIAGO"}
+    lines = [
+        _linea(
+            nombre_vendedor="GALLO RICARDO",
+            codigo_vendedor="1001",
+            bultos_total=10.0,
+            numero_documento="A-0001",
+        ),
+        _linea(
+            nombre_vendedor="BELTROCCO SANTIAGO",
+            codigo_vendedor="2001",
+            bultos_total=5.0,
+            numero_documento="A-0002",
+        ),
+    ]
+    agg = aggregate_avance_lines(lines, match_indexes=idx)
+    assert "GALLO RICARDO" not in agg["por_vendedor"]
+    assert agg["por_vendedor"][SIN_VENDEDOR_LABEL]["bultos"] == pytest.approx(10.0)
+    assert agg["por_vendedor"]["BELTROCCO SANTIAGO"]["bultos"] == pytest.approx(5.0)
+
+
+def test_roster_scope_codigo_compartido_no_asigna_por_codigo_solo():
+    """c_perso compartido: código de otro dist no asigna si el nombre no coincide."""
+    from services.estadisticas_service import _build_vendor_match_indexes
+
+    vend_rows = [
+        {"id_vendedor": 89, "id_vendedor_erp": "1001", "nombre_erp": "01-CORIA BLAS GUILLE"},
+    ]
+    idx = _build_vendor_match_indexes(vend_rows, dist_id=11)
+    idx["vid_to_display"] = {89: "01-CORIA BLAS GUILLE"}
+    lines = [
+        _linea(
+            nombre_vendedor="GALLO RICARDO",
+            codigo_vendedor="1001",
+            bultos_total=3.0,
+        ),
+    ]
+    agg = aggregate_avance_lines(lines, match_indexes=idx)
+    assert list(agg["por_vendedor"].keys()) == [SIN_VENDEDOR_LABEL]
 
 
 def test_filtro_sucursal_fallback_ruta():

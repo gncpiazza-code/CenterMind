@@ -13,6 +13,7 @@ def test_standard_tenant_uses_own_table_and_tenant_id():
     assert ctx["filter_dist"] == 4
     assert ctx["table_name"] == "ventas_enriched_v2_d4"
     assert ctx["data_tenant_id"] == "aloma"
+    assert ctx["expected_id_empresa"] == "3442"
     assert ctx["is_franchise"] is False
     assert ctx["codigos"] is None
 
@@ -66,6 +67,10 @@ class _FakeQuery:
     def __init__(self):
         self.filters: list[tuple] = []
 
+    def filter(self, col, op, val):
+        self.filters.append(("filter", col, val))
+        return self
+
     def eq(self, col, val):
         self.filters.append(("eq", col, val))
         return self
@@ -80,3 +85,23 @@ def test_apply_filters_standard_includes_tenant_id():
     q = apply_ventas_tenant_filters(_FakeQuery(), ctx)
     assert ("eq", "id_distribuidor", 4) in q.filters
     assert ("eq", "tenant_id", "aloma") in q.filters
+    assert ("filter", "raw_json->>id_empresa", "3442") in q.filters
+
+
+def test_filter_drops_wrong_id_empresa_in_raw_json():
+    ctx = build_ventas_read_context(11)
+    rows = [
+        {
+            "id_distribuidor": 11,
+            "tenant_id": "beltrocco",
+            "raw_json": {"id_empresa": "3559", "bultos_total": 1},
+        },
+        {
+            "id_distribuidor": 11,
+            "tenant_id": "beltrocco",
+            "raw_json": {"id_empresa": "3154", "bultos_total": 9},
+        },
+    ]
+    out = filter_ventas_rows_for_tenant(rows, ctx)
+    assert len(out) == 1
+    assert out[0]["raw_json"]["id_empresa"] == "3559"

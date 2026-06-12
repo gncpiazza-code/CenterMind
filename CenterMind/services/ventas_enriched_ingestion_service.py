@@ -191,7 +191,29 @@ def _ingest_enriched_core(
     dist_id: int,
     file_bytes: bytes,
 ) -> dict[str, Any]:
+    from core.rpa_tenant_registry import expected_id_empresa_for_tenant
+
     rows = parse_informe_ventas_enriched(file_bytes)
+    expected_ie = expected_id_empresa_for_tenant(tenant_id)
+    dropped_empresa = 0
+    if expected_ie and rows:
+        kept: list[dict] = []
+        for r in rows:
+            row_ie = str(r.get("id_empresa") or "").strip()
+            if row_ie == expected_ie:
+                kept.append(r)
+            else:
+                dropped_empresa += 1
+        if dropped_empresa:
+            logger.warning(
+                "[ventas_enriched] dist=%s tenant=%s descartadas %s filas IdEmpresa != %s "
+                "(Informe Consolido multi-empresa — no se persisten)",
+                dist_id,
+                tenant_id,
+                dropped_empresa,
+                expected_ie,
+            )
+        rows = kept
     if not rows:
         return {
             "ok": True,
@@ -199,6 +221,7 @@ def _ingest_enriched_core(
             "upserted": 0,
             "actualizados": 0,
             "dist_id": dist_id,
+            "dropped_id_empresa": dropped_empresa,
         }
 
     payload: list[dict[str, Any]] = []
@@ -342,4 +365,5 @@ def _ingest_enriched_core(
         "upserted": upserted,
         "actualizados": actualizados,
         "dist_id": dist_id,
+        "dropped_id_empresa": dropped_empresa,
     }

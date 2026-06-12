@@ -5,14 +5,16 @@ import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-import type { AvanceCoberturaPdvs, AvanceKpiCard, AvanceVentasModo } from "@/lib/api";
+import type { AvanceCoberturaPdvs, AvanceKpiCard, AvanceProyeccionContext, AvanceProyeccionRefKey, AvanceVentasModo } from "@/lib/api";
 import {
   deltaDir,
   deltaRefLabel,
   fmtBultos,
   fmtDelta,
   fmtEntero,
+  fmtProyeccionHint,
   fmtUnidades,
+  proyeccionRefLabel,
 } from "@/lib/avance-ventas-format";
 import { AVANCE_KPI_HELP } from "@/lib/avance-ventas-kpi-help";
 import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
@@ -106,10 +108,14 @@ function DeltaRow({
   delta,
   label,
   invertColor = false,
+  titleExtra,
+  dashed = false,
 }: {
   delta: AvanceKpiCard["wow"];
   label: string;
   invertColor?: boolean;
+  titleExtra?: string;
+  dashed?: boolean;
 }) {
   if (delta === null || delta === undefined) return null;
   const dir = deltaDir(delta);
@@ -122,8 +128,12 @@ function DeltaRow({
         : "text-rose-600 dark:text-rose-400";
   return (
     <span
-      className={cn("inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums", colorClass)}
-      title={`${label}: ${text}`}
+      className={cn(
+        "inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums",
+        dashed && "opacity-90",
+        colorClass,
+      )}
+      title={[titleExtra, `${label}: ${text}`].filter(Boolean).join(" · ")}
     >
       {dir === "up" ? (
         <TrendingUp size={11} strokeWidth={2.5} className="shrink-0" />
@@ -133,9 +143,43 @@ function DeltaRow({
         <Minus size={11} strokeWidth={2.5} className="shrink-0" />
       )}
       <span className="leading-tight">
-        {text} <span className="text-muted-foreground font-medium">{label}</span>
+        {text}{" "}
+        <span className={cn("font-medium", dashed ? "text-foreground/70" : "text-muted-foreground")}>
+          {label}
+        </span>
       </span>
     </span>
+  );
+}
+
+function ProyeccionRows({
+  card,
+  modo,
+  proyeccionContext,
+}: {
+  card: AvanceKpiCard;
+  modo: AvanceVentasModo;
+  proyeccionContext?: AvanceProyeccionContext | null;
+}) {
+  const entries = Object.entries(card.proyecciones ?? {}) as Array<
+    [AvanceProyeccionRefKey, NonNullable<AvanceKpiCard["proyecciones"]>[AvanceProyeccionRefKey]]
+  >;
+  if (!entries.length) return null;
+  return (
+    <>
+      {entries.map(([refKey, proy]) => {
+        if (!proy?.disponible) return null;
+        return (
+          <DeltaRow
+            key={refKey}
+            delta={proy.vs_referencia}
+            label={proyeccionRefLabel(modo, refKey)}
+            titleExtra={fmtProyeccionHint(proy, proyeccionContext)}
+            dashed
+          />
+        );
+      })}
+    </>
   );
 }
 
@@ -198,6 +242,7 @@ interface AvanceVentasKpiStripProps {
   modo: AvanceVentasModo;
   /** Fallback si el BE aún no envía `cobertura_pdvs` en kpis_cards. */
   coberturaPdvs?: AvanceCoberturaPdvs;
+  proyeccionContext?: AvanceProyeccionContext | null;
   loading?: boolean;
   className?: string;
 }
@@ -207,6 +252,7 @@ export function AvanceVentasKpiStrip({
   cards,
   modo,
   coberturaPdvs,
+  proyeccionContext,
   loading,
   className,
 }: AvanceVentasKpiStripProps) {
@@ -220,6 +266,7 @@ export function AvanceVentasKpiStrip({
         const card = visibles.find((c) => c.id === id);
         const Icon = meta.icon;
         const showDeltas = id !== "cobertura_pdvs";
+        const showProyeccion = showDeltas && !!proyeccionContext?.disponible;
 
         return (
           <motion.div
@@ -236,6 +283,9 @@ export function AvanceVentasKpiStrip({
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1 min-w-0">
                       <span className="truncate">{meta.label}</span>
                       {meta.help ? <KpiHelpTip text={meta.help} size={11} side="top" /> : null}
+                      {showProyeccion && id === "volumen" ? (
+                        <KpiHelpTip text={AVANCE_KPI_HELP.proyeccion} size={11} side="top" />
+                      ) : null}
                     </p>
                     {loading || !card ? (
                       <Skeleton className="mt-1 h-7 w-20 rounded" />
@@ -249,6 +299,13 @@ export function AvanceVentasKpiStrip({
                             )}
                             {card.mom != null && (
                               <DeltaRow delta={card.mom} label={deltaRefLabel(modo, "mom")} />
+                            )}
+                            {showProyeccion && (
+                              <ProyeccionRows
+                                card={card}
+                                modo={modo}
+                                proyeccionContext={proyeccionContext}
+                              />
                             )}
                           </div>
                         )}

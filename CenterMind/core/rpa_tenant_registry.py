@@ -89,6 +89,25 @@ TENANT_DIST_MAP: dict[str, int] = {
     if row.get("activo", True)
 }
 
+# IdEmpresa Consolido (checkbox Reporteador) por id_distribuidor Shelfy
+DIST_TO_ID_EMPRESA: dict[int, str] = {
+    int(row["id_distribuidor"]): str(row["id_empresa"])
+    for row in CONSOLIDO_TENANTS
+    if row.get("activo", True)
+}
+
+
+def expected_id_empresa_for_dist(dist_id: int) -> str | None:
+    """IdEmpresa Consolido esperado para filas de ventas_enriched de ese dist."""
+    return DIST_TO_ID_EMPRESA.get(int(dist_id))
+
+
+def expected_id_empresa_for_tenant(tenant_id: str) -> str | None:
+    dist = TENANT_DIST_MAP.get((tenant_id or "").strip().lower())
+    if dist is None:
+        return None
+    return expected_id_empresa_for_dist(dist)
+
 
 def consolido_tenants_legacy_format() -> list[dict[str, Any]]:
     """Formato esperado por motores/padron.py TENANTS_LEGACY."""

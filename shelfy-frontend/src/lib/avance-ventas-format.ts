@@ -1,4 +1,4 @@
-import type { AvanceDeltaKpi, AvanceVentasModo } from "@/lib/api";
+import type { AvanceDeltaKpi, AvanceProyeccionContext, AvanceProyeccionKpi, AvanceProyeccionRefKey, AvanceVentasModo } from "@/lib/api";
 
 /** Formato es-AR para bultos (2 dec. si tiene fracción) y unidades (enteros). */
 export function fmtBultos(n: number): string {
@@ -136,6 +136,25 @@ export function deltaRefLabel(modo: AvanceVentasModo, kind: "wow" | "mom"): stri
   if (modo === "semana") return "vs sem. ant.";
   if (modo === "mes") return "vs mes ant.";
   return kind === "wow" ? "vs sem. pasada" : "vs mes pasado";
+}
+
+/** Etiqueta corta para delta de proyección al cierre. */
+export function proyeccionRefLabel(
+  modo: AvanceVentasModo,
+  refKey: AvanceProyeccionRefKey,
+): string {
+  if (refKey === "semana_anterior") return "proy. vs sem. ant.";
+  if (refKey === "mes_anterior") return "proy. vs mes ant.";
+  if (refKey === "wow") return "proy. vs sem. pasada";
+  return "proy. vs mes pasado";
+}
+
+export function fmtProyeccionHint(
+  proy: AvanceProyeccionKpi,
+  ctx: AvanceProyeccionContext | null | undefined,
+): string {
+  const unidad = ctx?.unidad === "horas" ? "h" : "días";
+  return `Proyección al cierre: ${fmtBultos(proy.valor_proyectado)} (${proy.transcurridos}/${proy.totales} ${unidad})`;
 }
 
 export function todayIsoAr(): string {

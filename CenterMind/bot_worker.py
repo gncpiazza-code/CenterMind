@@ -1242,7 +1242,7 @@ class BotWorker:
             if self.estado_operativo != "Activo" and update.effective_message:
                 motivo = self.motivo_bloqueo or "Consultar con soporte"
                 await update.effective_message.reply_text(
-                    self._msg("compliance_blocked", motivo=motivo),
+                    await self._amsg("compliance_blocked", motivo=motivo),
                     parse_mode=ParseMode.HTML,
                 )
                 return False
@@ -1259,6 +1259,13 @@ class BotWorker:
             nombre_dist=self.nombre_dist,
             **variables,
         )
+
+    async def _amsg(self, key: str, *, fallback: str | None = None, **variables) -> str:
+        """Resuelve plantilla en thread — _msg() sync bloqueaba el event loop."""
+        return await asyncio.to_thread(self._msg, key, fallback=fallback, **variables)
+
+    async def _upload_session_get_async(self, user_id: int) -> dict | None:
+        return await asyncio.to_thread(self._upload_session_get, user_id)
 
     def _uptime(self) -> str:
         return str(timedelta(seconds=int(time.time() - self.start_time)))
@@ -1403,14 +1410,14 @@ class BotWorker:
             m.from_user.username or "", m.from_user.first_name or "Usuario"
         ))
         await m.reply_text(
-            self._msg("start"),
+            await self._amsg("start"),
             parse_mode=ParseMode.HTML,
         )
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
-        text = self._msg("help")
+        text = await self._amsg("help")
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
     async def cmd_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1454,7 +1461,7 @@ class BotWorker:
             LUCIANO_UIDS = [6823099488, 9000005, 9000202] if self.distribuidor_id == 3 else []
 
             if uid in EXCLUDE_UIDS:
-                await m.reply_text(self._msg("stats_account_disabled"), parse_mode=ParseMode.HTML)
+                await m.reply_text(await self._amsg("stats_account_disabled"), parse_mode=ParseMode.HTML)
                 return
 
             now = datetime.now(AR_TZ)
@@ -1501,7 +1508,7 @@ class BotWorker:
                     if group_vid is not None
                     else "Contactá al supervisor o usá /vincular en este grupo."
                 )
-                await m.reply_text(self._msg("stats_no_data", hint=hint), parse_mode=ParseMode.HTML)
+                await m.reply_text(await self._amsg("stats_no_data", hint=hint), parse_mode=ParseMode.HTML)
                 return
 
             counts_actual = {
@@ -1558,7 +1565,7 @@ class BotWorker:
             await m.reply_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:
             self.logger.error(f"[stats] Error uid={uid} dist={self.distribuidor_id}: {type(e).__name__}: {e}", exc_info=True)
-            await m.reply_text(self._msg("stats_error"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("stats_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_vincular(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Vincula el grupo actual a un vendedor ERP."""
@@ -1570,10 +1577,10 @@ class BotWorker:
 
         # Solo funciona en grupos
         if m.chat.type not in ("group", "supergroup"):
-            await m.reply_text(self._msg("vincular_solo_grupo"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("vincular_solo_grupo"), parse_mode=ParseMode.HTML)
             return
 
-        await m.reply_text(self._msg("vincular_buscando"), parse_mode=ParseMode.HTML)
+        await m.reply_text(await self._amsg("vincular_buscando"), parse_mode=ParseMode.HTML)
 
         try:
             from core.telegram_group_matcher import score_group_vendor_candidates, apply_group_binding
@@ -1583,7 +1590,7 @@ class BotWorker:
             )
 
             if not candidates:
-                await m.reply_text(self._msg("vincular_sin_candidatos"), parse_mode=ParseMode.HTML)
+                await m.reply_text(await self._amsg("vincular_sin_candidatos"), parse_mode=ParseMode.HTML)
                 return
 
             top = candidates[:5]
@@ -1596,7 +1603,7 @@ class BotWorker:
                     InlineKeyboardButton("❌ No", callback_data=f"VINCULAR_CANCEL_{chat_id}"),
                 ]])
                 await m.reply_text(
-                    self._msg(
+                    await self._amsg(
                         "vincular_confirm_auto",
                         nombre_erp=cand["nombre_erp"],
                         confianza=int(cand["score"] * 100),
@@ -1617,13 +1624,13 @@ class BotWorker:
             buttons.append([InlineKeyboardButton("❌ Cancelar", callback_data=f"VINCULAR_CANCEL_{chat_id}")])
 
             await m.reply_text(
-                self._msg("vincular_select_list"),
+                await self._amsg("vincular_select_list"),
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
         except Exception as e:
             self.logger.error(f"[vincular] Error chat={chat_id}: {e}", exc_info=True)
-            await m.reply_text(self._msg("vincular_error"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("vincular_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_ranking(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -1648,7 +1655,7 @@ class BotWorker:
             buttons.append([InlineKeyboardButton(f"📊 {month_name} {y}", callback_data=f"RANKING_{m}_{y}_{update.message.from_user.id}")])
 
         await update.message.reply_text(
-            self._msg("ranking_picker"),
+            await self._amsg("ranking_picker"),
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
@@ -1696,7 +1703,7 @@ class BotWorker:
             m.from_user.id,
         )
         if vid is None:
-            await m.reply_text(self._msg("vendor_not_linked"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("vendor_not_linked"), parse_mode=ParseMode.HTML)
             return
 
         if force_mode:
@@ -1710,7 +1717,7 @@ class BotWorker:
             ]
         ])
         await m.reply_text(
-            self._msg("cartera_prompt"),
+            await self._amsg("cartera_prompt"),
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
@@ -1730,7 +1737,7 @@ class BotWorker:
         if callback_query and prompt_msg_id:
             try:
                 await callback_query.edit_message_text(
-                    self._msg("cartera_loading"),
+                    await self._amsg("cartera_loading"),
                     parse_mode=ParseMode.HTML,
                     reply_markup=None,
                 )
@@ -1764,7 +1771,7 @@ class BotWorker:
                     pass
         except Exception as e:
             self.logger.error(f"[cartera] Error generando PDF mode={mode}: {e}", exc_info=True)
-            err_text = self._msg("cartera_error")
+            err_text = await self._amsg("cartera_error")
             try:
                 if prompt_msg_id:
                     await context.bot.edit_message_text(
@@ -1816,10 +1823,10 @@ class BotWorker:
             m.from_user.id,
         )
         if vid is None:
-            await m.reply_text(self._msg("vendor_not_linked"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("vendor_not_linked"), parse_mode=ParseMode.HTML)
             return
 
-        await m.reply_text(self._msg("ventas_loading"), parse_mode=ParseMode.HTML)
+        await m.reply_text(await self._amsg("ventas_loading"), parse_mode=ParseMode.HTML)
         try:
             await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
             from services.bot_ventas_pdf_service import build_ventas_pdf
@@ -1838,7 +1845,7 @@ class BotWorker:
             )
         except Exception as e:
             self.logger.error(f"[ventas] Error generando PDF: {e}", exc_info=True)
-            await m.reply_text(self._msg("ventas_error"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("ventas_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_cuentas(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Envía PDF de cuentas corrientes del vendedor."""
@@ -1857,7 +1864,7 @@ class BotWorker:
             m.from_user.id,
         )
         if vid is None:
-            await m.reply_text(self._msg("vendor_not_linked"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("vendor_not_linked"), parse_mode=ParseMode.HTML)
             return
 
         keyboard = InlineKeyboardMarkup([
@@ -1867,7 +1874,7 @@ class BotWorker:
             ]
         ])
         await m.reply_text(
-            self._msg("cuentas_prompt"),
+            await self._amsg("cuentas_prompt"),
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
@@ -1897,7 +1904,7 @@ class BotWorker:
         if prompt_msg_id:
             try:
                 await q.edit_message_text(
-                    self._msg("cuentas_loading"),
+                    await self._amsg("cuentas_loading"),
                     parse_mode=ParseMode.HTML,
                     reply_markup=None,
                 )
@@ -1942,7 +1949,7 @@ class BotWorker:
                 await context.bot.send_message(chat_id=chat_id, text=err)
         except Exception as e:
             self.logger.error(f"[cuentas] Error generando PDF: {e}", exc_info=True)
-            err_text = self._msg("cuentas_error")
+            err_text = await self._amsg("cuentas_error")
             if prompt_msg_id:
                 try:
                     await context.bot.edit_message_text(
@@ -2137,7 +2144,7 @@ class BotWorker:
                 vendedor_nombre = m.from_user.first_name or "Vendedor"
 
             if not id_vendedor:
-                await m.reply_text(self._msg("objetivos_no_vendor"), parse_mode=ParseMode.HTML)
+                await m.reply_text(await self._amsg("objetivos_no_vendor"), parse_mode=ParseMode.HTML)
                 return
 
             objetivos_res = await asyncio.to_thread(
@@ -2159,7 +2166,7 @@ class BotWorker:
             objetivos = [o for o in (objetivos_res.data or []) if objetivo_activo_para_vendedor(o, hoy)]
 
             if not objetivos:
-                await m.reply_text(self._msg("objetivos_empty"), parse_mode=ParseMode.HTML)
+                await m.reply_text(await self._amsg("objetivos_empty"), parse_mode=ParseMode.HTML)
                 return
 
             obj_ids = [str(o["id"]) for o in objetivos if o.get("id")]
@@ -2410,7 +2417,7 @@ class BotWorker:
                 f"[objetivos] Error uid={uid} chat={chat_id} dist={dist_id}: {type(e).__name__}: {e}",
                 exc_info=True,
             )
-            await m.reply_text(self._msg("objetivos_error"), parse_mode=ParseMode.HTML)
+            await m.reply_text(await self._amsg("objetivos_error"), parse_mode=ParseMode.HTML)
 
     async def cmd_cadenaone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -2532,7 +2539,7 @@ class BotWorker:
             return
 
         now = time.time()
-        existing = self._upload_session_get(user_id)
+        existing = await self._upload_session_get_async(user_id)
         session_exists = existing is not None
 
         # ── Lógica de ráfaga (múltiples fotos, hasta 5 en 8 segundos) ──
@@ -2562,7 +2569,7 @@ class BotWorker:
                 try:
                     await context.bot.send_message(
                         chat_id=chat_id,
-                        text=self._msg("upload_incomplete"),
+                        text=await self._amsg("upload_incomplete"),
                         parse_mode=ParseMode.HTML,
                         reply_to_message_id=old_photos[0]["message_id"],
                     )
@@ -2590,9 +2597,9 @@ class BotWorker:
 
         n = len(self.upload_sessions[user_id]["photos"])
         if n > 1:
-            texto = self._msg("foto_recibida_multi", n_fotos=n)
+            texto = await self._amsg("foto_recibida_multi", n_fotos=n)
         else:
-            texto = self._msg("foto_recibida")
+            texto = await self._amsg("foto_recibida")
 
         try:
             await update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_to_message_id=msg_id)
@@ -2623,11 +2630,11 @@ class BotWorker:
 
 
 
-        session = self._upload_session_get(user_id)
+        session = await self._upload_session_get_async(user_id)
         if not session:
             if self._text_looks_like_nro_cliente(text):
                 await update.message.reply_text(
-                    self._msg("no_active_session"),
+                    await self._amsg("no_active_session"),
                     parse_mode=ParseMode.HTML,
                     reply_to_message_id=msg_id,
                 )
@@ -2635,7 +2642,7 @@ class BotWorker:
 
         if session.get("stage") == self.STAGE_WAITING_ID_BLOCKED:
             await update.message.reply_text(
-                self._msg("use_buttons"),
+                await self._amsg("use_buttons"),
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -2646,7 +2653,7 @@ class BotWorker:
         clean = text.lower().replace("cliente", "").replace("#", "").replace("nro", "").strip()
         if not clean.isnumeric():
             await update.message.reply_text(
-                self._msg("nro_invalid"),
+                await self._amsg("nro_invalid"),
                 parse_mode=ParseMode.HTML,
                 reply_to_message_id=msg_id,
             )
@@ -2674,7 +2681,7 @@ class BotWorker:
                     kb = build_cartera_blocked_keyboard(user_id)
                     try:
                         await update.message.reply_text(
-                            self._msg("cartera_not_found", nro_cliente=clean),
+                            await self._amsg("cartera_not_found", nro_cliente=clean),
                             parse_mode=ParseMode.HTML,
                             reply_markup=kb,
                             reply_to_message_id=msg_id,
@@ -2723,7 +2730,7 @@ class BotWorker:
 
         try:
             await update.message.reply_text(
-                self._msg("nro_ok_select_tipo", nro_cliente=clean, pdv_name=pdv_name_display),
+                await self._amsg("nro_ok_select_tipo", nro_cliente=clean, pdv_name=pdv_name_display),
                 parse_mode=ParseMode.HTML,
                 reply_markup=build_pdv_type_keyboard(user_id),
             )
@@ -2747,7 +2754,7 @@ class BotWorker:
         status_message_id: Optional[int] = None,
         status_reply_to: Optional[int] = None,
     ) -> None:
-        session = self._upload_session_get(uploader_id)
+        session = await self._upload_session_get_async(uploader_id)
         if not session:
             return
 
@@ -2760,7 +2767,7 @@ class BotWorker:
         chat_title = session.get("chat_title") or str(chat_id)
 
         _pics_str = f"{_n_pics} fotos" if _n_pics > 1 else "1 foto"
-        _reg_msg = self._msg(
+        _reg_msg = await self._amsg(
             "registering",
             nro_cliente=nro_cliente,
             pdv_name=pdv_name_display,
@@ -2894,7 +2901,7 @@ class BotWorker:
             )
             primera_id = exhibicion_ids[0]["id"]
             en_cuarentena_flag = any(e["estado"] == "PENDIENTE" for e in exhibicion_ids)
-            msg_text = self._msg(
+            msg_text = await self._amsg(
                 "upload_success",
                 nro_cliente=nro_cliente,
                 tipo_pdv=tipo_pdv,
@@ -2939,7 +2946,7 @@ class BotWorker:
                     fail_kw["reply_parameters"] = _reply_to_photo(chat_id, photo_msg_id)
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=self._msg("upload_partial_fail", fallidas=fallidas),
+                    text=await self._amsg("upload_partial_fail", fallidas=fallidas),
                     link_preview_options=_NO_LINK_PREVIEW,
                     **fail_kw,
                 )
@@ -2949,7 +2956,7 @@ class BotWorker:
                 err_kw["reply_parameters"] = _reply_to_photo(chat_id, photos[0]["message_id"])
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=self._msg(
+                text=await self._amsg(
                     "upload_error",
                     uploader_name=uploader_name,
                     hint=_upload_failure_hint(last_upload_error),
@@ -2988,7 +2995,7 @@ class BotWorker:
                 await q.answer("❌ Esta consulta no es para vos.", show_alert=True)
                 return
 
-            await q.edit_message_text(self._msg("ranking_loading"))
+            await q.edit_message_text(await self._amsg("ranking_loading"))
 
             try:
                 periodo = f"{year}-{month:02d}"
@@ -3028,7 +3035,7 @@ class BotWorker:
                     ranking = [{**r, "delta": 0} for r in (ranking_legacy or [])]
 
                 if not ranking:
-                    await q.edit_message_text(self._msg("ranking_empty"))
+                    await q.edit_message_text(await self._amsg("ranking_empty"))
                     return
 
                 msg = build_ranking_result_message(
@@ -3043,7 +3050,7 @@ class BotWorker:
                 await q.edit_message_text(msg, parse_mode=ParseMode.HTML)
             except Exception as e:
                 self.logger.error(f"Error en callback ranking: {e}")
-                await q.edit_message_text(self._msg("ranking_error"))
+                await q.edit_message_text(await self._amsg("ranking_error"))
             return
 
         # ── CARTERA_: PDF de cartera ─────────────────────────────────────────
@@ -3065,7 +3072,7 @@ class BotWorker:
             if uid != target_uid:
                 await q.answer("❌ Esta no es tu sesión.", show_alert=True)
                 return
-            sess = self._upload_session_get(target_uid)
+            sess = await self._upload_session_get_async(target_uid)
             if not sess:
                 await q.answer("⚠️ Sesión expirada. Enviá la foto de nuevo.", show_alert=True)
                 return
@@ -3075,7 +3082,7 @@ class BotWorker:
             await self._upload_session_save(target_uid)
             try:
                 await q.edit_message_text(
-                    self._msg("retry_nro"),
+                    await self._amsg("retry_nro"),
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
@@ -3091,7 +3098,7 @@ class BotWorker:
             if uid != target_uid:
                 await q.answer("❌ Esta no es tu sesión.", show_alert=True)
                 return
-            sess = self._upload_session_get(target_uid)
+            sess = await self._upload_session_get_async(target_uid)
             if not sess:
                 await q.answer("⚠️ Sesión expirada. Enviá la foto de nuevo.", show_alert=True)
                 return
@@ -3104,7 +3111,7 @@ class BotWorker:
             await self._upload_session_save(target_uid)
             try:
                 await q.edit_message_text(
-                    self._msg("pdv_nuevo_ok", nro_cliente=nro),
+                    await self._amsg("pdv_nuevo_ok", nro_cliente=nro),
                     parse_mode=ParseMode.HTML,
                     reply_markup=build_pdv_type_keyboard(target_uid),
                 )
@@ -3138,7 +3145,7 @@ class BotWorker:
                     )
                     nombre = v_res.data[0]["nombre_erp"] if v_res.data else f"Vendedor #{id_vendedor_v2}"
                     await update.callback_query.edit_message_text(
-                        self._msg("vincular_ok", nombre_erp=nombre),
+                        await self._amsg("vincular_ok", nombre_erp=nombre),
                         parse_mode=ParseMode.HTML,
                     )
                 except Exception as e:
@@ -3147,7 +3154,7 @@ class BotWorker:
             return
 
         if data.startswith("VINCULAR_CANCEL_"):
-            await update.callback_query.edit_message_text(self._msg("vincular_cancel"))
+            await update.callback_query.edit_message_text(await self._amsg("vincular_cancel"))
             return
 
         parsed = parse_type_callback(data)
@@ -3161,7 +3168,7 @@ class BotWorker:
             await q.answer("❌ Esta no es tu sesión.", show_alert=True)
             return
 
-        session = self._upload_session_get(uploader_id)
+        session = await self._upload_session_get_async(uploader_id)
         if not session or session.get("stage") != self.STAGE_WAITING_TYPE:
             await q.answer("⚠️ Sesión expirada.", show_alert=True)
             return
@@ -3852,7 +3859,7 @@ class BotWorker:
                 err_kw["reply_parameters"] = _reply_to_photo(chat_id, photos[0]["message_id"])
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=self._msg(
+                text=await self._amsg(
                     "upload_error",
                     uploader_name=uploader_name,
                     hint=_upload_failure_hint(last_upload_error),
@@ -3984,9 +3991,17 @@ class BotWorker:
             if not pendientes:
                 return
 
-            self.logger.info(f"🔄 Sincronizando {len(pendientes)} evaluaciones...")
+            batch = pendientes[:3]
+            if len(pendientes) > len(batch):
+                self.logger.info(
+                    "🔄 Sincronizando %s/%s evaluaciones (lote)...",
+                    len(batch),
+                    len(pendientes),
+                )
+            else:
+                self.logger.info(f"🔄 Sincronizando {len(pendientes)} evaluaciones...")
 
-            for ex in pendientes:
+            for ex in batch:
                 chat_id = ex["telegram_chat_id"]
                 msg_id  = ex["telegram_msg_id"]
                 estado  = ex["estado"]
@@ -4027,18 +4042,18 @@ class BotWorker:
                 icon = {"Aprobado": "✅", "Rechazado": "❌", "Destacado": "🔥"}.get(estado, "⏳")
 
                 if estado == "Destacado":
-                    estado_text = self._msg("eval_destacada")
+                    estado_text = await self._amsg("eval_destacada")
                 elif estado == "Aprobado":
-                    estado_text = self._msg("eval_aprobada", supervisor=supervisor)
+                    estado_text = await self._amsg("eval_aprobada", supervisor=supervisor)
                 elif estado == "Rechazado":
-                    estado_text = self._msg("eval_rechazada", supervisor=supervisor)
+                    estado_text = await self._amsg("eval_rechazada", supervisor=supervisor)
                 else:
                     estado_text = f"{icon} <b>{estado}</b> por {supervisor}"
 
                 if comentario:
-                    estado_text += self._msg("eval_nota", comentario=comentario)
+                    estado_text += await self._amsg("eval_nota", comentario=comentario)
 
-                msg_text = self._msg(
+                msg_text = await self._amsg(
                     "eval_header",
                     vendedor=vendedor_txt,
                     cliente=cliente_txt,

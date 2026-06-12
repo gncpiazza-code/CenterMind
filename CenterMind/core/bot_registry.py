@@ -17,29 +17,40 @@ from db import sb
 
 logger = logging.getLogger("bot_registry")
 
-from core.supabase_errors import is_transient_supabase_error
+_TRANSIENT_MARKERS = (
+    "connectionterminated",
+    "remoteprotocolerror",
+    "connection closed",
+    "timed out",
+    "timeout",
+    "schema cache",
+    "pgrst002",
+    "retrying",
+    "could not query the database",
+    "server disconnected",
+    "connection reset",
+)
 
 
-async def configure_bot_webhook(bot: Any, dist_id: int, *, drop_pending: bool | None = None) -> None:
+async def configure_bot_webhook(bot: Any, dist_id: int) -> None:
     """Registra webhook con allowed_updates completos (chat_member + mensajes)."""
-    import os
-
     if not WEBHOOK_URL:
         return
     webhook_path = f"{WEBHOOK_URL.rstrip('/')}/api/telegram/webhook/{dist_id}"
-    if drop_pending is None:
-        drop_pending = os.getenv("SHELFY_DROP_PENDING_ON_BOOT", "1").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-        )
     await bot.set_webhook(
         url=webhook_path,
         allowed_updates=TELEGRAM_WEBHOOK_ALLOWED_UPDATES,
-        drop_pending_updates=drop_pending or None,
     )
-    if drop_pending:
-        logger.info("[bot_registry] webhook dist=%s — cola Telegram descartada al arranque", dist_id)
+
+
+def is_transient_supabase_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if isinstance(exc, dict):
+        msg = str(exc.get("message") or exc).lower()
+        code = str(exc.get("code") or "").lower()
+        if code == "pgrst002":
+            return True
+    return any(m in msg for m in _TRANSIENT_MARKERS)
 
 
 def fetch_active_distribuidores(

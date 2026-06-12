@@ -8,7 +8,6 @@ Estado global compartido del servidor:
 """
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,7 +23,6 @@ logger = logging.getLogger("ShelfyAPI")
 bots: dict = {}
 scheduler = BackgroundScheduler()
 _main_loop: asyncio.AbstractEventLoop | None = None
-API_STARTED_AT: float = 0.0
 
 
 # ── WebSocket Connection Manager ───────────────────────────────────────────────
@@ -102,10 +100,6 @@ def erp_automatic_sync():
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 def _push_objetivos_job():
-    from core.supabase_shield import shield
-
-    if not shield.allow_background_job("push_objetivos_daily"):
-        return
     try:
         from services.vendedor_push_service import dispatch_scheduled_pushes
         result = dispatch_scheduled_pushes()
@@ -116,18 +110,9 @@ def _push_objetivos_job():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _main_loop, API_STARTED_AT
-    import time
-
+    global _main_loop
     _main_loop = asyncio.get_running_loop()
-    API_STARTED_AT = time.time()
     import os
-    from concurrent.futures import ThreadPoolExecutor
-
-    # 12 bots + webhooks compiten por to_thread; pool chico = API colgada intermitente.
-    thread_workers = int(os.getenv("SHELFY_ASYNC_THREADS", "96"))
-    _main_loop.set_default_executor(ThreadPoolExecutor(max_workers=thread_workers))
-    logger.info("🧵 Thread pool asyncio: max_workers=%s", thread_workers)
 
     skip_bots = os.getenv("SHELFY_SKIP_BOTS", "0") == "1"
 
@@ -146,44 +131,8 @@ async def lifespan(app: FastAPI):
                 bot_boot.get("expected"),
             )
 
-    def _shield_probe_job():
-        if os.getenv("SHELFY_SHIELD_PROBE", "0").strip() in ("0", "false", "no"):
-            return
-        try:
-            from core.supabase_shield import shield
-            from db import refresh_supabase_client_timeouts
-
-            result = shield.probe()
-            refresh_supabase_client_timeouts()
-            st = shield.status()
-            if st["state"] != "healthy":
-                logger.warning(
-                    "[shield] estado=%s probe_ms=%s fallos=%s",
-                    st["state"],
-                    st.get("last_probe_ms"),
-                    st.get("failures_in_window"),
-                )
-            elif result.get("latency_ms", 0) > 3000:
-                logger.info("[shield] probe lento: %.0fms", result["latency_ms"])
-        except Exception as e:
-            logger.warning("[shield] probe job error: %s", e)
-
-    scheduler.add_job(
-        _shield_probe_job,
-        "interval",
-        seconds=60,
-        id="supabase_shield_probe",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=15,
-    )
-
     if not skip_bots:
         def _ensure_bots_job():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("ensure_telegram_bots"):
-                return
             loop = _main_loop
             if loop is None or not loop.is_running():
                 return
@@ -197,21 +146,9 @@ async def lifespan(app: FastAPI):
                 logger.warning("[bot_registry] ensure_bots job: %s", e)
 
         scheduler.add_job(_ensure_bots_job, "interval", minutes=2, id="ensure_telegram_bots")
-
-        def _erp_automatic_sync_guarded():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("erp_automatic_sync"):
-                return
-            erp_automatic_sync()
-
-        scheduler.add_job(_erp_automatic_sync_guarded, "cron", hour=4, minute=0)
+        scheduler.add_job(erp_automatic_sync, "cron", hour=4, minute=0)
 
         def _digest_padron():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("digest_padron"):
-                return
             try:
                 from services.motor_ops_notification_service import send_motor_digest
                 send_motor_digest("PADRÓN", since_hours=10)
@@ -219,10 +156,6 @@ async def lifespan(app: FastAPI):
                 logger.warning("Digest padrón programado omitido: %s", e)
 
         def _digest_cc():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("digest_cc"):
-                return
             try:
                 from services.motor_ops_notification_service import send_motor_digest
                 send_motor_digest("CUENTAS CORRIENTES", since_hours=12)
@@ -235,10 +168,6 @@ async def lifespan(app: FastAPI):
             scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
 
         def _lanzar_objetivos_programados():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("lanzar_objetivos_0800"):
-                return
             try:
                 from services.objetivos_launch_service import lanzar_programados_fecha
                 result = lanzar_programados_fecha()
@@ -261,10 +190,6 @@ async def lifespan(app: FastAPI):
         )
 
         def _binding_watcher_scan():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("binding_watcher_daily"):
-                return
             try:
                 from services.telegram_binding_watcher_service import scan_all_distributors
                 results = scan_all_distributors()
@@ -281,10 +206,6 @@ async def lifespan(app: FastAPI):
         )
 
         def _archivar_terminados_compania():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("archivar_terminados_compania_7d"):
-                return
             try:
                 from services.objetivos_liquidacion_service import archivar_terminados_compania_7d
                 result = archivar_terminados_compania_7d()
@@ -307,10 +228,6 @@ async def lifespan(app: FastAPI):
         )
 
         def _snapshot_prewarm_morning():
-            from core.supabase_shield import shield
-
-            if not shield.allow_background_job("snapshot_prewarm_0645_ar"):
-                return
             try:
                 from services.snapshot_refresh_service import prewarm_all_active_distributors
                 prewarm_all_active_distributors(["dashboard", "estadisticas", "supervision"])

@@ -9,10 +9,13 @@ const PUBLIC_PATHS = ["/login", "/", "/estadisticas/preview-fusion", "/visor/dem
 const MAINTENANCE_BYPASS_COOKIE = "shelfy_maintenance_bypass";
 
 function isMaintenanceMode(): boolean {
-  return (
-    process.env.MAINTENANCE_MODE === "1" ||
-    process.env.NEXT_PUBLIC_MAINTENANCE_MODE === "1"
-  );
+  // Activo por defecto durante limpieza DB. Desactivar: MAINTENANCE_MODE=0 en Vercel.
+  const mode = (
+    process.env.MAINTENANCE_MODE ??
+    process.env.NEXT_PUBLIC_MAINTENANCE_MODE ??
+    "1"
+  ).trim();
+  return mode !== "0";
 }
 
 function hasMaintenanceBypass(request: NextRequest): boolean {

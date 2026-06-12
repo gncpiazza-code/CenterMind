@@ -17,7 +17,9 @@ _MAINTENANCE_PATHS_ALLOWED = (
 
 
 def is_maintenance_mode() -> bool:
-    return os.getenv("SHELFY_MAINTENANCE_MODE", "0").strip() in ("1", "true", "yes")
+    # Activo por defecto durante limpieza DB. Desactivar: SHELFY_MAINTENANCE_MODE=0 en Railway.
+    raw = os.getenv("SHELFY_MAINTENANCE_MODE", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 async def maintenance_middleware(request: Request, call_next):

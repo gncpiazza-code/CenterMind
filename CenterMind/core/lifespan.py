@@ -118,6 +118,12 @@ async def lifespan(app: FastAPI):
     global _main_loop
     _main_loop = asyncio.get_running_loop()
     import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    # 12 bots + webhooks compiten por to_thread; pool chico = API colgada intermitente.
+    thread_workers = int(os.getenv("SHELFY_ASYNC_THREADS", "96"))
+    _main_loop.set_default_executor(ThreadPoolExecutor(max_workers=thread_workers))
+    logger.info("🧵 Thread pool asyncio: max_workers=%s", thread_workers)
 
     skip_bots = os.getenv("SHELFY_SKIP_BOTS", "0") == "1"
 

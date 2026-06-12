@@ -4303,8 +4303,9 @@ class BotWorker:
         # Error handler
         app.add_error_handler(self.error_handler)
 
-        # Jobs periódicos
-        app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=30, first=10)
+        # Jobs periódicos — escalonados para no golpear Supabase los 12 bots a la vez
+        sync_first = 15 + (self.distribuidor_id % 12) * 5
+        app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=60, first=sync_first)
         app.job_queue.run_repeating(self.cleanup_sessions_job,  interval=300, first=60)
         from services.objetivos_notification_service import objetivos_telegram_seguimiento_enabled
         if objetivos_telegram_seguimiento_enabled():
